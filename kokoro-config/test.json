@@ -1,0 +1,97 @@
+{
+  "type": "flex",
+  "altText": "⚠️ 緊急時はこちらに連絡してね",
+  "contents": {
+    "type": "bubble",
+    "body": {
+      "type": "box",
+      "layout": "vertical",
+      "contents": [
+        {
+          "type": "text",
+          "text": "⚠️ 緊急時はこちらに連絡してね",
+          "weight": "bold",
+          "color": "#D70000",
+          "size": "sm"
+        }
+      ]
+    },
+    "footer": {
+      "type": "box",
+      "layout": "vertical",
+      "spacing": "sm",
+      "contents": [
+        {
+          "type": "button",
+          "style": "primary",
+          "color": "#FFA07A",
+          "action": {
+            "type": "uri",
+            "label": "チャイルドライン（16〜21時）",
+            "uri": "tel:012011110"
+          }
+        },
+        {
+          "type": "button",
+          "style": "primary",
+          "color": "#FF7F50",
+          "action": {
+            "type": "uri",
+            "label": "いのちの電話（10〜22時）",
+            "uri": "tel:0570078640"
+          }
+        },
+        {
+          "type": "button",
+          "style": "primary",
+          "color": "#20B2AA",
+          "action": {
+            "type": "uri",
+            "label": "東京都こころ相談（24時間）",
+            "uri": "https://tokyo-kokoro.metro.tokyo.lg.jp/"
+          }
+        },
+        {
+          "type": "button",
+          "style": "primary",
+          "color": "#9370DB",
+          "action": {
+            "type": "uri",
+            "label": "よりそいチャット（8〜22時半）",
+            "uri": "https://yorisoi-chat.jp/"
+          }
+        },
+        {
+          "type": "button",
+          "style": "primary",
+          "color": "#1E90FF",
+          "action": {
+            "type": "uri",
+            "label": "警察 110（24時間）",
+            "uri": "tel:110"
+          }
+        },
+        {
+          "type": "button",
+          "style": "primary",
+          "color": "#FF4500",
+          "action": {
+            "type": "uri",
+            "label": "消防・救急 119（24時間）",
+            "uri": "tel:119"
+          }
+        },
+        {
+          "type": "button",
+          "style": "primary",
+          "color": "#DA70D6",
+          "action": {
+            "type": "uri",
+            "label": "理事長に電話",
+            "uri": "tel:${process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313'}"
+          }
+        }
+      ]
+    }
+  }
+}
