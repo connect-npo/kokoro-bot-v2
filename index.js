@@ -1281,4 +1281,3 @@ app.listen(PORT, async () => {
     console.log(`🚀 サーバーがポート ${PORT} で起動しました`);
     await connectToMongoDB();
 });
-�
