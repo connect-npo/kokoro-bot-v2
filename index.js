@@ -1,6 +1,6 @@
 // ⭐注意：以下のコードは、前回の私の提供コードから大幅な修正を伴います。
-//   特に `app.post('/webhook', ...)` のブロック全体が変わります。
-//   よく確認しながら適用してください。
+//    特に `app.post('/webhook', ...)` のブロック全体が変わります。
+//    よく確認しながら適用してください。
 
 require('dotenv').config();
 
@@ -10,11 +10,13 @@ const { Client } = require('@line/bot-sdk');
 const { MongoClient } = require('mongodb');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { OpenAI } = require('openai'); // ⭐追加: OpenAIライブラリのインポート
 
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const MONGODB_URI = process.env.MONGODB_URI;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // ⭐追加: OpenAI APIキー
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : [];
@@ -29,6 +31,7 @@ const client = new Client({
 });
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY }); // ⭐追加: OpenAIクライアントの初期化
 
 let dbInstance;
 
@@ -36,7 +39,8 @@ let dbInstance;
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
     "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり",
-    "いじめ", "イジメ", "ハラスメント"
+    "いじめ", "イジメ", "ハラスメント",
+    "つけられてる", "追いかけられている", "ストーカー", "すとーかー" // ⭐追加: ご要望の危険ワード
 ];
 
 const scamWords = [
@@ -49,7 +53,7 @@ const scamWords = [
 const inappropriateWords = [
     "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
     "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
-    "クリトリス", "乳首", "おっぱい", "お尻", "うんち", "おしっこ", "小便", "大便", "ちんこ", "まんこ",
+    "クリトリス", "乳首", "おっぱい", "お尻", "うんち", "おしっこ", "小便", "大便", "ちんちん", "おまんこ",
     "ぶっかけ", "変態", "性奴隷", "露出", "痴漢", "レイプ", "強姦", "売春", "買春", "セックスフレンド",
     "風俗", "ソープ", "デリヘル", "援交", "援助交際", "セックスレス", "セクハラ", "痴女", "変質者", "性器",
     "局部", "下半身", "上半身", "裸", "ヌード", "脱ぐ", "服従", "支配", "緊縛", "SとM",
@@ -251,55 +255,55 @@ const scamFlexTemplate = {
 const watchServiceGuideFlexTemplate = {
     "type": "bubble",
     "body": {
-      "type": "box",
-      "layout": "vertical",
-      "contents": [
-        {
-          "type": "text",
-          "text": "💖こころちゃんから見守りサービスのご案内💖",
-          "weight": "bold",
-          "color": "#FF69B4",
-          "size": "lg"
-        },
-        {
-          "type": "text",
-          "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、登録された緊急連絡先にご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨",
-          "wrap": true,
-          "margin": "md",
-          "size": "sm"
-        }
-      ]
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+            {
+                "type": "text",
+                "text": "💖こころちゃんから見守りサービスのご案内💖",
+                "weight": "bold",
+                "color": "#FF69B4",
+                "size": "lg"
+            },
+            {
+                "type": "text",
+                "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、登録された緊急連絡先にご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨",
+                "wrap": true,
+                "margin": "md",
+                "size": "sm"
+            }
+        ]
     },
     "footer": {
-      "type": "box",
-      "layout": "vertical",
-      "spacing": "sm",
-      "contents": [
-        {
-          "type": "button",
-          "style": "primary",
-          "height": "sm",
-          "action": {
-            "type": "postback",
-            "label": "見守り登録する",
-            "data": "action=watch_register"
-          },
-          "color": "#FFC0CB"
-        },
-        {
-          "type": "button",
-          "style": "secondary",
-          "height": "sm",
-          "action": {
-            "type": "postback",
-            "label": "見守りを解除する",
-            "data": "action=watch_unregister"
-          },
-          "color": "#D3D3D3"
-        }
-      ]
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "action": {
+                    "type": "postback",
+                    "label": "見守り登録する",
+                    "data": "action=watch_register"
+                },
+                "color": "#FFC0CB"
+            },
+            {
+                "type": "button",
+                "style": "secondary",
+                "height": "sm",
+                "action": {
+                    "type": "postback",
+                    "label": "見守りを解除する",
+                    "data": "action=watch_unregister"
+                },
+                "color": "#D3D3D3"
+            }
+        ]
     }
-  };
+};
 
 
 const modelConfig = {
@@ -441,6 +445,36 @@ function containsHomeworkTrigger(text) {
     return homeworkTriggers.some(word => lowerText.includes(word));
 }
 
+// ⭐GPT-4oを呼び出す関数（緊急応答用）
+async function generateEmergencyReply(userMessage) {
+    try {
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "system",
+                    content: `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
+ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
+必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
+共感・安心・やさしさが最優先です。
+「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。` // ⭐システムインストラクションを強化
+                },
+                {
+                    role: "user",
+                    content: userMessage
+                }
+            ],
+            max_tokens: 300
+        });
+
+        return completion.choices[0].message.content.trim();
+    } catch (error) {
+        console.error("GPT-4o 緊急応答エラー:", error.message);
+        return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
+    }
+}
+
+
 async function generateReply(userMessage) {
     const modelName = modelConfig.defaultModel;
     const safetySettings = modelConfig.safetySettings;
@@ -550,7 +584,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
             return result.response.candidates[0].content.parts[0].text;
         } else {
             console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
-            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
+            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね�";
         }
     } catch (error) {
         console.error("Gemini APIエラー:", error.response?.data || error.message);
@@ -633,7 +667,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                 userId: userId,
                 message: userMessage,
                 replyText: 'ありがとう🌸 元気そうで安心したよ💖 またね！',
-                respondedBy: 'こころちゃん（見守り応答）',
+                responsedBy: 'こころちゃん（見守り応答）',
                 timestamp: new Date(),
                 logType: 'watch_service_ok_response'
             });
@@ -1027,7 +1061,7 @@ app.post('/webhook', async (req, res) => {
 
             // 見守りサービス関連の処理を優先
             // ⭐handleWatchServiceRegistration内でreplyMessageが呼ばれるので、
-            //   ここではawaitで待って、trueが返ってきたらこのイベントの処理を終了する
+            //    ここではawaitで待って、trueが返ってきたらこのイベントの処理を終了する
             if (!messageHandled) {
                 const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
                 if (handledByWatchService) {
@@ -1043,13 +1077,17 @@ app.post('/webhook', async (req, res) => {
                     logType = 'inappropriate_word';
                     // 不適切ワード検知時は、理事会への通知は不要 (仕様による)
                 } else if (checkContainsDangerWords(userMessage)) {
-                    // 危険ワード検知時はFlex Messageで応答
-                    replyMessageObject = {
-                        type: 'flex',
-                        altText: '⚠緊急時',
-                        contents: emergencyFlexTemplate
-                    };
-                    respondedBy = 'こころちゃん（危険ワード）';
+                    // ⭐変更: GPT-4oによる緊急応答とFlex Messageを組み合わせる
+                    const gptEmergencyText = await generateEmergencyReply(userMessage); // GPT-4oを呼び出し
+                    replyMessageObject = [
+                        { type: 'text', text: gptEmergencyText }, // GPT-4oの応答
+                        {
+                            type: 'flex',
+                            altText: '⚠緊急時',
+                            contents: emergencyFlexTemplate
+                        }
+                    ];
+                    responsedBy = 'こころちゃん（危険ワード：GPT-4o）';
                     logType = 'danger_word';
                     // 理事グループへの通知は非同期で行う
                     try {
@@ -1063,13 +1101,17 @@ app.post('/webhook', async (req, res) => {
                         console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）:`, notificationError.message);
                     }
                 } else if (checkContainsScamWords(userMessage)) {
-                    // 詐欺ワード検知時はFlex Messageで応答
-                    replyMessageObject = {
-                        type: 'flex',
-                        altText: '⚠詐欺注意',
-                        contents: scamFlexTemplate
-                    };
-                    responsedBy = 'こころちゃん（詐欺ワード）';
+                    // ⭐変更: GPT-4oによる詐欺応答とFlex Messageを組み合わせる
+                    const gptScamText = await generateEmergencyReply(userMessage); // GPT-4oを呼び出し（ここでは緊急応答と同じロジックを使用）
+                    replyMessageObject = [
+                        { type: 'text', text: gptScamText }, // GPT-4oの応答
+                        {
+                            type: 'flex',
+                            altText: '⚠詐欺注意',
+                            contents: scamFlexTemplate
+                        }
+                    ];
+                    responsedBy = 'こころちゃん（詐欺ワード：GPT-4o）';
                     logType = 'scam_word';
                 } else {
                     const specialReply = checkSpecialReply(userMessage);
@@ -1077,14 +1119,14 @@ app.post('/webhook', async (req, res) => {
                         replyMessageObject = { type: 'text', text: specialReply };
                         responsedBy = 'こころちゃん（固定応答）';
                     } else if (isOrganizationInquiry(userMessage) || containsHomeworkTrigger(userMessage)) {
-                        const aiResponse = await generateReply(userMessage);
+                        const aiResponse = await generateReply(userMessage); // ここはGeminiを使用
                         replyMessageObject = { type: 'text', text: aiResponse };
                         responsedBy = 'こころちゃん（AI）';
                         logType = 'ai_generated';
                     } else {
-                        const aiResponse = await generateReply(userMessage);
+                        const aiResponse = await generateReply(userMessage); // ここはGeminiを使用
                         replyMessageObject = { type: 'text', text: aiResponse };
-                        responsedBy = 'こころちゃん（AI）';
+                        respondedBy = 'こころちゃん（AI）';
                         logType = 'ai_generated';
                     }
                 }
@@ -1102,10 +1144,15 @@ app.post('/webhook', async (req, res) => {
                     const isFlaggedMessage = (logType === 'inappropriate_word' || logType === 'danger_word' || logType === 'scam_word');
 
                     if (shouldLogMessage(userMessage, isFlaggedMessage, messageHandled, isAdminCommand, isResetCommand)) { // messageHandledを渡す
+                        // replyMessageObjectが配列の場合に対応
+                        const replyTextForLog = Array.isArray(replyMessageObject)
+                            ? replyMessageObject.map(obj => (obj && typeof obj === 'object' && obj.type === 'text') ? obj.text : JSON.stringify(obj)).join(' | ')
+                            : (typeof replyMessageObject === 'object' && replyMessageObject.type === 'text') ? replyMessageObject.text : JSON.stringify(replyMessageObject);
+
                         await messagesCollection.insertOne({
                             userId: userId,
                             message: userMessage,
-                            replyText: (replyMessageObject && typeof replyMessageObject === 'object' && replyMessageObject.type === 'text') ? replyMessageObject.text : JSON.stringify(replyMessageObject),
+                            replyText: replyTextForLog,
                             responsedBy: respondedBy,
                             timestamp: new Date(),
                             logType: logType
@@ -1134,3 +1181,4 @@ app.listen(PORT, async () => {
     console.log(`🚀 サーバーがポート ${PORT} で起動しました`);
     await connectToMongoDB();
 });
+�
