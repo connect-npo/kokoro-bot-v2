@@ -396,7 +396,7 @@ async function connectToMongoDB() {
         return dbInstance;
     } catch (error) {
         console.error("❌ MongoDB接続エラー:", error);
-        await logErrorToDb(null, "MongoDB接続エラー", { error: error.message, stack: error.stack }); // ⭐変更: エラーログ記録
+        await logErrorToDb(null, "MongoDB接続エラー", { error: error.message, stack: error.stack });
         return null;
     }
 }
@@ -407,7 +407,7 @@ async function getUserDisplayName(userId) {
         return profile.displayName;
     } catch (error) {
         console.error(`ユーザー ${userId} の表示名取得に失敗:`, error.message);
-        await logErrorToDb(userId, `ユーザー表示名取得失敗`, { error: error.message, userId: userId }); // ⭐変更: エラーログ記録
+        await logErrorToDb(userId, `ユーザー表示名取得失敗`, { error: error.message, userId: userId });
         return `UnknownUser_${userId.substring(0, 8)}`;
     }
 }
@@ -471,7 +471,7 @@ function containsHomeworkTrigger(text) {
     return homeworkTriggers.some(word => lowerText.includes(word));
 }
 
-// ⭐GPT-4oを呼び出す関数（緊急応答用）
+// GPT-4oを呼び出す関数（緊急応答用）
 async function generateEmergencyReply(userMessage) {
     try {
         const completion = await openai.chat.completions.create({
@@ -496,14 +496,13 @@ async function generateEmergencyReply(userMessage) {
         return completion.choices[0].message.content.trim();
     } catch (error) {
         console.error("GPT-4o 緊急応答エラー:", error.message);
-        await logErrorToDb(null, "GPT-4o 緊急応答エラー", { error: error.message, stack: error.stack, userMessage: userMessage }); // エラーログ記録
+        await logErrorToDb(null, "GPT-4o 緊急応答エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
         return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
     }
 }
 
-
-async function generateReply(userMessage) {
-    const modelName = modelConfig.defaultModel;
+// ⭐変更: generateReply関数が動的にモデル名を指定できるように修正し、max_tokensを設定
+async function generateReply(userMessage, modelToUse = modelConfig.defaultModel) {
     const safetySettings = modelConfig.safetySettings;
 
     const systemInstruction = `
@@ -572,7 +571,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
     `;
 
     try {
-        const model = genAI.getGenerativeModel({ model: modelName, safetySettings });
+        const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings }); // ⭐変更: modelToUseを使用
 
         const generateContentPromise = new Promise((resolve, reject) => {
             let timeoutId;
@@ -614,11 +613,11 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
             return result.response.candidates[0].content.parts[0].text;
         } else {
             console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
-            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
+            return "ごめんなさい、それはわたしにはお話しできない内容です� 他のお話をしましょうね💖";
         }
     } catch (error) {
         console.error("Gemini APIエラー:", error.response?.data || error.message);
-        await logErrorToDb(null, "Gemini APIエラー", { error: error.message, stack: error.stack, userMessage: userMessage }); // エラーログ記録
+        await logErrorToDb(null, "Gemini APIエラー", { error: error.message, stack: error.stack, userMessage: userMessage });
         if (error.message === "API応答がタイムアウトしました。") {
             return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
         }
@@ -637,7 +636,7 @@ const watchMessages = [
     "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
     "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
-    "元気出してね！こころちゃん、あなたの味方だよ�",
+    "元気出してね！こころちゃん、あなたの味方だよ😊",
     "こころちゃんだよ🌸 今日も一日お疲れ様💖",
     "こんにちは😊 笑顔で過ごせてるかな？",
     "やっほー！ こころだよ🌸 素敵な日になりますように💖",
@@ -671,7 +670,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
 
     // 「見守り」などのキーワードで案内Flex Messageを出す
     if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
-        try { // replyMessageにtry-catch追加
+        try {
             await client.replyMessage(event.replyToken, {
                 type: 'flex',
                 altText: '💖こころちゃんから見守りサービスのご案内💖', // 代替テキストを追加
@@ -694,7 +693,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     // 「OKだよ💖」などの安否確認応答
     else if (lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫") || lowerUserMessage.includes("げんき") || lowerUserMessage.includes("元気")) {
         if (user && user.wantsWatchCheck) {
-            try { // updateOne, replyMessageにtry-catch追加
+            try {
                 await usersCollection.updateOne(
                     { userId: userId },
                     { $set: { lastOkResponse: new Date(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false } }
@@ -716,7 +715,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
         }
     }
     else if (userMessage.includes("見守り登録します") || (event.type === 'postback' && event.postback.data === 'action=watch_register')) {
-        try { // 全体にtry-catch追加
+        try {
             if (user && user.wantsWatchCheck) {
                 await client.replyMessage(event.replyToken, {
                     type: 'text',
@@ -754,7 +753,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
         }
     }
     else if (user && user.registrationStep === 'awaiting_contact' && userMessage.match(/^0\d{9,10}$/)) {
-        try { // 全体にtry-catch追加
+        try {
             await usersCollection.updateOne(
                 { userId: userId },
                 { $set: { emergencyContact: userMessage, wantsWatchCheck: true, registrationStep: null, lastOkResponse: new Date() } }
@@ -778,7 +777,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
         }
     }
     else if (userMessage.includes("見守り解除します") || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
-        try { // 全体にtry-catch追加
+        try {
             if (user && user.wantsWatchCheck) {
                 await usersCollection.updateOne(
                     { userId: userId },
@@ -818,11 +817,10 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
 // もし定期メッセージでQuickReplyが必須なら、別途WebhooksからのreplyMessageトリガーを検討する必要がある
 async function sendScheduledWatchMessage() {
     console.log('--- 定期見守りメッセージ送信処理を開始します ---');
-    try { // 全体にtry-catch追加
+    try {
         const db = await connectToMongoDB();
         if (!db) {
             console.error('MongoDB接続失敗: 定期見守りメッセージを送信できません。');
-            // logErrorToDbはconnectToMongoDB内で既に呼ばれている
             return;
         }
         const usersCollection = db.collection("users");
@@ -858,7 +856,7 @@ async function sendScheduledWatchMessage() {
                         ]
                     }
                 };
-                try { // updateOneにtry-catch追加
+                try {
                     await usersCollection.updateOne(
                         { userId: user.userId },
                         { $set: { scheduledMessageSent: true, scheduledMessageTimestamp: now, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false } }
@@ -875,7 +873,7 @@ async function sendScheduledWatchMessage() {
                 const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
                 if (user.scheduledMessageTimestamp && user.scheduledMessageTimestamp < twentyFourHoursAgo) {
                     messageToSend = { type: 'text', text: 'あれ？まだ返事がないみたい…心配だよ🌸 元気にしてるかな？「OKだよ💖」って教えてね！' };
-                    try { // updateOneにtry-catch追加
+                    try {
                         await usersCollection.updateOne(
                             { userId: user.userId },
                             { $set: { firstReminderSent: true, firstReminderTimestamp: now } }
@@ -892,7 +890,7 @@ async function sendScheduledWatchMessage() {
                 const fiveHoursAgo = new Date(now.getTime() - (5 * 60 * 60 * 1000));
                 if (user.firstReminderTimestamp && user.firstReminderTimestamp < fiveHoursAgo) {
                     messageToSend = { type: 'text', text: 'どうしたのかな？とても心配だよ…何かあったら無理しないで連絡してね🌸 「OKだよ💖」で安心させてくれると嬉しいな。' };
-                    try { // updateOneにtry-catch追加
+                    try {
                         await usersCollection.updateOne(
                             { userId: user.userId },
                             { $set: { secondReminderSent: true, secondReminderTimestamp: now } }
@@ -936,7 +934,7 @@ async function sendScheduledWatchMessage() {
                         });
                     } catch (error) {
                         console.error(`❌ 緊急連絡先通知の送信に失敗しました（ユーザー: ${user.userId}）:`, error.message);
-                        await logErrorToDb(user.userId, "緊急連絡先通知送信失敗", { error: error.message, userId: user.userId }); // エラーログ記録
+                        await logErrorToDb(user.userId, "緊急連絡先通知送信失敗", { error: error.message, userId: user.userId });
                     }
                 }
                 continue;
@@ -955,7 +953,7 @@ async function sendScheduledWatchMessage() {
                     });
                 } catch (error) {
                     console.error(`❌ 定期見守りメッセージの送信に失敗しました（ユーザー: ${user.userId}）:`, error.message);
-                    await logErrorToDb(user.userId, "定期見守りメッセージ送信失敗", { error: error.message, userId: user.userId }); // エラーログ記録
+                    await logErrorToDb(user.userId, "定期見守りメッセージ送信失敗", { error: error.message, userId: user.userId });
                     await messagesCollection.insertOne({
                         userId: user.userId,
                         message: '(定期見守りメッセージ - 送信失敗)',
@@ -968,14 +966,14 @@ async function sendScheduledWatchMessage() {
             }
         }
         console.log('✅ 定期見守りメッセージ送信処理を終了しました。');
-    } catch (error) { // sendScheduledWatchMessage全体にtry-catch
+    } catch (error) {
         console.error("❌ 定期見守りメッセージ処理全体でエラー:", error.message);
         await logErrorToDb(null, "定期見守りメッセージ処理全体エラー", { error: error.message, stack: error.stack });
     }
 }
 
 cron.schedule('0 4 * * *', async () => {
-    try { // cron job全体にtry-catch
+    try {
         const db = await connectToMongoDB();
         if (!db) {
             console.error('MongoDB接続失敗: flaggedMessageCountのリセットができません。');
@@ -1017,8 +1015,8 @@ app.post('/webhook', async (req, res) => {
         const db = await connectToMongoDB();
         if (!db) {
             console.error('MongoDB接続失敗: Webhookイベントを処理できません。');
-            res.status(500).send('MongoDB connection failed'); // MongoDB接続エラーの場合はここでエラーを返す
-            return; // 処理を終了
+            res.status(500).send('MongoDB connection failed');
+            return;
         }
         const usersCollection = db.collection("users");
         const messagesCollection = db.collection("messages");
@@ -1043,9 +1041,10 @@ app.post('/webhook', async (req, res) => {
                 suspensionReason: null,
                 isPermanentlyLocked: false,
                 lastPermanentLockNotifiedAt: null,
-                language: 'ja' // 多言語対応の基礎として言語フィールドを追加
+                language: 'ja',
+                useProForNextConsultation: false // ⭐追加: Proモデルを次回の相談で使うかどうかのフラグ
             };
-            try { // insertOneにtry-catch追加
+            try {
                 await usersCollection.insertOne(user);
                 console.log(`新規ユーザー登録: ${user.displayName} (${userId})`);
             } catch (error) {
@@ -1053,7 +1052,7 @@ app.post('/webhook', async (req, res) => {
                 await logErrorToDb(userId, "新規ユーザー登録エラー", { error: error.message, userId: userId });
             }
         } else {
-            try { // updateOneにtry-catch追加
+            try {
                 await usersCollection.updateOne(
                     { userId: userId },
                     { $set: { lastMessageAt: new Date() } }
@@ -1063,7 +1062,6 @@ app.post('/webhook', async (req, res) => {
                 await logErrorToDb(userId, "ユーザー最終メッセージ更新エラー", { error: error.message, userId: userId });
             }
             // 既存ユーザーのフィールド初期化ロジックは維持します
-            // 各フィールドのチェックと更新にtry-catch追加
             if (user.flaggedMessageCount === undefined) {
                 try { await usersCollection.updateOne({ userId: userId }, { $set: { flaggedMessageCount: 0 } }); user.flaggedMessageCount = 0; }
                 catch (e) { console.error(`❌ flaggedMessageCount更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "flaggedMessageCount更新エラー", { error: e.message }); }
@@ -1084,9 +1082,13 @@ app.post('/webhook', async (req, res) => {
                 try { await usersCollection.updateOne({ userId: userId }, { $set: { thirdReminderSent: false } }); user.thirdReminderSent = false; }
                 catch (e) { console.error(`❌ thirdReminderSent更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "thirdReminderSent更新エラー", { error: e.message }); }
             }
-            if (user.language === undefined) { // 多言語対応の基礎として言語フィールドの初期化チェック
+            if (user.language === undefined) {
                 try { await usersCollection.updateOne({ userId: userId }, { $set: { language: 'ja' } }); user.language = 'ja'; }
                 catch (e) { console.error(`❌ language更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "language更新エラー", { error: e.message }); }
+            }
+            if (user.useProForNextConsultation === undefined) { // ⭐追加: 新しいフィールドの初期化
+                try { await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } }); user.useProForNextConsultation = false; }
+                catch (e) { console.error(`❌ useProForNextConsultation更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "useProForNextConsultation更新エラー", { error: e.message }); }
             }
         }
 
@@ -1095,7 +1097,7 @@ app.post('/webhook', async (req, res) => {
             const data = new URLSearchParams(event.postback.data);
             const action = data.get('action');
 
-            try { // handleWatchServiceRegistrationにtry-catch追加
+            try {
                 const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, `（Postback: ${action}）`);
                 if (handledByWatchService) {
                     res.status(200).send('OK');
@@ -1121,7 +1123,7 @@ app.post('/webhook', async (req, res) => {
                 const unlockMatch = userMessage.match(/^\/unlock (U[0-9a-f]{32})$/);
                 if (unlockMatch) {
                     const targetUserId = unlockMatch[1];
-                    try { // 管理者コマンド処理にtry-catch追加
+                    try {
                         const result = await usersCollection.updateOne(
                             { userId: targetUserId },
                             { $set: { isAccountSuspended: false, suspensionReason: null, flaggedMessageCount: 0, isPermanentlyLocked: false, lastPermanentLockNotifiedAt: null } }
@@ -1130,7 +1132,7 @@ app.post('/webhook', async (req, res) => {
                             replyMessageObject = { type: 'text', text: `✅ ユーザー ${targetUserId} のロックを解除し、カウントをリセットしました。` };
                             client.pushMessage(targetUserId, { type: 'text', text: '🌸 あなたのアカウントの停止が解除されました。またいつでもお話しできますよ💖' }).catch(err => {
                                 console.error("解除通知失敗:", err);
-                                logErrorToDb(targetUserId, "管理者解除通知失敗", { error: err.message, userId: targetUserId }); // エラーログ記録
+                                logErrorToDb(targetUserId, "管理者解除通知失敗", { error: err.message, userId: targetUserId });
                             });
                             console.log(`管理者 ${userId} によりユーザー ${targetUserId} のロックが解除されました。`);
                         } else {
@@ -1138,7 +1140,7 @@ app.post('/webhook', async (req, res) => {
                         }
                     } catch (error) {
                         console.error(`❌ 管理者コマンドでのロック解除エラー: ${error.message}`);
-                        await logErrorToDb(userId, "管理者コマンドロック解除エラー", { error: error.message, userId: userId, targetUserId: targetUserId }); // エラーログ記録
+                        await logErrorToDb(userId, "管理者コマンドロック解除エラー", { error: error.message, userId: userId, targetUserId: targetUserId });
                         replyMessageObject = { type: 'text', text: `❌ ロック解除中にエラーが発生しました: ${error.message}` };
                     }
                     logType = 'admin_command';
@@ -1146,15 +1148,15 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-            // 「そうだん」コマンドの処理（リセット）
+            // 「そうだん」コマンドの処理（リセットとProモデルへの切り替え指示）
             if (!messageHandled && (userMessage === 'そうだん' || userMessage === '相談')) {
-                try { // そうだんコマンド処理にtry-catch追加
+                try {
                     if (user) {
                         await usersCollection.updateOne(
                             { userId: userId },
-                            { $set: { flaggedMessageCount: 0, isAccountSuspended: false, suspensionReason: null, isPermanentlyLocked: false, lastPermanentLockNotifiedAt: null } }
+                            { $set: { flaggedMessageCount: 0, isAccountSuspended: false, suspensionReason: null, isPermanentlyLocked: false, lastPermanentLockNotifiedAt: null, useProForNextConsultation: true } } // ⭐変更: useProForNextConsultationをtrueに設定
                         );
-                        replyMessageObject = { type: 'text', text: '🌸 会話の回数制限をリセットしました。これで、またいつでもお話しできますよ💖' };
+                        replyMessageObject = { type: 'text', text: '🌸 会話の回数制限をリセットしました。これで、またいつでもお話しできますよ💖\n\n相談モードに入ったので、もっとお話しできるよ😊なんでも相談してね！でもこの会話は、安全のために記録されるから、困った時に使ってね💖' }; // ⭐追加: 相談モード開始を通知
                     } else {
                         replyMessageObject = { type: 'text', text: 'ごめんなさい、アカウント情報が見つかりませんでした。' };
                     }
@@ -1193,7 +1195,7 @@ app.post('/webhook', async (req, res) => {
                     ];
                     responsedBy = 'こころちゃん（危険ワード：GPT-4o）';
                     logType = 'danger_word';
-                    try { // 理事グループ通知にtry-catch追加
+                    try {
                         const userDisplayName = await getUserDisplayName(userId);
                         const dangerAlertMessage = `🚨 緊急通知: ${userDisplayName}さん（LINE ID: ${userId}）が危険な言葉を検知しました: "${userMessage}"`;
                         if (OFFICER_GROUP_ID) {
@@ -1202,7 +1204,7 @@ app.post('/webhook', async (req, res) => {
                         }
                     } catch (notificationError) {
                         console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）:`, notificationError.message);
-                        await logErrorToDb(userId, "危険ワード通知送信失敗", { error: notificationError.message, userId: userId }); // エラーログ記録
+                        await logErrorToDb(userId, "危険ワード通知送信失敗", { error: notificationError.message, userId: userId });
                     }
                 } else if (checkContainsScamWords(userMessage)) {
                     const gptScamText = await generateEmergencyReply(userMessage);
@@ -1222,15 +1224,44 @@ app.post('/webhook', async (req, res) => {
                         replyMessageObject = { type: 'text', text: specialReply };
                         responsedBy = 'こころちゃん（固定応答）';
                     } else if (isOrganizationInquiry(userMessage) || containsHomeworkTrigger(userMessage)) {
-                        const aiResponse = await generateReply(userMessage); // ここはGeminiを使用
+                        // ⭐変更: 相談モードフラグによってモデルを切り替える
+                        let modelForGemini = modelConfig.defaultModel; // デフォルトはFlash
+                        if (user.useProForNextConsultation) {
+                            modelForGemini = "gemini-1.5-pro-latest"; // Proに切り替え
+                            console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`);
+                        }
+                        
+                        const aiResponse = await generateReply(userMessage, modelForGemini); // ⭐変更: modelForGeminiを渡す
                         replyMessageObject = { type: 'text', text: aiResponse };
-                        responsedBy = 'こころちゃん（AI）';
+                        responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
                         logType = 'ai_generated';
+
+                        // ⭐変更: Proモデルを使用したらフラグをリセット
+                        if (user.useProForNextConsultation) {
+                            await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } });
+                            user.useProForNextConsultation = false;
+                            console.log(`⭐ユーザー ${userId} のuseProForNextConsultationフラグをリセットしました。`);
+                        }
+
                     } else {
-                        const aiResponse = await generateReply(userMessage); // ここはGeminiを使用
+                        // ⭐変更: 相談モードフラグによってモデルを切り替える
+                        let modelForGemini = modelConfig.defaultModel; // デフォルトはFlash
+                        if (user.useProForNextConsultation) {
+                            modelForGemini = "gemini-1.5-pro-latest"; // Proに切り替え
+                            console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`);
+                        }
+
+                        const aiResponse = await generateReply(userMessage, modelForGemini); // ⭐変更: modelForGeminiを渡す
                         replyMessageObject = { type: 'text', text: aiResponse };
-                        responsedBy = 'こころちゃん（AI）';
+                        responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
                         logType = 'ai_generated';
+
+                        // ⭐変更: Proモデルを使用したらフラグをリセット
+                        if (user.useProForNextConsultation) {
+                            await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } });
+                            user.useProForNextConsultation = false;
+                            console.log(`⭐ユーザー ${userId} のuseProForNextConsultationフラグをリセットしました。`);
+                        }
                     }
                 }
             }
@@ -1263,7 +1294,7 @@ app.post('/webhook', async (req, res) => {
 
                 } catch (error) {
                     console.error("❌ replyMessage送信中またはログ記録中にエラーが発生しました:", error.message);
-                    await logErrorToDb(userId, "replyMessage送信またはログ記録エラー", { error: error.message, userId: userId, replyObject: replyMessageObject }); // エラーログ記録
+                    await logErrorToDb(userId, "replyMessage送信またはログ記録エラー", { error: error.message, userId: userId, replyObject: replyMessageObject });
                     if (error.message.includes("status code 400") || error.message.includes("status code 499")) {
                         console.log(`LINE APIエラーのため、ユーザー ${userId} への応答ができませんでした。`);
                     }
