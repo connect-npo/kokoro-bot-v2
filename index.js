@@ -17,10 +17,11 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // ★重要: Gemini APIキ�
 // LINEクライアントの初期化 (本番用)
 // 環境変数が設定されていない場合のフォールバック値はテスト用です。
 // 実際の運用では必ず正しい環境変数を設定してください。
-const client = new line.Client({
+const lineConfig = { // line.middlewareに渡すためのconfigオブジェクト
     channelAccessToken: LINE_ACCESS_TOKEN || 'YOUR_LINE_CHANNEL_ACCESS_TOKEN_HERE', // ★重要: あなたのLINEチャンネルアクセストークンを設定
     channelSecret: LINE_CHANNEL_SECRET || 'YOUR_LINE_CHANNEL_SECRET_HERE' // ★重要: あなたのLINEチャンネルシークレットを設定
-});
+};
+const client = new line.Client(lineConfig);
 
 // Gemini APIクライアントの初期化
 const gemini_api_client = new GoogleGenerativeAI(GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE'); // ★重要: Gemini APIキーを渡す
@@ -29,29 +30,47 @@ const gemini_api_client = new GoogleGenerativeAI(GEMINI_API_KEY || 'YOUR_GEMINI_
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// LINE Webhook用の生のボディを取得するミドルウェア
-// line.middlewareが署名検証のために生のボディを必要とするため、express.json()より前に配置します。
-// /webhookパスへのリクエストに対してのみraw-bodyミドルウェアを適用し、それ以外のパスではexpress.json()を適用
+// グローバル raw-body middleware: 全てのリクエストに対して生のボディを取得し、req.rawBodyに格納
+// LINE SDKのmiddlewareが署名検証のために生のボディを必要とするため、これを最初に配置します。
 app.use((req, res, next) => {
-    if (req.path === '/webhook') {
-        getRawBody(req, {
-            length: req.headers['content-length'],
-            limit: '1mb', // リクエストボディのサイズ上限を設定
-            encoding: req.charset || 'utf-8',
-        })
-        .then(buf => {
-            req.rawBody = buf; // 生のボディをreq.rawBodyに格納
-            next();
-        })
-        .catch(err => {
-            console.error('❌ Raw body error:', err); // エラーはログに出力
-            res.status(400).send('Failed to parse raw body');
-        });
-    } else {
-        // Webhook以外のパスではexpress.json()を適用
-        express.json()(req, res, next);
+    getRawBody(req, {
+        length: req.headers['content-length'],
+        limit: '1mb', // リクエストボディのサイズ上限を設定
+        encoding: req.charset || 'utf-8',
+    })
+    .then(buf => {
+        req.rawBody = buf; // 生のボディをreq.rawBodyに格納
+        next();
+    })
+    .catch(err => {
+        console.error('❌ Raw body error (global):', err); // エラーはログに出力
+        res.status(400).send('Failed to parse raw body');
+    });
+});
+
+// LINE BotのWebhookイベントハンドラ
+// rawBodyがreqにセットされている前提でline.middlewareが動作
+app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
+    // req.bodyはline.middlewareによって既にパースされたJSONが入っている
+    const events = req.body.events;
+    if (!events || events.length === 0) {
+        return res.status(200).send('OK');
+    }
+
+    try {
+        for (const event of events) {
+            await handleEvent(event);
+        }
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error(`❌ Webhook処理中にエラーが発生しました: ${error.message}`);
+        res.status(500).send('Internal Server Error');
     }
 });
+
+// JSONボディをパースするミドルウェア (Webhook以外のルート用)
+// LINE Webhookの後に定義することで、署名検証を妨げない
+app.use(express.json());
 
 
 // --- グローバル変数と設定 ---
@@ -308,11 +327,11 @@ const watchMessages = [
     "やっほー！ こころだよ😊 いつも応援してるね！",
     "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
     "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
-    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+    "いつもがんばってるあなたへ、こころからメッセージを送るね�",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
     "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
     "元気出してね！こころちゃん、あなたの味方だよ😊",
-    "こころちゃんだよ🌸 今日も一日お疲れ様�",
+    "こころちゃんだよ🌸 今日も一日お疲れ様💖",
     "こんにちは😊 笑顔で過ごせてるかな？",
     "やっほー！ こころだよ🌸 素敵な日になりますように💖",
     "元気かな？💖 こころはいつでもあなたのそばにいるよ！",
@@ -455,7 +474,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 // LINEミドルウェアをExpressのapp.postの直下で使う場合、
 // req.bodyが既にパースされていると署名検証エラーになるため、
 // raw-bodyミドルウェアをapp.useでグローバルに適用し、rawBodyを先に取得します。
-app.post('/webhook', line.middleware({ channelAccessToken: LINE_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET }), async (req, res) => {
+app.post('/webhook', line.middleware(lineConfig), async (req, res) => { // lineConfigを渡す
     const events = req.body.events; // ここでは既にLINE SDKによってパースされたJSONが使える
     if (!events || events.length === 0) {
         return res.status(200).send('OK');
@@ -636,8 +655,10 @@ async function recordToDatabase(userId, message, type, error = null) {
  * @returns {Promise<string>} - AIの応答テキスト
  */
 async function generateGeminiResponse(userId, userMessage) {
+    // Debugging: Log the model name being used right before the call
+    console.log(`DEBUG: Attempting to get Gemini model: ${modelConfig.defaultModel}`);
+
     // モデルをインスタンス化
-    // modelConfig.defaultModelを直接モデル名として渡すように修正
     const model = gemini_api_client.getGenerativeModel({ model: modelConfig.defaultModel });
 
     const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`;
