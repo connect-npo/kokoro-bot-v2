@@ -1,24 +1,29 @@
 // index.js
 
 // LINE Messaging API SDK をインポート
-// `npm install @line/bot-sdk raw-body` でインストールしてください
+// `npm install @line/bot-sdk raw-body @google/generative-ai` でインストールしてください
 const line = require('@line/bot-sdk');
 const express = require('express');
 const getRawBody = require('raw-body'); // raw-bodyをインポート
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // Gemini APIクライアントをインポート
 
-// 環境変数からLINEアクセストークンとシークレット、理事長グループIDを取得
+// 環境変数からLINEアクセストークンとシークレット、理事長グループID、そしてGemini APIキーを取得
 // Renderの環境変数設定を必ず確認してください
 const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // ★重要: Gemini APIキーを環境変数から取得
 
 // LINEクライアントの初期化 (本番用)
 // 環境変数が設定されていない場合のフォールバック値はテスト用です。
 // 実際の運用では必ず正しい環境変数を設定してください。
 const client = new line.Client({
-    channelAccessToken: LINE_ACCESS_TOKEN || 'YOUR_CHANNEL_ACCESS_TOKEN_HERE', // ★重要: 必ずあなたのLINEチャンネルアクセストークンを設定
-    channelSecret: LINE_CHANNEL_SECRET || 'YOUR_CHANNEL_SECRET_HERE' // ★重要: 必ずあなたのLINEチャンネルシークレットを設定
+    channelAccessToken: LINE_ACCESS_TOKEN || 'YOUR_CHANNEL_ACCESS_TOKEN_HERE', // ★重要: あなたのLINEチャンネルアクセストークンを設定
+    channelSecret: LINE_CHANNEL_SECRET || 'YOUR_CHANNEL_SECRET_HERE' // ★重要: あなたのLINEチャンネルシークレットを設定
 });
+
+// Gemini APIクライアントの初期化
+const gemini_api_client = new GoogleGenerativeAI(GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE'); // ★重要: Gemini APIキーを渡す
 
 // Express.jsの初期化
 const app = express();
@@ -27,7 +32,8 @@ const PORT = process.env.PORT || 3000;
 // LINE Webhook用の生のボディを取得するミドルウェア
 // line.middlewareが署名検証のために生のボディを必要とするため、express.json()より前に配置します。
 app.use((req, res, next) => {
-    if (req.path === '/webhook') { // /webhookパスのみに適用
+    // /webhookパスの場合のみraw-bodyミドルウェアを適用
+    if (req.path === '/webhook') {
         getRawBody(req, {
             length: req.headers['content-length'],
             limit: '1mb', // リクエストボディのサイズ上限を設定
@@ -38,11 +44,11 @@ app.use((req, res, next) => {
             next();
         })
         .catch(err => {
-            console.error('Raw body error:', err); // エラーはログに出力
-            res.status(500).send('Failed to parse raw body');
+            console.error('❌ Raw body error:', err); // エラーはログに出力
+            res.status(400).send('Failed to parse raw body');
         });
     } else {
-        // Webhook以外のパスでは、必要に応じてexpress.json()を適用
+        // Webhook以外のパスではexpress.json()を適用
         express.json()(req, res, next);
     }
 });
@@ -144,7 +150,6 @@ const dangerQuickReplyMessage = {
           uri: "tel:119"
         }
       }
-      // 理事長電話番号はクイックリプライから削除し、詳細テキストに記載
     ]
   }
 };
@@ -194,7 +199,6 @@ const scamQuickReplyMessage = {
           uri: "tel:110"
         }
       }
-      // 他の電話番号はクイックリプライから削除し、詳細テキストに記載
     ]
   }
 };
@@ -302,12 +306,12 @@ const modelConfig = {
 const watchMessages = [
     "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
     "やっほー！ こころだよ😊 いつも応援してるね！",
-    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ�",
+    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
     "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
     "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
     "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
-    "元気出してね！こころちゃん、あなたの味方だよ😊",
+    "元気出してね！こころちゃん、あなたの味方だよ�",
     "こころちゃんだよ🌸 今日も一日お疲れ様💖",
     "こんにちは😊 笑顔で過ごせてるかな？",
     "やっほー！ こころだよ🌸 素敵な日になりますように💖",
@@ -455,6 +459,9 @@ app.post('/webhook', line.middleware({ channelAccessToken: LINE_ACCESS_TOKEN, ch
     }
 
     try {
+        // req.bodyにはLINEからのパースされたJSONが入っている
+        // LINE SDKのミドルウェアが署名検証とボディパースを行っているため、ここでは直接req.bodyを使用します。
+        // getRawBodyミドルウェアがreq.rawBodyをセットし、line.middlewareがそれを利用して検証しています。
         for (const event of events) {
             await handleEvent(event);
         }
@@ -623,78 +630,47 @@ async function recordToDatabase(userId, message, type, error = null) {
 }
 
 /**
- * Gemini APIを呼び出し、AIの応答を生成するダミー関数
- * ※実際にはGemini APIを呼び出すコードに置き換えてください。
+ * Gemini APIを呼び出し、AIの応答を生成する関数
  * @param {string} userId - ユーザーID
  * @param {string} userMessage - ユーザーのメッセージ
  * @returns {Promise<string>} - AIの応答テキスト
  */
 async function generateGeminiResponse(userId, userMessage) {
+    // モデルをインスタンス化
+    const model = gemini_api_client.getGenerativeModel(modelConfig);
+
     const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`;
-    // 実際のGemini API呼び出しの例:
-    /*
     let chatHistory = [];
     chatHistory.push({ role: "user", parts: [{ text: fullPrompt }] });
-    const payload = { contents: chatHistory };
-    const apiKey = ""; // Canvas環境では自動で提供される
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
-    const response = await fetch(apiUrl, {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify(payload)
-           });
-    const result = await response.json();
-    if (result.candidates && result.candidates.length > 0 &&
-        result.candidates[0].content && result.candidates[0].content.parts &&
-        result.candidates[0].content.parts.length > 0) {
-      return result.candidates[0].content.parts[0].text;
-    } else {
-      throw new Error("Gemini APIからの応答が期待された形式ではありません。");
-    }
-    */
 
-    // デモ用: 特定のキーワードに対するダミー応答
-    if (userMessage.includes("好きなアニメ") && !userMessage.includes("さっきも話したけど")) {
-        return "好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖";
-    }
-    if (userMessage.includes("好きなアーティスト") && !userMessage.includes("さっきも話したけど")) {
-        return "好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸";
-    }
-    if (userMessage.includes("日本語がおかしい")) {
-        return "わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖";
-    }
-    if (userMessage.includes("宿題") || userMessage.includes("勉強") || userMessage.includes("計算")) {
-        return "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
-    }
-    if (userMessage.includes("税金泥棒")) {
-        return "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡";
-    }
-    if (userMessage.includes("松本博文")) {
-        return "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱";
-    }
-    if (userMessage.includes("あやしい") || userMessage.includes("胡散臭い")) {
-        return "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖";
-    }
-    if (inappropriateWords.some(word => userMessage.includes(word))) {
-        return "ごめんね、その内容には答えられないよ…。";
-    }
-    if (userMessage.includes("病気") || userMessage.includes("薬") || userMessage.includes("治療")) {
-        return "わたしにはわからないけど、がんばったね🌸";
-    }
-    if (userMessage.toLowerCase().includes("こころちゃんいるかな～？")) {
-        return "こころちゃん、ここにいるよ〜！どうしたの？🌸";
-    }
-    if (userMessage.toLowerCase().includes("げんきかな？")) {
-        return "うん、こころちゃんは元気だよ！あなたは元気にしてるかな？💖";
-    }
-    if (userMessage.includes("1+9は")) {
-        return "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
-    }
-    if (userMessage.includes("誰が君を作ったの？") || userMessage.includes("誰がおまえを開発したの？") || userMessage.includes("誰が作ったの？")) {
-        return "NPO法人コネクトの理事長が、みんなを守りたいって作ったんだよ💖";
-    }
+    try {
+        const result = await model.generateContent({
+            contents: chatHistory,
+            generationConfig: {
+                // 安全設定はmodelConfigから取得
+                safetySettings: modelConfig.safetySettings
+            }
+        });
 
-    return `そうだね、${userMessage}なんだね😊`; // デフォルトのオウム返し
+        if (result.response && result.response.candidates && result.response.candidates.length > 0 &&
+            result.response.candidates[0].content && result.response.candidates[0].content.parts &&
+            result.response.candidates[0].content.parts.length > 0) {
+            return result.response.candidates[0].content.parts[0].text;
+        } else {
+            throw new Error("Gemini APIからの応答が期待された形式ではありません。");
+        }
+    } catch (error) {
+        // Gemini APIからのエラーを捕捉し、詳細なエラーメッセージをログに出力
+        if (error.response && error.response.status) {
+            console.error(`Gemini API エラー: HTTPステータスコード ${error.response.status} - ${error.response.statusText || '不明なエラー'}`);
+            if (error.response.data) {
+                console.error('Gemini API エラー詳細:', error.response.data);
+            }
+        } else {
+            console.error('Gemini API エラー:', error.message);
+        }
+        throw new Error(`Gemini APIからのリクエストが失敗しました。: ${error.message}`);
+    }
 }
 
 /**
