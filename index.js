@@ -4,13 +4,18 @@ const { MongoClient } = require('mongodb');
 const cron = require('node-cron');
 const { Client, middleware } = require('@line/bot-sdk'); // LINE Bot SDK
 
-// --- 環境変数からの設定読み込み (実際には.envなどから読み込む) ---
+// ⭐変更箇所: 環境変数名に合わせてconfigオブジェクトを初期化
 const config = {
-    channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN || 'YOUR_CHANNEL_ACCESS_TOKEN',
-    channelSecret: process.env.CHANNEL_SECRET || 'YOUR_CHANNEL_SECRET',
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || 'YOUR_LINE_CHANNEL_ACCESS_TOKEN',
+    channelSecret: process.env.LINE_CHANNEL_SECRET || 'YOUR_LINE_CHANNEL_SECRET',
     mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/kokoro_chat',
-    ownerUserId: process.env.OWNER_USER_ID || null, // 理事長LINE ID
-    officerGroupId: process.env.OFFICER_GROUP_ID || null // オフィサーグループLINE ID
+    // BOT_ADMIN_IDS は配列としてパースするか、OWNER_USER_ID を優先するか検討
+    // 現状は isBotAdmin 関数内で BOT_ADMIN_IDS を優先し、なければ OWNER_USER_ID を参照
+    ownerUserId: process.env.OWNER_USER_ID || null, // 理事長LINE ID (BOT_ADMIN_IDSがない場合のフォールバック)
+    officerGroupId: process.env.OFFICER_GROUP_ID || null, // オフィサーグループLINE ID
+    geminiApiKey: process.env.GEMINI_API_KEY || null, // Gemini APIキー
+    openaiApiKey: process.env.OPENAI_API_KEY || null, // OpenAI APIキー
+    emergencyContactPhoneNumber: process.env.EMERGENCY_CONTACT_PHONE_NUMBER || null, // 追加: システム全体の緊急連絡先
 };
 
 // LINE Bot クライアントの初期化
@@ -37,7 +42,6 @@ async function connectToMongoDB() {
         return db;
     } catch (error) {
         console.error("❌ MongoDB接続エラー:", error.message);
-        // エラーが発生した場合でも、呼び出し元で null を適切にハンドリングできるよう、ここでは null を返すか、再試行ロジックを追加する
         return null;
     }
 }
@@ -78,68 +82,124 @@ async function getUserDisplayName(userId) {
     }
 }
 
-// --- 管理者ユーザーIDの判定 (ダミー/要実装) ---
+// ⭐再追加・維持: BOT_ADMIN_IDS環境変数に対応し、OWNER_USER_IDも考慮
 function isBotAdmin(userId) {
-    // 実際には管理者IDのリストと比較するなどします
+    // 環境変数 BOT_ADMIN_IDS が設定されていればそれを優先
+    try {
+        const adminIdsString = process.env.BOT_ADMIN_IDS;
+        if (adminIdsString) {
+            const adminIds = JSON.parse(adminIdsString); // JSON文字列を配列にパース
+            if (Array.isArray(adminIds) && adminIds.includes(userId)) {
+                return true;
+            }
+        }
+    } catch (e) {
+        console.error("❌ BOT_ADMIN_IDS のパースエラー:", e.message);
+        // パースエラーがあっても処理は継続し、ownerUserIdでチェック
+    }
+    // BOT_ADMIN_IDS が設定されていないか、パースに失敗した場合、OWNER_USER_ID でチェック
     return userId === config.ownerUserId;
 }
 
-// --- 不適切なワードのチェック (ダミー/要実装) ---
+// ⭐完全復活: 不適切なワードのチェック (ご提供いただいたリストをそのまま採用) ---
 function checkContainsInappropriateWords(text) {
-    const inappropriateWords = ["死ね", "殺す", "アホ", "バカ"]; // 例
+    const inappropriateWords = [
+        "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
+        "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
+        "クリトリス", "乳首", "おっぱい", "お尻", "うんち", "おしっこ", "小便", "大便", "ちんちん", "おまんこ",
+        "ぶっかけ", "変態", "性奴隷", "露出", "痴漢", "レイプ", "強姦", "売春", "買春", "セックスフレンド",
+        "風俗", "ソープ", "デリヘル", "援交", "援助交際", "セックスレス", "セクハラ", "痴女", "変質者", "性器",
+        "局部", "下半身", "上半身", "裸", "ヌード", "脱ぐ", "服従", "支配", "緊縛", "SとM",
+        "淫行", "姦通", "不倫", "浮気", "寝とる", "寝取られ", "凌辱", "痴態", "猥褻", "官能",
+        "性的", "興奮", "刺激", "変な写真", "エロ", "ムラムラ", "欲求不満", "性欲", "精子", "卵子",
+        "妊娠", "中絶", "コンドーム", "避妊", "性病", "梅毒", "エイズ", "クラミジア", "淋病", "性器ヘルペス",
+        "媚薬", "媚薬効果", "性転換", "ゲイ", "レズ", "バイセクシャル", "トランスジェンダー", "LGBTQ", "性同一性障害", "同性愛",
+        "異性愛", "ノンバイナリー", "アセクシャル", "パンセクシャル", "クィア", "ヘテロ", "バイ", "ジェンダー", "性", "体",
+        "顔", "容姿", "ブス", "デブ", "キモい", "クソ", "死ね", "殺す", "アホ", "バカ",
+        "うんこ", "ちんちん", "おまんこ", "ぶち殺す", "殺してやる", "死ねばいいのに", "殺してほしい", "死んでほしい", "消えてしまえ", "くたばれ",
+        "糞", "最低", "馬鹿", "阿呆", "キチガイ", "狂ってる", "ふざけるな", "うるせえ", "黙れ", "カス",
+        "ゴミ", "ド変態", "気持ち悪い", "ゲロ", "吐き気", "不快", "むかつく", "イライラする", "不愉快", "気分悪い",
+        "変なこと", "変な話", "変な質問", "性的な話", "性的な質問", "性的な表現", "性的な行為", "変態行為", "犯罪", "違法",
+        "薬物", "ドラッグ", "覚せい剤", "大麻", "麻薬", "覚醒剤", "コカイン", "ヘロイン", "MDMA", "LSD",
+        "暴力", "暴行", "傷害", "殺人", "誘拐", "監禁", "強盗", "放火", "窃盗", "詐欺",
+        "脅迫", "恐喝", "脅し", "いじめ", "ハラスメント", "パワハラ", "セクハラ", "モラハラ", "アカハラ", "アルハラ",
+        "飲酒運転", "飲酒", "薬物乱用", "自傷", "自殺行為", "自殺願望", "リストカット", "オーバードーズ", "OD", "精神病",
+        "統合失調症", "うつ病", "躁うつ病", "パニック障害", "不安障害", "摂食障害", "拒食症", "過食症", "依存症", "アルコール依存症",
+        "薬物依存症", "ギャンブル依存症", "セックス依存症", "ゲーム依存症", "買い物依存症", "引きこもり", "不登校", "いじめ問題", "児童虐待", "DV",
+        "ドメスティックバイオレンス", "児童ポルノ", "ロリコン", "ショタコン", "近親相姦", "獣姦", "ネクロフィリア", "カニバリズム", "拷問", "虐待死",
+        "レイプ殺人", "大量殺人", "テロ", "戦争", "核兵器", "銃", "ナイフ", "刃物", "武器", "爆弾",
+        "暴力団", "ヤクザ", "マフィア", "テロリスト", "犯罪者", "殺人鬼", "性犯罪者", "変質者", "異常者", "狂人",
+        "サイコパス", "ソシオパス", "ストーカー", "不審者", "危険人物", "ブラック企業", "パワハラ上司", "モラハラ夫", "毒親", "モンスターペアレント",
+        "カスハラ", "カスタマーハラスメント", "クレーム", "炎上", "誹謗中傷", "個人情報", "プライバシー", "秘密", "暴露", "晒す",
+        "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み",
+        "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
+    ];
     return inappropriateWords.some(word => text.includes(word));
 }
 
-// --- 危険ワードのチェック (ダミー/要実装) ---
+// ⭐完全復活: 危険ワードのチェック (ご提供いただいたリストをそのまま採用) ---
 function checkContainsDangerWords(text) {
-    const dangerWords = ["自殺", "死にたい", "助けて", "つらい", "消えたい", "OD", "リストカット"]; // 例
+    const dangerWords = [
+        "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
+        "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり",
+        "いじめ", "イジメ", "ハラスメント",
+        "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
+    ];
     return dangerWords.some(word => text.includes(word));
 }
 
-// --- 詐欺ワードのチェック (ダミー/要実装) ---
+// ⭐完全復活: 詐欺ワードのチェック (ご提供いただいたリストをそのまま採用) ---
 function checkContainsScamWords(text) {
-    const scamWords = ["当選", "無料プレゼント", "儲かる", "クリック", "副業", "ビットコイン"]; // 例
+    const scamWords = [
+        "お金", "もうかる", "儲かる", "絶対", "安心", "副業", "簡単", "投資", "情報", "秘密",
+        "限定", "無料", "高収入", "クリック", "今すぐ", "チャンス", "当選", "プレゼント", "怪しい", "連絡",
+        "支援", "融資", "貸付", "貸します", "振り込み", "口座", "パスワード", "暗証番号", "詐欺", "騙す",
+        "騙される", "特殊詐欺", "オレオレ詐欺", "架空請求", "未払い", "電子マネー", "換金", "返金", "税金", "還付金"
+    ];
     return scamWords.some(word => text.includes(word));
 }
 
-// --- 緊急時応答の生成 (GPT-4oを想定 - ダミー/要実装) ---
+
+// ⭐復活・維持: 緊急時応答の生成 (GPT-4oを想定 - ダミー/要実装) ---
 async function generateEmergencyReply(userMessage) {
     // 実際にはOpenAI APIなどを呼び出します
     console.log(`[DEBUG] GPT-4o 緊急時応答生成: ${userMessage}`);
-    return "それは大変ですね。どうかご自身を大切にしてください。";
+    // config.openaiApiKey を使用してAPIを呼び出す
+    return "それは大変ですね。どうかご自身を大切にしてください。もし苦しい気持ちでいるなら、こころちゃんはいつでもあなたの味方だよ。";
 }
 
-// --- 特定の固定応答のチェック (ダミー/要実装) ---
+// ⭐復活・維持: 特定の固定応答のチェック (ダミー/要実装) ---
 function checkSpecialReply(userMessage) {
-    if (userMessage === "ありがとう") {
+    if (userMessage === "ありがとう" || userMessage.includes("ありがとう")) {
         return "どういたしまして！お役に立てて嬉しいです😊";
     }
-    if (userMessage === "こんにちは") {
+    if (userMessage === "こんにちは" || userMessage === "こんばんは" || userMessage === "おはよう") {
         return "こんにちは！今日も一日がんばろうね💖";
+    }
+    if (userMessage.includes("疲れた")) {
+        return "疲れた時は無理しないで、ゆっくり休んでね😌 こころちゃんはいつでもここにいるよ。";
     }
     // その他の固定応答
     return null;
 }
 
-// --- 組織に関する問い合わせのチェック (ダミー/要実装) ---
+// ⭐復活・維持: 組織に関する問い合わせのチェック (ダミー/要実装) ---
 function isOrganizationInquiry(userMessage) {
-    const keywords = ["NPO", "法人", "団体", "連絡先", "住所", "電話", "活動"];
+    const keywords = ["NPO", "法人", "団体", "連絡先", "住所", "電話", "活動", "寄付", "ボランティア", "代表"];
     return keywords.some(keyword => userMessage.includes(keyword));
 }
 
-// --- 宿題トリガーのチェック (ダミー/要実装) ---
+// ⭐復活・維持: 宿題トリガーのチェック (ダミー/要実装) ---
 function containsHomeworkTrigger(userMessage) {
-    const keywords = ["宿題", "勉強", "教えて", "課題", "テスト"];
+    const keywords = ["宿題", "勉強", "教えて", "課題", "テスト", "わからない", "質問", "ドリル"];
     return keywords.some(keyword => userMessage.includes(keyword));
 }
 
-// --- AI応答の生成 (Geminiを想定 - ダミー/要実装) ---
+// ⭐復活・維持: AI応答の生成 (Geminiを想定 - ダミー/要実装) ---
 async function generateReply(userMessage, model) {
     // 実際にはGoogle Gemini APIなどを呼び出します
     console.log(`[DEBUG] AI応答生成 (${model}): ${userMessage}`);
-    // ここでGemini APIを呼び出すロジックを実装
-    // 例: const response = await geminiApi.sendMessage(userMessage, model);
-    // return response.text;
+    // config.geminiApiKey を使用してAPIを呼び出す
     return `AI (${model}) からの返信: ${userMessage}について、なんでも相談してね😊`;
 }
 
@@ -167,25 +227,31 @@ const modelConfig = {
     defaultModel: "gemini-1.5-flash-latest" // デフォルトのGeminiモデル
 };
 
-// --- Flex Message テンプレート定義 ---
+// ⭐完全復活・維持: Flex Message テンプレート定義 (ご提供いただいたemergencyFlexTemplateの冒頭部分も統合) ---
 
-// 緊急時Flex Messageテンプレート (ダミー/要実装)
+// 緊急時Flex Messageテンプレート
 const emergencyFlexTemplate = {
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
             {
-                type: "text",
-                text: "⚠緊急連絡先へ相談してください⚠",
-                weight: "bold",
-                color: "#ff0000",
-                size: "md"
+                "type": "text",
+                "text": "⚠緊急時", // ご提供いただいた部分
+                "weight": "bold",
+                "color": "#DD0000",
+                "size": "xl"
+            },
+            {
+                "type": "text",
+                "text": "緊急時にはこちらにご連絡してね💖", // ご提供いただいた部分
+                "margin": "md",
+                "wrap": true
             },
             {
                 type: "text",
-                text: "もし今すぐ話したい、助けが必要だと感じたら、以下の専門機関に連絡してください。",
+                text: "もし今すぐ話したい、助けが必要だと感じたら、以下の専門機関に連絡してください。", // 既存の部分
                 wrap: true,
                 margin: "md"
             }
@@ -220,7 +286,7 @@ const emergencyFlexTemplate = {
     }
 };
 
-// 詐欺注意Flex Messageテンプレート (ダミー/要実装)
+// 詐欺注意Flex Messageテンプレート
 const scamFlexTemplate = {
     type: "bubble",
     body: {
@@ -271,7 +337,7 @@ const scamFlexTemplate = {
     }
 };
 
-// --- 見守りメッセージ配列の定義 ---
+// ⭐完全復活・維持: 見守りメッセージ配列の定義 ---
 const watchMessages = [
     "今日も笑顔で過ごせていますか？😊",
     "こころちゃんはいつも見守ってます🌸",
@@ -305,7 +371,7 @@ const watchMessages = [
     "困った時は、いつでもこころちゃんに話してね😊"
 ];
 
-// --- 見守り確認Flex Messageテンプレート生成関数 ---
+// ⭐完全復活・維持: 見守り確認Flex Messageテンプレート生成関数 (最新の改善も含む) ---
 function generateWatchCheckFlexMessage(randomMessage, isReminder = false) {
     const headerText = isReminder ? "🌸こころちゃんです" : "こんにちは🌸こころちゃんです";
     const messageContent = isReminder ? `${randomMessage}` : `${randomMessage}（スタンプでもOKだよ😊）`;
@@ -345,7 +411,7 @@ function generateWatchCheckFlexMessage(randomMessage, isReminder = false) {
                         margin: "md",
                         size: "md" // こちらはmdのままか、必要に応じて調整
                     },
-                    // ⭐追加: サブテキスト
+                    // ⭐維持: サブテキスト
                     {
                         type: "text",
                         text: "このボタンを押すと、見守りの返信が完了します🌸",
@@ -364,8 +430,8 @@ function generateWatchCheckFlexMessage(randomMessage, isReminder = false) {
                         type: "button",
                         action: {
                             type: "postback",
-                            // ⭐変更: ボタンラベルを具体的に
-                            label: "元気だよ💖", 
+                            // ⭐維持: ボタンラベルを具体的に
+                            label: "元気だよ💖",
                             data: "action=checkin_ok"
                         },
                         style: "primary",
@@ -409,7 +475,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     } else if (event.type === 'message' && event.message.type === 'text') {
         // 通常のメッセージからのトリガー
         if (userMessage.includes('見守り') || userMessage.includes('みまもり')) {
-            // 見守りサービス案内Flex Messageの定義 (ダミー/要実装)
+            // 見守りサービス案内Flex Messageの定義
             const watchServiceGuideFlexTemplate = {
                 type: "bubble",
                 body: {
@@ -463,6 +529,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             };
             handled = true;
         } else if (userMessage === 'OKだよ💖' || userMessage === '大丈夫だよ') {
+            // ⭐ここでのテキストメッセージによるOK応答は、postback経由のcheckin_okで統合されるため、理論上不要だが、互換性のため残す
             if (user && user.wantsWatchCheck) {
                 await usersCollection.updateOne(
                     { userId: userId },
@@ -498,7 +565,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             );
             replyMessageObject = { type: 'text', text: '見守りサービスを停止しました。またいつでも声をかけてね！' };
             handled = true;
-        } else if (action === 'checkin_ok') { // ⭐追加: OKだよ💖Postbackの処理
+        } else if (action === 'checkin_ok') {
             if (user && user.wantsWatchCheck) {
                 await usersCollection.updateOne(
                     { userId: userId },
@@ -512,7 +579,6 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                         }
                     }
                 );
-                // ⭐変更: OKありがとうメッセージも具体的に
                 replyMessageObject = { type: 'text', text: "元気だよ💖って教えてくれてありがとう！また3日後に声をかけるね🌸" };
                 handled = true;
             }
@@ -595,7 +661,7 @@ async function sendScheduledWatchMessage() {
             // 最初に送る見守りメッセージ
             if (!user.scheduledMessageSent) {
                 const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)];
-                messageToSend = generateWatchCheckFlexMessage(randomMessage, false); // ⭐変更: Flex Messageを生成
+                messageToSend = generateWatchCheckFlexMessage(randomMessage, false);
                 try {
                     await usersCollection.updateOne(
                         { userId: user.userId },
@@ -610,9 +676,8 @@ async function sendScheduledWatchMessage() {
             else if (user.scheduledMessageSent && !user.firstReminderSent) {
                 const twelveHoursAgoFromScheduled = new Date(user.scheduledMessageTimestamp.getTime() + (12 * 60 * 60 * 1000));
                 if (now > twelveHoursAgoFromScheduled) {
-                    // ⭐変更: リマインダーもFlex Messageで
                     messageToSend = generateWatchCheckFlexMessage('こころちゃんです。見守りメッセージ、見てくれたかな？何かあったら無理せず教えてね。', true);
-                    respondedBy = 'こころちゃん（1回目リマインダー）';
+                    responsedBy = 'こころちゃん（1回目リマインダー）';
                     logType = 'first_reminder';
                     try {
                         await usersCollection.updateOne(
@@ -629,7 +694,6 @@ async function sendScheduledWatchMessage() {
             else if (user.firstReminderSent && !user.secondReminderSent) {
                 const twentyFourHoursAgoFromFirst = new Date(user.firstReminderTimestamp.getTime() + (12 * 60 * 60 * 1000)); // 最初のメッセージから24時間後
                 if (now > twentyFourHoursAgoFromFirst) {
-                    // ⭐変更: リマインダーもFlex Messageで
                     messageToSend = generateWatchCheckFlexMessage('⚠️ こころちゃんです。前回の見守りメッセージから24時間以上経ったけど、まだ返事がないみたいだよ？大丈夫かな？無理せず「元気だよ💖」ってスタンプでもいいから送ってね。', true);
                     responsedBy = 'こころちゃん（2回目リマインダー）';
                     logType = 'second_reminder';
@@ -651,6 +715,13 @@ async function sendScheduledWatchMessage() {
                     try {
                         const userDisplayName = await getUserDisplayName(user.userId);
                         const emergencyMessage = `⚠️ 緊急！ ${userDisplayName}さん（LINE ID: ${user.userId}）が、こころちゃん見守りサービスに29時間応答していません。登録された緊急連絡先 ${user.emergencyContact} へ連絡してください。`;
+
+                        // システム全体に設定された緊急連絡先にも通知 (任意)
+                        if (config.emergencyContactPhoneNumber) {
+                            // ここに電話通知やSMS通知のロジックを追加 (LINE APIでは直接電話やSMSは送れません)
+                            // 現時点では、管理者へのLINE通知で代用します。
+                            console.log(`🚨 システム設定の緊急連絡先 ${config.emergencyContactPhoneNumber} への通知が必要（実装保留）`);
+                        }
 
                         if (config.ownerUserId) {
                             await client.pushMessage(config.ownerUserId, { type: 'text', text: emergencyMessage });
@@ -739,7 +810,7 @@ cron.schedule('0 4 * * *', async () => {
     timezone: "Asia/Tokyo"
 });
 
-cron.schedule('0 15 * * *', sendScheduledWatchMessage, {
+cron.schedule('0 15 * * *', sendScheduledWatchMessage, { // ⭐午前15時 (午後3時) に見守りメッセージを送信
     scheduled: true,
     timezone: "Asia/Tokyo"
 });
@@ -773,7 +844,7 @@ app.post('/webhook', middleware(config), async (req, res) => { // middlewareを�
                 createdAt: new Date(),
                 lastMessageAt: new Date(),
                 wantsWatchCheck: false,
-                emergencyContact: null,
+                emergencyContact: null, // 個別のユーザーが登録する緊急連絡先
                 registrationStep: null,
                 scheduledMessageSent: false,
                 firstReminderSent: false,
@@ -805,7 +876,7 @@ app.post('/webhook', middleware(config), async (req, res) => { // middlewareを�
                 console.error("❌ ユーザー最終メッセージ更新エラー:", error.message);
                 await logErrorToDb(userId, "ユーザー最終メッセージ更新エラー", { error: error.message, userId: userId });
             }
-            // 既存ユーザーのフィールド初期化ロジックは維持
+            // 既存ユーザーのフィールド初期化ロジックは維持 (必要に応じて)
             if (user.flaggedMessageCount === undefined) {
                 try { await usersCollection.updateOne({ userId: userId }, { $set: { flaggedMessageCount: 0 } }); user.flaggedMessageCount = 0; }
                 catch (e) { console.error(`❌ flaggedMessageCount更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "flaggedMessageCount更新エラー", { error: e.message }); }
@@ -833,6 +904,15 @@ app.post('/webhook', middleware(config), async (req, res) => { // middlewareを�
             if (user.useProForNextConsultation === undefined) {
                 try { await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } }); user.useProForNextConsultation = false; }
                 catch (e) { console.error(`❌ useProForNextConsultation更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "useProForNextConsultation更新エラー", { error: e.message }); }
+            }
+            // 新規追加された緊急連絡先フィールドの初期化
+            if (user.emergencyContact === undefined) {
+                try { await usersCollection.updateOne({ userId: userId }, { $set: { emergencyContact: null } }); user.emergencyContact = null; }
+                catch (e) { console.error(`❌ emergencyContact更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "emergencyContact更新エラー", { error: e.message }); }
+            }
+            if (user.registrationStep === undefined) {
+                try { await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: null } }); user.registrationStep = null; }
+                catch (e) { console.error(`❌ registrationStep更新エラー (${userId}): ${e.message}`); await logErrorToDb(userId, "registrationStep更新エラー", { error: e.message }); }
             }
         }
 
@@ -942,7 +1022,9 @@ app.post('/webhook', middleware(config), async (req, res) => { // middlewareを�
                     logType = 'danger_word';
                     try {
                         const userDisplayName = await getUserDisplayName(userId);
-                        const dangerAlertMessage = `🚨 緊急通知: ${userDisplayName}さん（LINE ID: ${userId}）が危険な言葉を検知しました: "${userMessage}"`;
+                        const emergencyNumber = config.emergencyContactPhoneNumber || "（システム緊急連絡先未設定）"; // 環境変数から取得
+                        const dangerAlertMessage = `🚨 緊急通知: ${userDisplayName}さん（LINE ID: ${userId}）が危険な言葉を検知しました: "${userMessage}"\n\nシステム設定の緊急連絡先: ${emergencyNumber}`;
+                        
                         if (config.ownerUserId) {
                             await client.pushMessage(config.ownerUserId, { type: 'text', text: dangerAlertMessage });
                             console.log(`🚨 理事長へ危険ワード通知を送信しました（ユーザー: ${userId}）`);
@@ -956,7 +1038,7 @@ app.post('/webhook', middleware(config), async (req, res) => { // middlewareを�
                         await logErrorToDb(userId, "危険ワード通知送信失敗", { error: notificationError.message, userId: userId });
                     }
                 } else if (checkContainsScamWords(userMessage)) {
-                    const gptScamText = await generateEmergencyReply(userMessage);
+                    const gptScamText = await generateEmergencyReply(userMessage); // 緊急応答と同じ関数を流用
                     replyMessageObject = [
                         { type: 'text', text: gptScamText },
                         {
@@ -979,8 +1061,8 @@ app.post('/webhook', middleware(config), async (req, res) => { // middlewareを�
                             modelForGemini = "gemini-1.5-pro-latest"; // Proに切り替え
                             console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`);
                         }
-                       
-                        const aiResponse = await generateReply(userMessage, modelForGemini); // ⭐変更: modelForGeminiを渡す
+
+                        const aiResponse = await generateReply(userMessage, modelForGemini);
                         replyMessageObject = { type: 'text', text: aiResponse };
                         responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
                         logType = 'ai_generated';
