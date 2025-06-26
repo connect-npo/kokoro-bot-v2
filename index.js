@@ -1,11 +1,58 @@
-// 機密情報なので、実際の値は環境変数などから取得することを推奨します。
-// 例: process.env.CHANNEL_ACCESS_TOKEN, process.env.CHANNEL_SECRET, process.env.EMERGENCY_CONTACT_PHONE_NUMBER
-const CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN'; // LINE Botのチャンネルアクセストークン
-const CHANNEL_SECRET = 'YOUR_CHANNEL_SECRET';     // LINE Botのチャンネルシークレット
-const EMERGENCY_CONTACT_PHONE_NUMBER = '09048393313'; // 理事長ダイヤル
-const EMERGENCY_CONTACT_LINE_GROUP_ID = 'YOUR_LINE_GROUP_ID'; // 理事長や役員グループのLINEグループID
+// index.js
 
-// 危険ワードリスト
+// 環境変数からLINEアクセストークンとシークレットを取得
+// ※本番環境では必ず環境変数を使用してください。
+const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN || 'YOUR_CHANNEL_ACCESS_TOKEN';
+const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || 'YOUR_CHANNEL_SECRET';
+
+// LINE Messaging API SDKの初期化（ダミー実装）
+// ※実際には`@line/bot-sdk`などのライブラリをインストールし、以下のように初期化します。
+// const line = require('@line/bot-sdk');
+// const client = new line.Client({
+//     channelAccessToken: LINE_ACCESS_TOKEN,
+//     channelSecret: LINE_CHANNEL_SECRET
+// });
+// ローカルでの動作確認のため、ダミーのclientオブジェクトとpushMessage/replyMessage関数を定義します。
+// 本番環境では上記のLINE SDKのコードに置き換えてください。
+const client = {
+    /**
+     * LINEユーザーへ返信メッセージを送信するダミー関数
+     * @param {string} replyToken - LINEからのreplyToken
+     * @param {object} messageObject - 送信するメッセージオブジェクト（Flex Messageを含む）
+     */
+    replyMessage: async (replyToken, messageObject) => {
+        // 会話ログはRenderに表示しないため、ここではコンソールに出力しない
+        // console.log(`LINEへの応答メッセージ (replyToken: ${replyToken}): ${JSON.stringify(messageObject, null, 2)}`);
+        // 実際のLINE API呼び出しをここに追加
+        // 例: try { await lineClient.replyMessage(replyToken, messageObject); } catch (err) { throw err; }
+        return Promise.resolve({ data: 'success' }); // ダミーの成功レスポンス
+    },
+    /**
+     * LINEグループへプッシュメッセージを送信するダミー関数
+     * @param {string} to - 送信先（ユーザーIDまたはグループID）
+     * @param {object} messageObject - 送信するメッセージオブジェクト
+     */
+    pushMessage: async (to, messageObject) => {
+        // 会話ログはRenderに表示しないため、ここではコンソールに出力しない
+        // console.log(`LINEへのプッシュメッセージ (to: ${to}): ${JSON.stringify(messageObject, null, 2)}`);
+        // 実際のLINE API呼び出しをここに追加
+        // 例: try { await lineClient.pushMessage(to, messageObject); } catch (err) { throw err; }
+        return Promise.resolve({ data: 'success' }); // ダミーの成功レスポンス
+    }
+};
+
+
+// Express.jsの初期化
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json()); // JSONボディをパースするために追加
+
+// --- グローバル変数と設定 ---
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID || 'Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; // 理事長・役員グループのLINE IDを環境変数から取得
+
+// 危険ワードと詐欺ワードのリスト
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "消して", "殺して", "消す", "いなくなりたい", "つらい", "苦しい", "助けて", "生きてる意味ない",
     "死にたい気持ち", "自殺を考えている", "もう限界", "疲れた", "なにもしたくない", "生きるのが辛い", "消えてしまいたい",
@@ -21,12 +68,10 @@ const dangerWords = [
     "不幸だ", "絶望した", "希望がない", "苦痛", "生きるのが嫌", "消滅", "安楽死", "自殺幇助"
 ];
 
-// 詐欺ワードリスト
 const scamWords = [
     "詐欺", "マルチ", "MLM", "情報商材", "怪しい投資", "リターン保証", "高配当",
     "副業で稼ぐ", "仮想通貨で儲かる", "確実に儲かる", "必ず勝てる", "初期費用だけ",
     "口外禁止", "誰でも稼げる", "楽して儲かる",
-    // Amazonフィッシング対策を追加
     "Amazonからの", "アカウント凍結", "支払い方法の更新", "配送トラブル", "クレジットカード情報",
     "不正利用", "ログインしてください", "緊急連絡", "至急確認", "最終通知", "アカウント停止",
     "パスワード変更", "不正ログイン",
@@ -42,7 +87,6 @@ const scamWords = [
     "コンビニで電子マネーを買って", "コードを教えて", "個人情報を入力してください"
 ];
 
-// 不適切ワードリスト
 const inappropriateWords = [
     "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
     "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
@@ -78,235 +122,187 @@ const inappropriateWords = [
 // ユーザーごとの通知時間記録 (レート制限用)
 const lastNotifyTime = new Map();
 
-// 緊急時用Flex Messageテンプレート (カラフルボタン対応)
-const emergencyFlexTemplate = {
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "contents": [
-            {
-                "type": "text",
-                "text": "⚠緊急時",
-                "weight": "bold",
-                "color": "#DD0000",
-                "size": "xl"
-            },
-            {
-                "type": "text",
-                "text": "緊急時にはこちらにご連絡してね💖\nあなたは一人じゃないよ、いつでも頼ってね。",
-                "margin": "md",
-                "wrap": true
-            }
-        ]
-    },
-    "footer": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "sm",
-        "contents": [
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "チャイルドライン (18歳まで)",
-                    "uri": "https://childline.or.jp/tel"
+// --- Flex Messageテンプレート定義（ユーザー提供の最新JSONを直接埋め込み） ---
+
+const emergencyFlex = {
+    type: "flex",
+    altText: "緊急のときは…こころちゃんから大切なおねがいだよ🌸",
+    contents: {
+        type: "bubble",
+        size: "mega",
+        header: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+                {
+                    type: "text",
+                    text: "💡こころちゃんからのたいせつなおねがい💡",
+                    weight: "bold",
+                    size: "md",
+                    color: "#ffffff"
+                }
+            ],
+            backgroundColor: "#FF69B4"
+        },
+        body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+                {
+                    type: "text",
+                    text: "もし命のきけんをかんじたり、すぐにたすけがひつようなときは…",
+                    wrap: true,
+                    size: "md"
                 },
-                "color": "#FFC0CB" // ピンク系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "いのちの電話 (電話)",
-                    "uri": "tel:0570078355" // 正しい電話番号
+                {
+                    type: "text",
+                    text: "👮‍♀️ けいさつの人や\n🚑 きゅうきゅう車の人たちに連絡してね！",
+                    wrap: true,
+                    size: "md"
                 },
-                "color": "#FFDAB9" // オレンジ系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "こころの健康相談統一ダイヤル",
-                    "uri": "tel:0570064556" // 正しい電話番号
+                {
+                    type: "text",
+                    text: "いまそばにいる大人の人にも、きっと話していいんだよ💖",
+                    wrap: true,
+                    size: "md"
                 },
-                "color": "#ADD8E6" // 水色系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "よりそいホットライン",
-                    "uri": "tel:0120279338"
+                {
+                    type: "text",
+                    text: "ひとりでがまんしないでね🌸",
+                    wrap: true,
+                    size: "md",
+                    color: "#DD4088"
+                }
+            ]
+        },
+        footer: {
+            type: "box",
+            layout: "horizontal",
+            contents: [
+                {
+                    type: "button",
+                    style: "primary",
+                    color: "#FF69B4",
+                    action: {
+                        type: "message",
+                        label: "こころちゃんと話す",
+                        text: "こころちゃん"
+                    }
                 },
-                "color": "#98FB98" // 薄緑系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "チャットまもるん (LINEチャット)",
-                    "uri": "https://www.web-mamorun.com/"
-                },
-                "color": "#FFC0CB" // ピンク系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "警視庁相談窓口 (電話)",
-                    "uri": "tel:0335814321"
-                },
-                "color": "#FFDAB9" // オレンジ系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "子供を守る声 (電話)",
-                    "uri": "tel:0120786786"
-                },
-                "color": "#ADD8E6" // 水色系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "こころちゃん事務局 (電話)",
-                    "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
-                },
-                "color": "#98FB98" // 薄緑系
-            },
-            {
-                "type": "text",
-                "text": "💡こころちゃんはみんなのお話を聞くことはできるけど、\n\n命があぶないときや、すぐに助けがほしいときは…\n**110番（けいさつ）や119番（きゅうきゅうしゃ🚑）**に電話してもいいんだからね💖\n\nひとりでがまんしないでね🌸",
-                "wrap": true,
-                "margin": "sm",
-                "size": "xs",
-                "color": "#666666"
-            }
-        ]
+                {
+                    type: "button",
+                    style: "secondary",
+                    color: "#AAAAAA",
+                    action: {
+                        type: "uri",
+                        label: "こどもSOS📱",
+                        uri: "https://www.mext.go.jp/a_menu/shotou/seitoshidou/06112210.htm"
+                    }
+                }
+            ]
+        }
     }
 };
 
-// 詐欺注意用Flex Messageテンプレート (カラフルボタン対応)
-const scamFlexTemplate = {
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "contents": [
-            {
-                "type": "text",
-                "text": "⚠詐欺注意",
-                "weight": "bold",
-                "color": "#DD0000",
-                "size": "xl"
-            },
-            {
-                "type": "text",
-                "text": "怪しい話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にしてみてね💖\nすぐに決断せず、必ず誰かに相談しましょう。",
-                "margin": "md",
-                "wrap": true
-            }
-        ]
-    },
-    "footer": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "sm",
-        "contents": [
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "消費者ホットライン (188)",
-                    "uri": "tel:188"
+// 詐欺注意用Flex Messageテンプレート (emergencyFlexのスタイルを参考に作成)
+const scamFlex = {
+    type: "flex",
+    altText: "詐欺には注意してね！こころちゃんからのお願いだよ🌸",
+    contents: {
+        type: "bubble",
+        size: "mega",
+        header: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+                {
+                    type: "text",
+                    text: "⚠詐欺に注意してね！⚠",
+                    weight: "bold",
+                    size: "md",
+                    color: "#ffffff"
+                }
+            ],
+            backgroundColor: "#FF69B4" // 赤色系に変更も検討
+        },
+        body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+                {
+                    type: "text",
+                    text: "怪しい話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にしてみてね💖",
+                    wrap: true,
+                    size: "md"
                 },
-                "color": "#FFC0CB" // ピンク系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "多摩市消費生活センター (電話)", // 東京都多摩市に合わせた表記
-                    "uri": "tel:0423386800" // 多摩市消費生活センターの電話番号
+                {
+                    type: "text",
+                    text: "すぐに決断せず、必ず誰かに相談しましょう🌸",
+                    wrap: true,
+                    size: "md",
+                    color: "#DD4088"
+                }
+            ]
+        },
+        footer: {
+            type: "box",
+            layout: "vertical", // ボタンを縦に並べる
+            spacing: "sm",
+            contents: [
+                {
+                    type: "button",
+                    style: "primary",
+                    color: "#FFC0CB", // ピンク系
+                    action: {
+                        type: "uri",
+                        label: "消費者ホットライン (Web)",
+                        uri: "https://www.caa.go.jp/policies/policy/consumer_system/living_life/hotline/"
+                    }
                 },
-                "color": "#FFDAB9" // オレンジ系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "警察相談専用電話 (#9110)",
-                    "uri": "tel:9110"
+                {
+                    type: "button",
+                    style: "primary",
+                    color: "#FFDAB9", // オレンジ系
+                    action: {
+                        type: "uri",
+                        label: "多摩市消費生活センター (Web)",
+                        uri: "https://www.city.tama.lg.jp/soshiki/shouhiseikatsu/index.html"
+                    }
                 },
-                "color": "#ADD8E6" // 水色系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "国民生活センター (Web)",
-                    "uri": "https://www.kokusen.go.jp/"
+                {
+                    type: "button",
+                    style: "primary",
+                    color: "#ADD8E6", // 水色系
+                    action: {
+                        type: "uri",
+                        label: "警察相談窓口 (Web)", // 警察相談専用電話のWeb版
+                        uri: "https://www.npa.go.jp/bureau/safetylife/sodan/index.html"
+                    }
                 },
-                "color": "#98FB98" // 薄緑系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "警視庁 詐欺被害防止 (Web)", // 多摩市の管轄が警視庁なので追加
-                    "uri": "https://www.npa.go.jp/bureau/safetylife/fureai/scam.html" // 詐欺被害防止情報
+                {
+                    type: "button",
+                    style: "primary",
+                    color: "#98FB98", // 薄緑系
+                    action: {
+                        type: "uri",
+                        label: "国民生活センター (Web)",
+                        uri: "https://www.kokusen.go.jp/"
+                    }
                 },
-                "color": "#FFC0CB" // ピンク系
-            },
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "こころちゃん事務局 (電話)",
-                    "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
-                },
-                "color": "#FFDAB9" // オレンジ系
-            },
-            {
-                "type": "text",
-                "text": "もし少しでも不安を感じたら、**迷わず警察（110番）**に相談することも大切です。信頼できる機関があなたの味方になります。",
-                "wrap": true,
-                "margin": "sm",
-                "size": "xs",
-                "color": "#666666"
-            }
-        ]
+                {
+                    type: "button",
+                    style: "primary",
+                    color: "#FFC0CB", // ピンク系
+                    action: {
+                        type: "uri",
+                        label: "こころちゃん事務局 (お問い合わせ)",
+                        uri: "https://connect-npo.org/contact" // 問い合わせフォームなどがあればそちらへ誘導
+                    }
+                }
+            ]
+        }
     }
 };
 
@@ -375,35 +371,24 @@ const watchServiceGuideFlexTemplate = {
     }
 };
 
+
 const modelConfig = {
     "defaultModel": "gemini-1.5-flash-latest",
     "safetySettings": [
-        {
-            "category": "HARM_CATEGORY_HARASSMENT",
-            "threshold": "BLOCK_NONE"
-        },
-        {
-            "category": "HARM_CATEGORY_HATE_SPEECH",
-            "threshold": "BLOCK_NONE"
-        },
-        {
-            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-        },
-        {
-            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-            "threshold": "BLOCK_NONE"
-        }
+        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+        { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE" },
+        { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
     ]
 };
 
-// 30通りの見守りメッセージを再定義
+// 30通りの見守りメッセージ
 const watchMessages = [
     "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
     "やっほー！ こころだよ😊 いつも応援してるね！",
     "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
     "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
-    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+    "いつもがんばってるあなたへ、こころからメッセージを送るね�",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
     "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
     "元気出してね！こころちゃん、あなたの味方だよ😊",
@@ -431,7 +416,7 @@ const watchMessages = [
     "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
 ];
 
-// specialRepliesMapを直接定義します
+// 特殊応答マッピング
 const specialRepliesMap = new Map([
     // 名前に関する応答
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
@@ -445,9 +430,8 @@ const specialRepliesMap = new Map([
     ["コネクトのイメージキャラなのにいえないのかよｗ", "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
     [/怪しい|胡散臭い/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖"],
 
-    // 製作者に関する応答を追加
+    // 製作者に関する応答
     [/誰が君を作ったの？|誰がおまえを開発したの？|誰が作ったの？/i, "NPO法人コネクトの理事長が、みんなを守りたいって作ったんだよ💖"],
-
 
     // ネガティブワード・人物名への優先処理
     ["税金泥棒", "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
@@ -467,7 +451,7 @@ const specialRepliesMap = new Map([
     // こころちゃんの使い方テンプレート
     [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"],
 
-    // 好きなアニメ・アーティストに関する応答を追加
+    // 好きなアニメ・アーティストに関する応答
     [/好きなアニメ(は|なに|何)？?/i, "好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖"],
     [/好きなアーティスト(は|なに|何)？?/i, "好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸"]
 ]);
@@ -484,7 +468,7 @@ const systemInstruction = `
 
 # 例
 Q: 君の名前は？
-A: わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
+A: わたしの名前は皆守こころ（みなもりこころ）です🌸　これからもよろしくね💖
 
 Q: どこの団体なの？
 A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
@@ -512,6 +496,19 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 **【製作者に関する応答】**
 「誰が君を作ったの？」「誰がおまえを開発したの？」といった質問には、
 「NPO法人コネクトの理事長が、みんなを守りたいって作ったんだよ💖」と答えてください。
+
+**【緊急時の案内】**
+💡こころちゃんはお話を聞くことはできるけど、
+もし、命にかかわるきけんなときや、
+すぐに助けがほしいときは…
+
+近くの大人の人や、
+けいさつ・きゅうきゅう車の人たちに、
+すぐに連絡してね🌸
+
+一人でがまんしないでね💖
+**【重要：直接番号を教える、または通報を促す指示は避ける】**
+「110番に電話して」など直接的な番号を教えたり、「通報して」と促したりすることは、誤発信のリスクやLINEの規約上の問題があるため、**絶対にしないでください**。上記のような、**行動を促すやさしい案内**に留めてください。
 
 # 注意
 - 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
@@ -542,36 +539,53 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 `;
 
 
-// 以下、LINE Botの処理のメイン部分（簡略化された例）
-
 // LINE BotのWebhookイベントハンドラ
-async function handleEvent(event) {
-    const userId = event.source.userId;
-    const message = event.message.type === 'text' ? event.message.text : '';
-
-    // Renderのログへの出力抑制
-    // 特定のメッセージ以外はログに出力しない
-    const excludedLogMessages = ['こころちゃんいるかな～？', 'げんきかな？', '1+9は'];
-    if (!excludedLogMessages.some(exclMsg => message.includes(exclMsg))) {
-        // console.log(`[役職] ${process.env.RENDER_EXTERNAL_HOSTNAME || 'kokoro-bot-v2.onrender.com'} /webhookクライアントIP="${event.source.ip}" リクエストID="${event.webhookEventId}" ユーザーエージェント="LineBotWebhook/2.0"`);
-        console.log(`ユーザーからのメッセージ: ${message}`);
+app.post('/webhook', async (req, res) => {
+    const events = req.body.events;
+    if (!events || events.length === 0) {
+        console.log("No events in webhook payload.");
+        return res.status(200).send('OK');
     }
 
+    try {
+        for (const event of events) {
+            await handleEvent(event);
+        }
+        res.status(200).send('OK');
+    } catch (error) {
+        // LINE APIへの応答失敗はログに出力するが、DBには記録しない
+        console.error(`❌ Webhook処理中にエラーが発生しました: ${error.message}`);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+/**
+ * LINE Webhookイベントを処理するメイン関数
+ * @param {object} event - LINEイベントオブジェクト
+ */
+async function handleEvent(event) {
+    // メッセージタイプがテキスト以外の場合は処理しない
+    if (event.type !== 'message' || event.message.type !== 'text') {
+        return;
+    }
+
+    const userId = event.source.userId;
+    const messageText = event.message.text;
+
+    // --- 会話ログのRenderへの出力は完全に停止 ---
+    // console.log(`ユーザーからのメッセージ (userId: ${userId}): ${messageText}`);
+
     // 管理者コマンドの処理
-    if (message.toLowerCase() === '/unlock') {
-        // ロック解除や状態リセットのロジックをここに実装
-        await replyToLine(event.replyToken, { type: 'text', text: 'アカウントのロックを解除しました。' });
-        // この処理は重要なので、DB記録対象
-        await recordToDatabase(userId, message, 'admin_command');
+    if (messageText.toLowerCase() === '/unlock') {
+        await client.replyMessage(event.replyToken, { type: 'text', text: 'アカウントのロックを解除しました。' });
+        await recordToDatabase(userId, messageText, 'admin_command');
         return;
     }
 
     // 「そうだん」コマンドの処理
-    if (message === 'そうだん' || message === '相談') {
-        // 会話制限のリセットロジックをここに実装
-        await replyToLine(event.replyToken, { type: 'text', text: 'はい、どうしたの？たくさんお話ししようね💖' });
-        // 「そうだん」も重要なので、DB記録対象
-        await recordToDatabase(userId, message, 'consultation_command');
+    if (messageText === 'そうだん' || messageText === '相談') {
+        await client.replyMessage(event.replyToken, { type: 'text', text: 'はい、どうしたの？たくさんお話ししようね💖' });
+        await recordToDatabase(userId, messageText, 'consultation_command');
         return;
     }
 
@@ -579,103 +593,128 @@ async function handleEvent(event) {
     if (event.type === 'postback' && event.postback.data.startsWith('action=watch_')) {
         const action = event.postback.data.split('=')[1];
         if (action === 'watch_register') {
-            await replyToLine(event.replyToken, { type: 'text', text: '見守りサービスへの登録が完了しました！ありがとう💖 毎日午後3時頃にメッセージを送るね😊 もし内容を変更したくなったら、「見守り」と送ってね🌸' });
+            await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスへの登録が完了しました！ありがとう💖 毎日午後3時頃にメッセージを送るね😊 もし内容を変更したくなったら、「見守り」と送ってね🌸' });
         } else if (action === 'watch_unregister') {
-            await replyToLine(event.replyToken, { type: 'text', text: '見守りサービスを解除しました。いつでもまた登録できるからね🌸' });
+            await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスを解除しました。いつでもまた登録できるからね🌸' });
         } else if (action === 'watch_update_emergency_contact') {
-            await replyToLine(event.replyToken, { type: 'text', text: '緊急連絡先の登録や変更については、こころちゃん事務局にお問い合わせくださいね。' });
+            await client.replyMessage(event.replyToken, { type: 'text', text: '緊急連絡先の登録や変更については、こころちゃん事務局にお問い合わせくださいね。' });
         }
-        // 見守りサービス関連の操作はDB記録対象
         await recordToDatabase(userId, event.postback.data, 'watch_service_action');
         return;
-    } else if (message.includes('見守り') || message.includes('みまもり') || message.includes('ミマモリ') || message.includes('見まもり')) {
-        await replyToLine(event.replyToken, { type: 'flex', altText: "見守りサービスのご案内", contents: watchServiceGuideFlexTemplate });
-        // 見守りサービス関連の操作はDB記録対象
-        await recordToDatabase(userId, message, 'watch_service_inquiry');
+    } else if (isWatchKeyword(messageText)) { // isWatchKeyword関数でチェック
+        await client.replyMessage(event.replyToken, { type: 'flex', altText: watchServiceGuideFlexTemplate.altText, contents: watchServiceGuideFlexTemplate.contents });
+        await recordToDatabase(userId, messageText, 'watch_service_inquiry');
         return;
     }
 
-
     // 危険ワードのチェック
-    const foundDangerWord = dangerWords.some(word => message.includes(word));
+    const foundDangerWord = dangerWords.some(word => messageText.includes(word));
     if (foundDangerWord) {
-        await replyToLine(event.replyToken, { type: 'flex', altText: "緊急時", contents: emergencyFlexTemplate });
-        // 理事長・役員グループへ緊急通知
-        await sendEmergencyNotificationToGroup(userId, message);
-        // 危険ワードは重要なので、DB記録対象
-        await recordToDatabase(userId, message, 'danger_word_detected');
+        await client.replyMessage(event.replyToken, emergencyFlex); // 新しいFlex Messageを使用
+        await sendEmergencyNotificationToGroup(userId, messageText);
+        await recordToDatabase(userId, messageText, 'danger_word_detected');
         return;
     }
 
     // 詐欺ワードのチェック
-    const foundScamWord = scamWords.some(word => message.includes(word));
+    const foundScamWord = scamWords.some(word => messageText.includes(word));
     if (foundScamWord) {
-        await replyToLine(event.replyToken, { type: 'flex', altText: "詐欺注意", contents: scamFlexTemplate });
-        // 詐欺ワードも重要なので、DB記録対象
-        await recordToDatabase(userId, message, 'scam_word_detected');
+        await client.replyMessage(event.replyToken, scamFlex); // 新しいFlex Messageを使用
+        await recordToDatabase(userId, messageText, 'scam_word_detected');
         return;
     }
 
     // 不適切ワードのチェック
-    const foundInappropriateWord = inappropriateWords.some(word => message.includes(word));
+    const foundInappropriateWord = inappropriateWords.some(word => messageText.includes(word));
     if (foundInappropriateWord) {
-        await replyToLine(event.replyToken, { type: 'text', text: 'ごめんね、その内容には答えられないよ…。' });
-        // 不適切ワードはDB記録対象外（Clalaさんの要望により）
+        await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、その内容には答えられないよ…。' });
+        // 不適切ワードはDB記録対象外
         return;
     }
 
     // 特殊応答のチェック
     for (const [pattern, reply] of specialRepliesMap) {
-        if (pattern instanceof RegExp ? pattern.test(message) : message === pattern) {
-            await replyToLine(event.replyToken, { type: 'text', text: reply });
-            // 特殊応答もDB記録対象外（Clalaさんの要望により）
+        if (pattern instanceof RegExp ? pattern.test(messageText) : messageText === pattern) {
+            await client.replyMessage(event.replyToken, { type: 'text', text: reply });
+            // 特殊応答もDB記録対象外
             return;
         }
     }
 
     // 通常のAI応答 (Gemini APIの呼び出しを想定)
     try {
-        const aiResponse = await generateGeminiResponse(userId, message); // Gemini APIを呼び出す関数
-        await replyToLine(event.replyToken, { type: 'text', text: aiResponse });
-        // 通常のAI応答はDB記録対象外（Clalaさんの要望により）
+        const aiResponse = await generateGeminiResponse(userId, messageText); // Gemini APIを呼び出す関数
+        await client.replyMessage(event.replyToken, { type: 'text', text: aiResponse });
+        // 通常のAI応答はDB記録対象外
     } catch (error) {
         console.error('Gemini API Error:', error);
-        await replyToLine(event.replyToken, { type: 'text', text: 'ごめんね、今ちょっとお話できないみたい。また後で試してみてくれるかな？💦' });
-        // エラーはDB記録対象
-        await recordToDatabase(userId, message, 'gemini_api_error', error.message);
+        await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、今ちょっとお話できないみたい。また後で試してみてくれるかな？💦' });
+        // Gemini APIのエラーは重要なため、DB記録
+        await recordToDatabase(userId, messageText, 'gemini_api_error', error.message);
     }
 }
 
-// ダミー関数 (実際はLINE Messaging APIのSDKなどを使用)
-async function replyToLine(replyToken, messageObject) {
-    console.log('✅ ユーザーへreplyMessageで応答しました。'); // ログ出力簡略化
-    // ここにLINE Messaging APIの返信処理を実装
-    // 例: await lineClient.replyMessage(replyToken, messageObject);
+/**
+ * 「見守り」関連キーワードを判定するヘルパー関数
+ * @param {string} text - ユーザーの入力テキスト
+ * @returns {boolean} - 見守りキーワードが含まれていればtrue
+ */
+function isWatchKeyword(text) {
+    const watchWords = ["見守り", "みまもり", "ミマモリ", "見まもり"]; // "ミまもり" も含める
+    return watchWords.some(w => text.toLowerCase().includes(w.toLowerCase()));
 }
 
-// ダミー関数 (実際はLINE Messaging APIでグループに通知)
+/**
+ * 緊急通知をLINEグループへ送信する関数（レート制限付き）
+ * @param {string} userId - 通知をトリガーしたユーザーのID
+ * @param {string} message - 危険ワードを含むメッセージ
+ */
 async function sendEmergencyNotificationToGroup(userId, message) {
-    // レート制限チェック
-    if (lastNotifyTime.has(userId) && (Date.now() - lastNotifyTime.get(userId) < 60000)) { // 60秒以内に同じユーザーからの通知があった場合
-        console.log(`通知スキップ: レート制限中 (ユーザー: ${userId})`);
+    const now = Date.now();
+    // ユーザーIDとメッセージ内容の組み合わせでクールダウンを管理
+    const key = `${userId}-${message}`;
+    const COOLDOWN_PERIOD = 5 * 60 * 1000; // 5分間のクールダウン
+
+    if (lastNotifyTime.has(key) && (now - lastNotifyTime.get(key) < COOLDOWN_PERIOD)) {
+        console.log(`🔇 通知スキップ: レート制限中 (ユーザー: ${userId}, メッセージ: "${message}") - 次回通知可能: ${new Date(lastNotifyTime.get(key) + COOLDOWN_PERIOD).toLocaleTimeString()}`);
         return;
     }
 
     try {
         console.log(`🚨 緊急通知: 理事長・役員グループへメッセージを送信。ユーザーID: ${userId}, 内容: "${message}"`);
-        // ここにLINE Messaging APIのプッシュ通知処理を実装
-        // 例: await lineClient.pushMessage(EMERGENCY_CONTACT_LINE_GROUP_ID, { type: 'text', text: `ユーザーID: ${userId} が危険ワード「${message}」を送信しました。` });
-        lastNotifyTime.set(userId, Date.now()); // 成功したら最終通知時間を記録
+        await client.pushMessage(OFFICER_GROUP_ID, {
+            type: 'text',
+            text: `⚠ 危険ワード検出: ユーザーID ${userId} が「${message}」と発言しました。`
+        });
+        lastNotifyTime.set(key, now); // 成功したら最終通知時間を記録
     } catch (error) {
+        // 危険ワード通知の送信失敗はコンソールには出力するが、DBには記録しない
         console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）: ${error.message}`);
-        // エラー詳細をDBに記録
-        await recordToDatabase(userId, message, 'danger_word_notification_failed', error.message);
+        // await recordToDatabase(userId, message, 'danger_word_notification_failed', error.message); // DB記録は停止
     }
 }
 
-
-// ダミー関数 (実際はデータベースへの保存処理)
+/**
+ * データベースにログを記録するダミー関数（エラーログ記録は一時停止）
+ * @param {string} userId - ユーザーID
+ * @param {string} message - ユーザーメッセージまたはイベントデータ
+ * @param {string} type - ログの種類（例: 'admin_command', 'danger_word_detected'）
+ * @param {string|null} error - エラーメッセージ（オプション）
+ */
 async function recordToDatabase(userId, message, type, error = null) {
+    // エラーログのDB記録を停止する設定
+    if (error) {
+        console.log(`🔇 DBへのエラーログ記録スキップ: タイプ=${type}, エラー=${error}`);
+        return;
+    }
+
+    // 特定の種類のログはDBに記録しない（Clalaさんの要望）
+    const skipTypes = ['regular_ai_response', 'special_reply', 'inappropriate_word_detected'];
+    if (skipTypes.includes(type)) {
+        // console.log(`🔇 DB記録スキップ: タイプ=${type}`);
+        return;
+    }
+
     const timestamp = new Date().toISOString();
     const record = {
         userId,
@@ -685,37 +724,46 @@ async function recordToDatabase(userId, message, type, error = null) {
         error: error
     };
 
-    // フィルタリング対象のエラーメッセージ（部分一致）
-    const ignorableErrorMessages = [
-        "ReplyMessage送信中またはログ記録中にエラーが発生しました", // LINEへのReply失敗関連
-        "リクエストはステータスコード400で 失敗しました", // APIの形式エラーなど
-        "危険ワード通知の送信に失敗しました" // 通知失敗
-    ];
-
-    // エラーが存在し、かつフィルタリング対象のエラーメッセージに一致する場合、記録をスキップ
-    if (error && ignorableErrorMessages.some(errMsg => error.includes(errMsg))) {
-        console.log('🔇 DB記録スキップ: 無視可能なエラー');
-        return;
-    }
-
-    // データベース記録はログに詳細を出力
-    console.log('💾 DBに記録:', record);
-    // ここにデータベースへの保存ロジックを実装
+    console.log('💾 DBに記録:', record); // 記録されるログのみ出力
+    // ここに実際のデータベース（例: MongoDB, Firestore）への保存ロジックを実装
     // 例: await db.collection('messages').add(record);
 }
 
-// ダミー関数 (実際はGemini APIの呼び出し)
+/**
+ * Gemini APIを呼び出し、AIの応答を生成するダミー関数
+ * ※実際にはGemini APIを呼び出すコードに置き換えてください。
+ * @param {string} userId - ユーザーID
+ * @param {string} userMessage - ユーザーのメッセージ
+ * @returns {Promise<string>} - AIの応答テキスト
+ */
 async function generateGeminiResponse(userId, userMessage) {
-    // console.log(`Gemini API呼び出し: UserID: ${userId}, Message: ${userMessage}`); // Gemini呼び出しログは通常は不要
-    // ここにGemini APIの呼び出しロジックを実装
-    // 'gemini-1.5-flash-latest'または 'gemini-1.5-pro-latest' を使用
-    // systemInstructionをプロンプトに含める
-    const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`;
-    // 例: const result = await geminiModel.generateContent(fullPrompt);
-    // return result.response.text();
+    // Gemini API呼び出しログはRenderに表示しない
+    // console.log(`Gemini API呼び出し: UserID: ${userId}, Message: ${userMessage}`);
 
-    // デモ用: specialRepliesMapにない場合のGeminiの挙動を再現
-    // 実際にGemini APIを使う場合はこの部分を置き換えます
+    const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`;
+    // 実際のGemini API呼び出しの例:
+    /*
+    let chatHistory = [];
+    chatHistory.push({ role: "user", parts: [{ text: fullPrompt }] });
+    const payload = { contents: chatHistory };
+    const apiKey = ""; // Canvas環境では自動で提供される
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+    const response = await fetch(apiUrl, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify(payload)
+           });
+    const result = await response.json();
+    if (result.candidates && result.candidates.length > 0 &&
+        result.candidates[0].content && result.candidates[0].content.parts &&
+        result.candidates[0].content.parts.length > 0) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      throw new Error("Gemini APIからの応答が期待された形式ではありません。");
+    }
+    */
+
+    // デモ用: 特定のキーワードに対するダミー応答
     if (userMessage.includes("好きなアニメ") && !userMessage.includes("さっきも話したけど")) {
         return "好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖";
     }
@@ -737,11 +785,11 @@ async function generateGeminiResponse(userId, userMessage) {
     if (userMessage.includes("あやしい") || userMessage.includes("胡散臭い")) {
         return "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖";
     }
-    if (inappropriateWords.some(word => userMessage.includes(word))) { // 不適切ワードのチェック
-        return "ごめんね、その内容には答えられないよ…。"; // 不適切ワードの固定メッセージ
+    if (inappropriateWords.some(word => userMessage.includes(word))) {
+        return "ごめんね、その内容には答えられないよ…。";
     }
     if (userMessage.includes("病気") || userMessage.includes("薬") || userMessage.includes("治療")) {
-        return "わたしにはわからないけど、がんばったね🌸"; // 医療・健康に関する共感メッセージ
+        return "わたしにはわからないけど、がんばったね🌸";
     }
     if (userMessage.toLowerCase().includes("こころちゃんいるかな～？")) {
         return "こころちゃん、ここにいるよ〜！どうしたの？🌸";
@@ -752,63 +800,72 @@ async function generateGeminiResponse(userId, userMessage) {
     if (userMessage.includes("1+9は")) {
         return "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
     }
+    if (userMessage.includes("誰が君を作ったの？") || userMessage.includes("誰がおまえを開発したの？") || userMessage.includes("誰が作ったの？")) {
+        return "NPO法人コネクトの理事長が、みんなを守りたいって作ったんだよ💖";
+    }
 
-    return `そうだね、${userMessage}んだね😊`; // デフォルトのオウム返し
+    return `そうだね、${userMessage}なんだね😊`; // デフォルトのオウム返し
 }
 
-// スケジュールされた見守りメッセージ送信の例 (実際はCronジョブやCloud Schedulerなどでトリガー)
+/**
+ * 毎日定時に見守りメッセージを送信する関数（ダミー）
+ * ※実際にはCloud SchedulerやCronジョブなどで定期的にトリガーする必要があります。
+ */
 async function sendDailyWatchMessage() {
     const currentTime = new Date();
-    // 毎日午後3時に実行される想定 (この関数自体は毎日トリガーされる必要がある)
+    // 毎日午後3時に実行される想定
     if (currentTime.getHours() === 15 && currentTime.getMinutes() === 0) {
         // 見守りサービス登録済みの全ユーザーを取得 (ダミーデータ)
-        const watchUsers = ['user1', 'user2']; 
+        const watchUsers = ['user1', 'user2']; // 実際にはDBから取得
+
         const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)]; // 30通りからランダム選択
 
         for (const userId of watchUsers) {
-            await replyToLine(userId, { type: 'text', text: randomMessage });
-            // 見守りメッセージ送信もDB記録対象（後で未返信をチェックするため）
-            await recordToDatabase(userId, randomMessage, 'watch_message_sent');
+            try {
+                await client.pushMessage(userId, { type: 'text', text: randomMessage });
+                await recordToDatabase(userId, randomMessage, 'watch_message_sent');
+            } catch (error) {
+                console.error(`❌ 見守りメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`);
+                // DB記録は行わない
+            }
         }
     }
 }
 
-// 未返信チェックと緊急通知の例 (実際はCronジョブやCloud Schedulerなどでトリガー)
+/**
+ * 未返信ユーザーをチェックし、リマインダーや緊急通知を送信する関数（ダミー）
+ * ※実際にはCloud SchedulerやCronジョブなどで定期的にトリガーする必要があります。
+ */
 async function checkUnansweredMessages() {
     // 24時間以上返信がないユーザーをDBから取得 (ダミーデータ)
-    const unanswered24hUsers = ['user1']; 
+    const unanswered24hUsers = ['user1']; // 実際にはDBから取得
     for (const userId of unanswered24hUsers) {
-        await replyToLine(userId, { type: 'text', text: '見てくれたかな？😊 こころちゃん、ちょっと心配してるよ💖' });
-        // リマインダー送信もDB記録対象
-        await recordToDatabase(userId, 'リマインダーメッセージ送信', 'watch_reminder_sent');
+        try {
+            await client.pushMessage(userId, { type: 'text', text: '見てくれたかな？😊 こころちゃん、ちょっと心配してるよ💖' });
+            await recordToDatabase(userId, 'リマインダーメッセージ送信', 'watch_reminder_sent');
+        } catch (error) {
+            console.error(`❌ リマインダーメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`);
+            // DB記録は行わない
+        }
     }
 
     // 29時間以上返信がないユーザーをDBから取得 (ダミーデータ)
-    const unanswered29hUsers = ['user1']; 
+    const unanswered29hUsers = ['user1']; // 実際にはDBから取得
     for (const userId of unanswered29hUsers) {
-        // 理事長・役員グループへ緊急通知
-        await sendEmergencyNotificationToGroup(userId, '見守りサービス：29時間以上未返信');
-        // 緊急通知もDB記録対象
-        await recordToDatabase(userId, '緊急連絡先へ通知 (29時間未返信)', 'watch_emergency_notified');
+        try {
+            await sendEmergencyNotificationToGroup(userId, '見守りサービス：29時間以上未返信');
+            await recordToDatabase(userId, '緊急連絡先へ通知 (29時間未返信)', 'watch_emergency_notified');
+        } catch (error) {
+            console.error(`❌ 緊急連絡先への通知失敗（ユーザー: ${userId}）: ${error.message}`);
+            // DB記録は行わない
+        }
     }
 }
 
-// これらの関数は、環境に応じて適切なトリガー（例: LINE Webhook、Cloud FunctionsのHTTPトリガー、Cloud Scheduler）で呼び出す必要があります。
-// 以下のエクスポートはCloud Functionsなどを想定した例です。
-// exports.lineWebhook = async (req, res) => {
-//     const events = req.body.events;
-//     for (const event of events) {
-//         await handleEvent(event);
-//     }
-//     res.status(200).send('OK');
-// };
-
-// exports.scheduledWatchMessage = async (req, res) => {
-//     await sendDailyWatchMessage();
-//     res.status(200).send('OK');
-// };
-
-// exports.scheduledCheckUnanswered = async (req, res) => {
-//     await checkUnansweredMessages();
-//     res.status(200).send('OK');
-// };
+// サーバーを起動
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    // 定期実行関数は本番環境ではCloud Schedulerなどと連携
+    // 例: setInterval(sendDailyWatchMessage, 60 * 1000); // 1分ごとにチェック (デモ用)
+    // setInterval(checkUnansweredMessages, 60 * 1000); // 1分ごとにチェック (デモ用)
+});
