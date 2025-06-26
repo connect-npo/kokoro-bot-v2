@@ -99,7 +99,7 @@ const inappropriateWords = [
 const lastNotifyTime = new Map();
 
 // 【1】危険ワード（子ども・全年齢向け）のクイックリプライと詳細テキストメッセージ
-// クイックリプライメッセージ
+// クイックリプライメッセージ（警察・救急のみ）
 const dangerQuickReplyMessage = {
   type: "text",
   text: "緊急のときは、すぐに以下の連絡先に電話してください📞",
@@ -117,18 +117,11 @@ const dangerQuickReplyMessage = {
         type: "action",
         action: {
           type: "uri",
-          label: "� 救急に電話（119）",
+          label: "🚑 救急に電話（119）",
           uri: "tel:119"
         }
-      },
-      {
-        type: "action",
-        action: {
-          type: "uri",
-          label: "📱 理事長に電話（090-4839-3313）", // 理事長電話番号はTelリンクからハイフンを除去
-          uri: "tel:09048393313"
-        }
       }
+      // 理事長電話番号はクイックリプライから削除し、詳細テキストに記載
     ]
   }
 };
@@ -155,11 +148,16 @@ Webサイト: https://www.fukushihoken.metro.tokyo.lg.jp/kensui/kokoro/soudan.ht
 🔸 よりそいチャット（SNS相談）
 https://yorisoi-chat.jp（8時〜22:30、受付は22時まで）
 
+📣【困ったときの最後の砦】
+コネクト理事長に相談
+090-4839-3313
+（つながらない場合があります）
+
 🌸ひとりでがまんしないでね。こころちゃんも、あなたのことをたいせつに思っています💖
 `;
 
 // 【2】詐欺ワード（大人向け）のクイックリプライと詳細テキストメッセージ
-// クイックリプライメッセージ
+// クイックリプライメッセージ（110番のみ）
 const scamQuickReplyMessage = {
   type: "text",
   text: "⚠️ 詐欺やトラブルにあったかも？と感じたら…",
@@ -169,34 +167,11 @@ const scamQuickReplyMessage = {
         type: "action",
         action: {
           type: "uri",
-          label: "🔹 多摩市消費生活センター（042-374-9595）",
-          uri: "tel:0423749595" // Telリンクからハイフンを除去
-        }
-      },
-      {
-        type: "action",
-        action: {
-          type: "uri",
-          label: "🔹 多摩市防災安全課・防犯担当（042-338-6841）",
-          uri: "tel:0423386841" // Telリンクからハイフンを除去
-        }
-      },
-      {
-        type: "action",
-        action: {
-          type: "uri",
           label: "👮‍♂️ 緊急時は迷わず 110番 に通報",
           uri: "tel:110"
         }
-      },
-      {
-        type: "action",
-        action: {
-          type: "uri",
-          label: "📱 コネクト理事長に相談（090-4839-3313）", // 理事長電話番号はTelリンクからハイフンを除去
-          uri: "tel:09048393313"
-        }
       }
+      // 他の電話番号はクイックリプライから削除し、詳細テキストに記載
     ]
   }
 };
@@ -206,7 +181,18 @@ const scamDetailedTextMessage = `
 ⚠️ それはもしかすると詐欺の可能性があります。
 
 まずは落ち着いて行動してくださいね。
-だれかに相談することも、大切な一歩ですよ💡
+
+📛【相談先】
+🔹 多摩市消費生活センター
+042-374-9595（9:30〜16:00）
+
+🔹 多摩市防災安全課・防犯担当
+042-338-6841（8:30〜17:00）
+
+📣【最後の砦】
+コネクト理事長に相談
+090-4839-3313
+（つながらない場合があります）
 
 🕊️ あなたの安心と安全を守るために、すぐに相談してね。
 `;
@@ -291,7 +277,7 @@ const modelConfig = {
 
 // 30通りの見守りメッセージ
 const watchMessages = [
-    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
+    "こんにちは� こころちゃんだよ！ 今日も元気にしてるかな？💖",
     "やっほー！ こころだよ😊 いつも応援してるね！",
     "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
     "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
@@ -717,7 +703,6 @@ async function sendDailyWatchMessage() {
  * ※実際にはCloud SchedulerやCronジョブなどで定期的にトリガーする必要があります。
  */
 async function checkUnansweredMessages() {
-    // 24時間以上返信がないユーザーをDBから取得 (ダミーデータ)
     const unanswered24hUsers = ['user1']; // 実際にはDBから取得
     for (const userId of unanswered24hUsers) {
         try {
@@ -728,7 +713,6 @@ async function checkUnansweredMessages() {
         }
     }
 
-    // 29時間以上返信がないユーザーをDBから取得 (ダミーデータ)
     const unanswered29hUsers = ['user1']; // 実際にはDBから取得
     for (const userId of unanswered29hUsers) {
         try {
