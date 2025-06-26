@@ -2,7 +2,7 @@
 // 例: process.env.CHANNEL_ACCESS_TOKEN, process.env.CHANNEL_SECRET, process.env.EMERGENCY_CONTACT_PHONE_NUMBER
 const CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN'; // LINE Botのチャンネルアクセストークン
 const CHANNEL_SECRET = 'YOUR_CHANNEL_SECRET';     // LINE Botのチャンネルシークレット
-const EMERGENCY_CONTACT_PHONE_NUMBER = '09048393313'; // こころちゃん事務局の緊急連絡先電話番号（理事長ダイヤル）
+const EMERGENCY_CONTACT_PHONE_NUMBER = '09048393313'; // 理事長ダイヤル
 const EMERGENCY_CONTACT_LINE_GROUP_ID = 'YOUR_LINE_GROUP_ID'; // 理事長や役員グループのLINEグループID
 
 // 危険ワードリスト
@@ -183,10 +183,18 @@ const emergencyFlexTemplate = {
                 "height": "sm",
                 "action": {
                     "type": "uri",
-                    "label": "こころちゃん事務局 (電話)",
+                    "label": "理事長に電話",
                     "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
                 },
                 "color": "#FFC0CB"
+            },
+            { // ここに新しいテキストコンポーネントを追加
+                "type": "text",
+                "text": "💡こころちゃんはみんなのお話を聞くことはできるけど、\n\n命があぶないときや、すぐに助けがほしいときは…\n**110番（けいさつ）や119番（きゅうきゅうしゃ🚑）**に電話してもいいんだからね💖\n\nひとりでがまんしないでね🌸",
+                "wrap": true,
+                "margin": "sm",
+                "size": "xs",
+                "color": "#666666"
             }
         ]
     }
@@ -269,10 +277,18 @@ const scamFlexTemplate = {
                 "height": "sm",
                 "action": {
                     "type": "uri",
-                    "label": "こころちゃん事務局 (電話)",
+                    "label": "理事長に電話",
                     "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
                 },
                 "color": "#FFC0CB"
+            },
+            { // ここに新しいテキストコンポーネントを追加
+                "type": "text",
+                "text": "もし少しでも不安を感じたら、**迷わず警察（110番）**に相談することも大切です。信頼できる機関があなたの味方になります。",
+                "wrap": true,
+                "margin": "sm",
+                "size": "xs",
+                "color": "#666666"
             }
         ]
     }
@@ -474,6 +490,13 @@ async function handleEvent(event) {
     const userId = event.source.userId;
     const message = event.message.type === 'text' ? event.message.text : '';
 
+    // Renderのログへの出力抑制
+    // 通常のユーザーメッセージはログに出力しないようにする
+    if (!message.includes('こころちゃんいるかな～？') && !message.includes('げんきかな？') && !message.includes('1+9は')) {
+        console.log(`[役職] ${process.env.RENDER_EXTERNAL_HOSTNAME || 'kokoro-bot-v2.onrender.com'} /webhookクライアントIP="${event.source.ip}" リクエストID="${event.webhookEventId}" ユーザーエージェント="LineBotWebhook/2.0"`);
+        console.log(`ユーザーからのメッセージ: ${message}`);
+    }
+
     // 管理者コマンドの処理
     if (message.toLowerCase() === '/unlock') {
         // ロック解除や状態リセットのロジックをここに実装
@@ -517,7 +540,7 @@ async function handleEvent(event) {
     const foundDangerWord = dangerWords.some(word => message.includes(word));
     if (foundDangerWord) {
         await replyToLine(event.replyToken, { type: 'flex', altText: "緊急時", contents: emergencyFlexTemplate });
-        // 理事長・役員グループへ緊急通知 (実際はMessaging APIで別途送信)
+        // 理事長・役員グループへ緊急通知
         await sendEmergencyNotificationToGroup(userId, message);
         // 危険ワードは重要なので、DB記録対象
         await recordToDatabase(userId, message, 'danger_word_detected');
@@ -565,14 +588,14 @@ async function handleEvent(event) {
 
 // ダミー関数 (実際はLINE Messaging APIのSDKなどを使用)
 async function replyToLine(replyToken, messageObject) {
-    console.log('LINEに返信:', messageObject);
+    console.log('✅ ユーザーへreplyMessageで応答しました。'); // ログ出力簡略化
     // ここにLINE Messaging APIの返信処理を実装
     // 例: await lineClient.replyMessage(replyToken, messageObject);
 }
 
 // ダミー関数 (実際はLINE Messaging APIでグループに通知)
 async function sendEmergencyNotificationToGroup(userId, message) {
-    console.log(`緊急通知をグループ ${EMERGENCY_CONTACT_LINE_GROUP_ID} へ送信: ユーザーID ${userId} から危険ワード "${message}"`);
+    console.log(`🚨 緊急通知: 理事長・役員グループへメッセージを送信。ユーザーID: ${userId}, 内容: "${message}"`);
     // ここにLINE Messaging APIのプッシュ通知処理を実装
     // 例: await lineClient.pushMessage(EMERGENCY_CONTACT_LINE_GROUP_ID, { type: 'text', text: `ユーザーID: ${userId} が危険ワード「${message}」を送信しました。` });
 }
@@ -587,14 +610,15 @@ async function recordToDatabase(userId, message, type, error = null) {
         timestamp,
         error: error
     };
-    console.log('DBに記録:', record);
+    // データベース記録はログに詳細を出力
+    console.log('💾 DBに記録:', record);
     // ここにデータベースへの保存ロジックを実装
     // 例: await db.collection('messages').add(record);
 }
 
 // ダミー関数 (実際はGemini APIの呼び出し)
 async function generateGeminiResponse(userId, userMessage) {
-    console.log(`Gemini API呼び出し: UserID: ${userId}, Message: ${userMessage}`);
+    // console.log(`Gemini API呼び出し: UserID: ${userId}, Message: ${userMessage}`); // Gemini呼び出しログは通常は不要
     // ここにGemini APIの呼び出しロジックを実装
     // 'gemini-1.5-flash-latest'または 'gemini-1.5-pro-latest' を使用
     // systemInstructionをプロンプトに含める
@@ -602,11 +626,12 @@ async function generateGeminiResponse(userId, userMessage) {
     // 例: const result = await geminiModel.generateContent(fullPrompt);
     // return result.response.text();
 
-    // デモ用: 簡単なオウム返しと設定反映
-    if (userMessage.includes("好きなアニメ")) {
+    // デモ用: specialRepliesMapにない場合のGeminiの挙動を再現
+    // 実際にGemini APIを使う場合はこの部分を置き換えます
+    if (userMessage.includes("好きなアニメ") && !userMessage.includes("さっきも話したけど")) {
         return "好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖";
     }
-    if (userMessage.includes("好きなアーティスト")) {
+    if (userMessage.includes("好きなアーティスト") && !userMessage.includes("さっきも話したけど")) {
         return "好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸";
     }
     if (userMessage.includes("日本語がおかしい")) {
@@ -624,12 +649,22 @@ async function generateGeminiResponse(userId, userMessage) {
     if (userMessage.includes("あやしい") || userMessage.includes("胡散臭い")) {
         return "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖";
     }
-    if (userMessage.includes("パンツ") || userMessage.includes("ストッキング") || userMessage.includes("むくむく") || userMessage.includes("勃起") || userMessage.includes("精液") || userMessage.includes("気持ちいい") || userMessage.includes("おしべとめしべ")) {
+    if (inappropriateWords.some(word => userMessage.includes(word))) { // 不適切ワードのチェック
         return "ごめんね、その内容には答えられないよ…。"; // 不適切ワードの固定メッセージ
     }
     if (userMessage.includes("病気") || userMessage.includes("薬") || userMessage.includes("治療")) {
         return "わたしにはわからないけど、がんばったね🌸"; // 医療・健康に関する共感メッセージ
     }
+    if (userMessage.toLowerCase().includes("こころちゃんいるかな～？")) {
+        return "こころちゃん、ここにいるよ〜！どうしたの？🌸";
+    }
+    if (userMessage.toLowerCase().includes("げんきかな？")) {
+        return "うん、こころちゃんは元気だよ！あなたは元気にしてるかな？💖";
+    }
+    if (userMessage.includes("1+9は")) {
+        return "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
+    }
+
 
     return `そうだね、${userMessage}なんだね😊`; // デフォルトのオウム返し
 }
@@ -639,8 +674,8 @@ async function sendDailyWatchMessage() {
     const currentTime = new Date();
     // 毎日午後3時に実行される想定 (この関数自体は毎日トリガーされる必要がある)
     if (currentTime.getHours() === 15 && currentTime.getMinutes() === 0) {
-        // 見守りサービス登録済みの全ユーザーを取得
-        const watchUsers = ['user1', 'user2']; // ダミーユーザーリスト
+        // 見守りサービス登録済みの全ユーザーを取得 (ダミーデータ)
+        const watchUsers = ['user1', 'user2']; 
         const watchMessages = [
             "元気にしてるかな？💖 こころちゃんはあなたのこと応援してるよ！",
             "今日はどうだった？😊 無理せず、ゆっくり過ごしてね。",
@@ -659,18 +694,19 @@ async function sendDailyWatchMessage() {
 
 // 未返信チェックと緊急通知の例 (実際はCronジョブやCloud Schedulerなどでトリガー)
 async function checkUnansweredMessages() {
-    // 24時間以上返信がないユーザーをDBから取得
-    const unanswered24hUsers = ['user1']; // ダミーユーザーリスト
+    // 24時間以上返信がないユーザーをDBから取得 (ダミーデータ)
+    const unanswered24hUsers = ['user1']; 
     for (const userId of unanswered24hUsers) {
         await replyToLine(userId, { type: 'text', text: '見てくれたかな？😊 こころちゃん、ちょっと心配してるよ💖' });
         // リマインダー送信もDB記録対象
         await recordToDatabase(userId, 'リマインダーメッセージ送信', 'watch_reminder_sent');
     }
 
-    // 29時間以上返信がないユーザーをDBから取得
-    const unanswered29hUsers = ['user1']; // ダミーユーザーリスト
+    // 29時間以上返信がないユーザーをDBから取得 (ダミーデータ)
+    const unanswered29hUsers = ['user1']; 
     for (const userId of unanswered29hUsers) {
-        await sendEmergencyNotificationToGroup(userId, '29時間以上未返信');
+        // 理事長・役員グループへ緊急通知
+        await sendEmergencyNotificationToGroup(userId, '見守りサービス：29時間以上未返信');
         // 緊急通知もDB記録対象
         await recordToDatabase(userId, '緊急連絡先へ通知 (29時間未返信)', 'watch_emergency_notified');
     }
