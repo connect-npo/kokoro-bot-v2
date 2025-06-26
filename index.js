@@ -155,7 +155,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
 **特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
-「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
+「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。」
     `;
 
     try {
@@ -179,7 +179,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
         return response.text();
     } catch (error) {
         console.error("Gemini AI応答生成エラー:", error.message);
-        await logErrorToDb(null, "Gemini AI応答生成エラー", { error: error.message, userMessage: userMessage, model: modelToUse });
+        await logErrorToDb(null, "Gemini AI応答生成エラー", { error: error.message, userMessage: userMessage, model: modelToUse, systemInstruction: systemInstruction }); // systemInstructionもログに追加
         return "ごめんなさい、今、AIがうまくお話できないみたいです。少し時間を置いてから、もう一度話しかけてみてください🌸";
     }
 }
@@ -583,7 +583,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                                         "action": {
                                             "type": "postback",
                                             "label": "利用する",
-                                            "data": "action=watch_yes&step=ask_watch_service",
+                                            "data": "action=watch_yes", // stepパラメータは不要
                                             "displayText": "見守りサービスを利用する"
                                         },
                                         "style": "primary",
@@ -595,7 +595,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                                         "action": {
                                             "type": "postback",
                                             "label": "利用しない",
-                                            "data": "action=watch_no&step=ask_watch_service",
+                                            "data": "action=watch_no", // stepパラメータは不要
                                             "displayText": "見守りサービスを利用しない"
                                         },
                                         "style": "secondary",
@@ -606,7 +606,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                                         "action": {
                                             "type": "postback",
                                             "label": "緊急連絡先を登録/変更",
-                                            "data": "action=register_emergency_contact&step=ask_emergency_contact",
+                                            "data": "action=register_emergency_contact", // stepパラメータは不要
                                             "displayText": "緊急連絡先を登録/変更"
                                         },
                                         "style": "secondary",
@@ -618,9 +618,14 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                     }
                 }
             };
-            await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: 'ask_watch_service' } });
+            // ユーザーが見守りサービスメニューを呼び出した場合、登録ステップをリセットまたは設定
+            if (!user.wantsWatchCheck) { // 未利用の場合のみ、利用するかどうか尋ねるステップへ
+                await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: 'ask_watch_service' } });
+            } else { // 利用中の場合は、メニュー表示のみでステップは設定しない
+                 await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: null } }); // 既存のステップをクリア
+            }
             messageHandled = true;
-        } else if (action === 'register_emergency_contact' && step === 'ask_emergency_contact') {
+        } else if (action === 'register_emergency_contact') { // stepパラメータを削除
             await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: 'ask_emergency_contact' } });
             replyMessageObject = { type: 'text', text: '緊急連絡先を登録します。\nご家族や信頼できる方のお名前と電話番号を教えてください。\n\n例: 母 090-1234-5678\n（登録しない場合は「登録しない」と送ってください）' };
             messageHandled = true;
@@ -944,7 +949,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 isPermanentlyLocked: false,
                 lastPermanentLockNotifiedAt: null,
                 language: 'ja',
-                useProForNextConsultation: false
+                useProForNextConsultation: false // 新しいフラグ
             };
             try {
                 await usersCollection.insertOne(user);
@@ -971,7 +976,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
             if (user.lastPermanentLockNotifiedAt === undefined) updateFields.lastPermanentLockNotifiedAt = null;
             if (user.thirdReminderSent === undefined) updateFields.thirdReminderSent = false;
             if (user.language === undefined) updateFields.language = 'ja';
-            if (user.useProForNextConsultation === undefined) updateFields.useProForNextConsultation = false;
+            if (user.useProForNextConsultation === undefined) updateFields.useProForNextConsultation = false; // 新しいフラグの初期化
             if (user.emergencyContact === undefined) updateFields.emergencyContact = null;
             if (user.registrationStep === undefined) updateFields.registrationStep = null;
             if (user.scheduledMessageSent === undefined) updateFields.scheduledMessageSent = false;
@@ -994,18 +999,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
         if (event.type === 'postback' && event.postback.data) {
             console.log('✅ Postbackイベントを受信しました。');
-            const data = new URLSearchParams(event.postback.data);
-            const action = data.get('action');
-
             try {
-                const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, `（Postback: ${action}）`);
+                const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, `（Postback: ${event.postback.data}）`);
                 if (handledByWatchService) {
                     res.status(200).send('OK');
                     return;
                 }
             } catch (error) {
                 console.error("❌ Postbackイベント処理エラー:", error.message);
-                await logErrorToDb(userId, "Postbackイベント処理エラー", { error: error.message, userId: userId, postbackData: action });
+                await logErrorToDb(userId, "Postbackイベント処理エラー", { error: error.message, userId: userId, postbackData: event.postback.data });
             }
         }
 
@@ -1018,6 +1020,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
             let logType = 'normal';
             let messageHandled = false;
 
+            // 管理者コマンドを最優先で処理
             if (isBotAdmin(userId)) {
                 const unlockMatch = userMessage.match(/^\/unlock (U[0-9a-f]{32})$/);
                 if (unlockMatch) {
@@ -1052,26 +1055,26 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 }
             }
 
+            // 「そうだん」コマンドを処理（管理者コマンドの次に優先）
             if (!messageHandled && (userMessage === 'そうだん' || userMessage === '相談')) {
                 try {
-                    if (user) {
-                        await usersCollection.updateOne(
-                            { userId: userId },
-                            { $set: { flaggedMessageCount: 0, isAccountSuspended: false, suspensionReason: null, isPermanentlyLocked: false, lastPermanentLockNotifiedAt: null, useProForNextConsultation: true } }
-                        );
-                        replyMessageObject = { type: 'text', text: '🌸 会話の回数制限をリセットしました。これで、またいつでもお話しできますよ💖\n\n相談モードに入ったので、もっとお話しできるよ😊なんでも相談してね！でもこの会話は、安全のために記録されるから、困った時に使ってね💖' };
-                    } else {
-                        replyMessageObject = { type: 'text', text: 'ごめんなさい、アカウント情報が見つかりませんでした。' };
-                    }
+                    // 相談モードに切り替え、初回Pro利用フラグを立てる
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { flaggedMessageCount: 0, isAccountSuspended: false, suspensionReason: null, isPermanentlyLocked: false, lastPermanentLockNotifiedAt: null, useProForNextConsultation: true } }
+                    );
+                    replyMessageObject = { type: 'text', text: '🌸 会話の回数制限をリセットしました。これで、またいつでもお話しできますよ💖\n\n相談モードに入ったので、もっとお話しできるよ😊なんでも相談してね！でもこの会話は、安全のために記録されるから、困った時に使ってね💖' };
                     logType = 'conversation_limit_reset_and_consultation_mode';
                     messageHandled = true;
                 } catch (error) {
                     console.error("❌ 「そうだん」コマンド処理エラー:", error.message);
                     await logErrorToDb(userId, "相談モードリセットエラー", { error: error.message, userId: userId });
                     replyMessageObject = { type: 'text', text: `❌ 「そうだん」コマンド処理中にエラーが発生しました: ${error.message}` };
+                    messageHandled = true; // エラー発生時も処理済みとする
                 }
             }
 
+            // 見守りサービス関連の処理
             if (!messageHandled) {
                 const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
                 if (handledByWatchService) {
@@ -1079,6 +1082,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 }
             }
 
+            // 通常のAI応答ロジック
             if (!messageHandled) {
                 if (checkContainsInappropriateWords(userMessage)) {
                     replyMessageObject = { type: 'text', text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖" };
@@ -1141,9 +1145,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
                         replyMessageObject = { type: 'text', text: specialReply };
                         responsedBy = 'こころちゃん（固定応答）';
                     } else {
-                        let modelForGemini = modelConfig.defaultModel;
+                        // Gemini AIモデルの選択ロジック
+                        let modelForGemini = modelConfig.defaultModel; // デフォルトはFlash
                         if (user.useProForNextConsultation) {
-                            modelForGemini = modelConfig.proModel;
+                            modelForGemini = modelConfig.proModel; // 相談モード初回ならPro
                             console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`);
                         }
 
@@ -1152,9 +1157,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
                         responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
                         logType = 'ai_generated';
 
+                        // Proモデルを使用したら、フラグをリセット
                         if (user.useProForNextConsultation) {
                             await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } });
-                            user.useProForNextConsultation = false;
+                            user.useProForNextConsultation = false; // userオブジェクトも更新
                             console.log(`⭐ユーザー ${userId} のuseProForNextConsultationフラグをリセットしました。`);
                         }
                     }
