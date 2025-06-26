@@ -1,9 +1,10 @@
 // index.js
 
 // LINE Messaging API SDK をインポート
-// `npm install @line/bot-sdk` でインストールしてください
+// `npm install @line/bot-sdk raw-body` でインストールしてください
 const line = require('@line/bot-sdk');
 const express = require('express');
+const getRawBody = require('raw-body'); // raw-bodyをインポート
 
 // 環境変数からLINEアクセストークンとシークレット、理事長グループIDを取得
 // Renderの環境変数設定を必ず確認してください
@@ -23,7 +24,29 @@ const client = new line.Client({
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json()); // JSONボディをパースするために追加
+// LINE Webhook用の生のボディを取得するミドルウェア
+// line.middlewareが署名検証のために生のボディを必要とするため、express.json()より前に配置します。
+app.use((req, res, next) => {
+    if (req.path === '/webhook') { // /webhookパスのみに適用
+        getRawBody(req, {
+            length: req.headers['content-length'],
+            limit: '1mb', // リクエストボディのサイズ上限を設定
+            encoding: req.charset || 'utf-8',
+        })
+        .then(buf => {
+            req.rawBody = buf; // 生のボディをreq.rawBodyに格納
+            next();
+        })
+        .catch(err => {
+            console.error('Raw body error:', err); // エラーはログに出力
+            res.status(500).send('Failed to parse raw body');
+        });
+    } else {
+        // Webhook以外のパスでは、必要に応じてexpress.json()を適用
+        express.json()(req, res, next);
+    }
+});
+
 
 // --- グローバル変数と設定 ---
 
@@ -277,9 +300,9 @@ const modelConfig = {
 
 // 30通りの見守りメッセージ
 const watchMessages = [
-    "こんにちは� こころちゃんだよ！ 今日も元気にしてるかな？💖",
+    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
     "やっほー！ こころだよ😊 いつも応援してるね！",
-    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
+    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ�",
     "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
     "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
