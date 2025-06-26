@@ -48,7 +48,8 @@ async function connectToMongoDB() {
             console.error("MongoDB URIが設定されていません。MongoDBに接続できません。");
             return null;
         }
-        dbClient = new MongoClient(config.mongodbUri, { useNewUrlParser: true, useUnifiedTopology: true });
+        // 非推奨オプションを削除
+        dbClient = new MongoClient(config.mongodbUri);
         await dbClient.connect();
         console.log("✅ MongoDBに接続しました！");
         return dbClient.db();
@@ -262,8 +263,11 @@ function checkContainsInappropriateWords(text) {
     const inappropriateWords = [
         "死ね", "殺す", "きもい", "うざい", "だるい", "ゴミ", "クズ", "バカ", "アホ",
         "ふざけんな", "やめろ", "うっせぇ", "カス", "ボケ", "痴漢", "わいせつ",
-        "犯罪", "危険ドラッグ", "覚せい剤", "大麻", "売春", "買春", "援助交際",
-        "自殺", "リストカット", "自傷", "虐待", "暴力", "いじめ",
+        // これらのワードは、危険ワード・詐欺ワードと重複する可能性があるので、
+        // 優先順位を考慮して調整する必要があるかもしれません。
+        // 現状は危険ワード・詐欺ワードを先にチェックするようにロジックを配置します。
+        // "犯罪", "危険ドラッグ", "覚せい剤", "大麻", "売春", "買春", "援助交際",
+        // "自殺", "リストカット", "自傷", "虐待", "暴力", "いじめ",
         "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "セックス", "フェラ", "オナニー", "ザーメン", "パイズリ", "潮吹き", "ハメ撮り", "射精", "勃起", "挿入", "絶頂", "膣", "ペニス", "クリトリス", "マンコ", "おっぱい", "お尻", "肛門", "変態", "淫行", "レイプ",
         "個人情報", "教えろ", "教えて", "住所", "電話番号", "ラインID", "パスワード", "クレジットカード", "口座番号", "暗証番号",
         "殺害", "爆破", "テロ", "銃", "ナイフ", "刃物", "危険物", "脅す", "誘拐", "拉致"
@@ -292,7 +296,8 @@ function checkContainsScamWords(text) {
         "レターパック", "電子マネー", "プリペイドカード", "コンビニで買って",
         "あなたの個人情報", "個人情報が漏洩", "緊急", "裁判", "訴訟", "逮捕", "未払い",
         "ウイルス", "感染", "修復", "クリック", "インストール", "ダウンロード",
-        "支援金", "助成金", "公的機関", "役所", "警察", "銀行", "証券会社", "弁護士"
+        "支援金", "助成金", "公的機関", "役所", "警察", "銀行", "証券会社", "弁護士",
+        "詐欺" // 「詐欺」という単語も追加
     ];
     return scamWords.some(word => text.includes(word));
 }
@@ -480,7 +485,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
         return false;
     }
 
-    if (action === 'watch_ok' || userMessage === '見守りOK' || userMessage === 'OK') {
+    if (action === 'watch_ok' || userMessage.toLowerCase() === '見守りok' || userMessage.toLowerCase() === 'ok') {
         if (user.wantsWatchCheck) {
             await usersCollection.updateOne(
                 { userId: userId },
@@ -501,7 +506,93 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
         }
     }
 
-    if (user.registrationStep) {
+    // 「見守り」を含むメッセージで、見守りサービスメニューを表示するロジックを優先
+    if (userMessage.includes('見守り') && !messageHandled) {
+        replyMessageObject = {
+            type: 'flex',
+            altText: '見守りサービスのご案内',
+            contents: {
+                "type": "bubble",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "🌸見守りサービス🌸",
+                            "weight": "bold",
+                            "size": "xl",
+                            "margin": "md",
+                            "align": "center",
+                            "color": "#FF69B4"
+                        },
+                        {
+                            "type": "text",
+                            "text": "3日に一度、私からメッセージを送ります。もし応答がなければ、状況に応じて緊急連絡先（任意）へ連絡を試みます。\n\n現在：**" + (user.wantsWatchCheck ? "利用中" : "停止中") + "**\n緊急連絡先：**" + (user.emergencyContact ? `${user.emergencyContact.name} (${user.emergencyContact.phone})` : "未登録") + "**",
+                            "wrap": true,
+                            "margin": "md"
+                        },
+                        {
+                            "type": "separator",
+                            "margin": "lg"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "spacing": "sm",
+                            "margin": "lg",
+                            "contents": [
+                                {
+                                    "type": "button",
+                                    "action": {
+                                        "type": "postback",
+                                        "label": "利用する",
+                                        "data": "action=watch_yes",
+                                        "displayText": "見守りサービスを利用する"
+                                    },
+                                    "style": "primary",
+                                    "color": "#FFB6C1",
+                                    "height": "sm"
+                                },
+                                {
+                                    "type": "button",
+                                    "action": {
+                                        "type": "postback",
+                                        "label": "利用しない",
+                                        "data": "action=watch_no",
+                                        "displayText": "見守りサービスを利用しない"
+                                    },
+                                    "style": "secondary",
+                                    "height": "sm"
+                                },
+                                {
+                                    "type": "button",
+                                    "action": {
+                                        "type": "postback",
+                                        "label": "緊急連絡先を登録/変更",
+                                        "data": "action=register_emergency_contact",
+                                        "displayText": "緊急連絡先を登録/変更"
+                                    },
+                                    "style": "secondary",
+                                    "height": "sm"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        };
+        // ユーザーが見守りサービスメニューを呼び出した場合、登録ステップをリセットまたは設定
+        if (!user.wantsWatchCheck) { // 未利用の場合のみ、利用するかどうか尋ねるステップへ
+            await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: 'ask_watch_service' } });
+        } else { // 利用中の場合は、メニュー表示のみでステップは設定しない
+             await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: null } }); // 既存のステップをクリア
+        }
+        messageHandled = true;
+    }
+
+
+    if (user.registrationStep && !messageHandled) { // メッセージがまだ処理されていない場合のみ
         switch (user.registrationStep) {
             case 'ask_watch_service':
                 if (action === 'watch_yes') {
@@ -543,90 +634,8 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                 }
                 break;
         }
-    } else {
-        if (userMessage === '見守りサービス') {
-            replyMessageObject = {
-                type: 'flex',
-                altText: '見守りサービスのご案内',
-                contents: {
-                    "type": "bubble",
-                    "body": {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "🌸見守りサービス🌸",
-                                "weight": "bold",
-                                "size": "xl",
-                                "margin": "md",
-                                "align": "center",
-                                "color": "#FF69B4"
-                            },
-                            {
-                                "type": "text",
-                                "text": "3日に一度、私からメッセージを送ります。もし応答がなければ、状況に応じて緊急連絡先（任意）へ連絡を試みます。\n\n現在：**" + (user.wantsWatchCheck ? "利用中" : "停止中") + "**\n緊急連絡先：**" + (user.emergencyContact ? `${user.emergencyContact.name} (${user.emergencyContact.phone})` : "未登録") + "**",
-                                "wrap": true,
-                                "margin": "md"
-                            },
-                            {
-                                "type": "separator",
-                                "margin": "lg"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "vertical",
-                                "spacing": "sm",
-                                "margin": "lg",
-                                "contents": [
-                                    {
-                                        "type": "button",
-                                        "action": {
-                                            "type": "postback",
-                                            "label": "利用する",
-                                            "data": "action=watch_yes", // stepパラメータは不要
-                                            "displayText": "見守りサービスを利用する"
-                                        },
-                                        "style": "primary",
-                                        "color": "#FFB6C1",
-                                        "height": "sm"
-                                    },
-                                    {
-                                        "type": "button",
-                                        "action": {
-                                            "type": "postback",
-                                            "label": "利用しない",
-                                            "data": "action=watch_no", // stepパラメータは不要
-                                            "displayText": "見守りサービスを利用しない"
-                                        },
-                                        "style": "secondary",
-                                        "height": "sm"
-                                    },
-                                    {
-                                        "type": "button",
-                                        "action": {
-                                            "type": "postback",
-                                            "label": "緊急連絡先を登録/変更",
-                                            "data": "action=register_emergency_contact", // stepパラメータは不要
-                                            "displayText": "緊急連絡先を登録/変更"
-                                        },
-                                        "style": "secondary",
-                                        "height": "sm"
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                }
-            };
-            // ユーザーが見守りサービスメニューを呼び出した場合、登録ステップをリセットまたは設定
-            if (!user.wantsWatchCheck) { // 未利用の場合のみ、利用するかどうか尋ねるステップへ
-                await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: 'ask_watch_service' } });
-            } else { // 利用中の場合は、メニュー表示のみでステップは設定しない
-                 await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: null } }); // 既存のステップをクリア
-            }
-            messageHandled = true;
-        } else if (action === 'register_emergency_contact') { // stepパラメータを削除
+    } else { // 登録ステップ中でない、かつ「見守り」キーワードで既に処理されてない場合
+        if (action === 'register_emergency_contact') {
             await usersCollection.updateOne({ userId: userId }, { $set: { registrationStep: 'ask_emergency_contact' } });
             replyMessageObject = { type: 'text', text: '緊急連絡先を登録します。\nご家族や信頼できる方のお名前と電話番号を教えてください。\n\n例: 母 090-1234-5678\n（登録しない場合は「登録しない」と送ってください）' };
             messageHandled = true;
@@ -1070,7 +1079,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 }
             }
 
-            // 見守りサービス関連の処理
+            // 見守りサービス関連の処理（「見守り」キーワードもここで処理されるように変更）
             if (!messageHandled) {
                 const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
                 if (handledByWatchService) {
@@ -1078,87 +1087,98 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 }
             }
 
+            // 危険ワードのチェックを最優先
+            if (!messageHandled && checkContainsDangerWords(userMessage)) {
+                const gptEmergencyText = await generateEmergencyReply(userMessage);
+                replyMessageObject = [
+                    { type: 'text', text: gptEmergencyText },
+                    {
+                        type: 'flex',
+                        altText: '⚠緊急時',
+                        contents: emergencyFlexTemplate
+                    }
+                ];
+                responsedBy = 'こころちゃん（危険ワード：GPT-4o）';
+                logType = 'danger_word';
+                messageHandled = true; // 危険ワードが処理された
+                try {
+                    const userDisplayName = await getUserDisplayName(userId);
+                    const emergencyNumber = config.emergencyContactPhoneNumber || "（システム緊急連絡先未設定）";
+                    const dangerAlertMessage = `🚨 緊急通知: ${userDisplayName}さん（LINE ID: ${userId}）が危険な言葉を検知しました: "${userMessage}"\n\nシステム設定の緊急連絡先: ${emergencyNumber}`;
+
+                    if (config.ownerUserId) {
+                        if (client && client.pushMessage) {
+                            await client.pushMessage(config.ownerUserId, { type: 'text', text: dangerAlertMessage });
+                            console.log(`🚨 理事長へ危険ワード通知を送信しました（ユーザー: ${userId}）`);
+                        } else {
+                            console.error("LINEクライアントが初期化されていないため理事長へ通知できません。");
+                            await logErrorToDb(config.ownerUserId, "LINEクライアント未初期化エラー (危険ワード owner)", { userId: config.ownerUserId });
+                        }
+                    }
+                    if (config.officerGroupId) {
+                        if (client && client.pushMessage) {
+                            await client.pushMessage(config.officerGroupId, { type: 'text', text: dangerAlertMessage });
+                            console.log(`🚨 オフィサーグループへ危険ワード通知を送信しました（ユーザー: ${userId}）`);
+                        } else {
+                            console.error("LINEクライアントが初期化されていないためオフィサーグループへ通知できません。");
+                            await logErrorToDb(config.officerGroupId, "LINEクライアント未初期化エラー (危険ワード group)", { userId: config.officerGroupId });
+                        }
+                    }
+                } catch (notificationError) {
+                    console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）:`, notificationError.message);
+                    await logErrorToDb(userId, "危険ワード通知送信失敗", { error: notificationError.message, userId: userId });
+                }
+            }
+
+            // 詐欺ワードのチェックを次に優先
+            if (!messageHandled && checkContainsScamWords(userMessage)) {
+                const gptScamText = await generateEmergencyReply(userMessage);
+                replyMessageObject = [
+                    { type: 'text', text: gptScamText },
+                    {
+                        type: 'flex',
+                        altText: '⚠詐欺注意',
+                        contents: scamFlexTemplate
+                    }
+                ];
+                responsedBy = 'こころちゃん（詐欺ワード：GPT-4o）';
+                logType = 'scam_word';
+                messageHandled = true; // 詐欺ワードが処理された
+            }
+
+
+            // 不適切ワードのチェック
+            if (!messageHandled && checkContainsInappropriateWords(userMessage)) {
+                replyMessageObject = { type: 'text', text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖" };
+                responsedBy = 'こころちゃん（不適切ワード）';
+                logType = 'inappropriate_word';
+                messageHandled = true; // 不適切ワードが処理された
+            }
+
             // 通常のAI応答ロジック
             if (!messageHandled) {
-                if (checkContainsInappropriateWords(userMessage)) {
-                    replyMessageObject = { type: 'text', text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖" };
-                    responsedBy = 'こころちゃん（不適切ワード）';
-                    logType = 'inappropriate_word';
-                } else if (checkContainsDangerWords(userMessage)) {
-                    const gptEmergencyText = await generateEmergencyReply(userMessage);
-                    replyMessageObject = [
-                        { type: 'text', text: gptEmergencyText },
-                        {
-                            type: 'flex',
-                            altText: '⚠緊急時',
-                            contents: emergencyFlexTemplate
-                        }
-                    ];
-                    responsedBy = 'こころちゃん（危険ワード：GPT-4o）';
-                    logType = 'danger_word';
-                    try {
-                        const userDisplayName = await getUserDisplayName(userId);
-                        const emergencyNumber = config.emergencyContactPhoneNumber || "（システム緊急連絡先未設定）";
-                        const dangerAlertMessage = `🚨 緊急通知: ${userDisplayName}さん（LINE ID: ${userId}）が危険な言葉を検知しました: "${userMessage}"\n\nシステム設定の緊急連絡先: ${emergencyNumber}`;
-
-                        if (config.ownerUserId) {
-                            if (client && client.pushMessage) {
-                                await client.pushMessage(config.ownerUserId, { type: 'text', text: dangerAlertMessage });
-                                console.log(`🚨 理事長へ危険ワード通知を送信しました（ユーザー: ${userId}）`);
-                            } else {
-                                console.error("LINEクライアントが初期化されていないため理事長へ通知できません。");
-                                await logErrorToDb(config.ownerUserId, "LINEクライアント未初期化エラー (危険ワード owner)", { userId: config.ownerUserId });
-                            }
-                        }
-                        if (config.officerGroupId) {
-                            if (client && client.pushMessage) {
-                                await client.pushMessage(config.officerGroupId, { type: 'text', text: dangerAlertMessage });
-                                console.log(`🚨 オフィサーグループへ危険ワード通知を送信しました（ユーザー: ${userId}）`);
-                            } else {
-                                console.error("LINEクライアントが初期化されていないためオフィサーグループへ通知できません。");
-                                await logErrorToDb(config.officerGroupId, "LINEクライアント未初期化エラー (危険ワード group)", { userId: config.officerGroupId });
-                            }
-                        }
-                    } catch (notificationError) {
-                        console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）:`, notificationError.message);
-                        await logErrorToDb(userId, "危険ワード通知送信失敗", { error: notificationError.message, userId: userId });
-                    }
-                } else if (checkContainsScamWords(userMessage)) {
-                    const gptScamText = await generateEmergencyReply(userMessage);
-                    replyMessageObject = [
-                        { type: 'text', text: gptScamText },
-                        {
-                            type: 'flex',
-                            altText: '⚠詐欺注意',
-                            contents: scamFlexTemplate
-                        }
-                    ];
-                    responsedBy = 'こころちゃん（詐欺ワード：GPT-4o）';
-                    logType = 'scam_word';
+                const specialReply = checkSpecialReply(userMessage);
+                if (specialReply) {
+                    replyMessageObject = { type: 'text', text: specialReply };
+                    responsedBy = 'こころちゃん（固定応答）';
                 } else {
-                    const specialReply = checkSpecialReply(userMessage);
-                    if (specialReply) {
-                        replyMessageObject = { type: 'text', text: specialReply };
-                        responsedBy = 'こころちゃん（固定応答）';
-                    } else {
-                        // Gemini AIモデルの選択ロジック
-                        let modelForGemini = modelConfig.defaultModel; // デフォルトはFlash
-                        if (user.useProForNextConsultation) {
-                            modelForGemini = modelConfig.proModel; // 相談モード初回ならPro
-                            console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`);
-                        }
+                    // Gemini AIモデルの選択ロジック
+                    let modelForGemini = modelConfig.defaultModel; // デフォルトはFlash
+                    if (user.useProForNextConsultation) {
+                        modelForGemini = modelConfig.proModel; // 相談モード初回ならPro
+                        console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`);
+                    }
 
-                        const aiResponse = await generateReply(userMessage, modelForGemini);
-                        replyMessageObject = { type: 'text', text: aiResponse };
-                        responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
-                        logType = 'ai_generated';
+                    const aiResponse = await generateReply(userMessage, modelForGemini);
+                    replyMessageObject = { type: 'text', text: aiResponse };
+                    responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
+                    logType = 'ai_generated';
 
-                        // Proモデルを使用したら、フラグをリセット
-                        if (user.useProForNextConsultation) {
-                            await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } });
-                            user.useProForNextConsultation = false; // userオブジェクトも更新
-                            console.log(`⭐ユーザー ${userId} のuseProForNextConsultationフラグをリセットしました。`);
-                        }
+                    // Proモデルを使用したら、フラグをリセット
+                    if (user.useProForNextConsultation) {
+                        await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } });
+                        user.useProForNextConsultation = false; // userオブジェクトも更新
+                        console.log(`⭐ユーザー ${userId} のuseProForNextConsultationフラグをリセットしました。`);
                     }
                 }
             }
