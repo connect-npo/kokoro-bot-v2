@@ -9,7 +9,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai'); // Gemini API�
 
 // 環境変数からLINEアクセストークンとシークレット、理事長グループID、そしてGemini APIキーを取得
 // Renderの環境変数設定を必ず確認してください
-const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
+const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN; // 環境変数名に合わせて修正
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // ★重要: Gemini APIキーを環境変数から取得
@@ -18,8 +18,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // ★重要: Gemini APIキ�
 // 環境変数が設定されていない場合のフォールバック値はテスト用です。
 // 実際の運用では必ず正しい環境変数を設定してください。
 const client = new line.Client({
-    channelAccessToken: LINE_ACCESS_TOKEN || 'YOUR_CHANNEL_ACCESS_TOKEN_HERE', // ★重要: あなたのLINEチャンネルアクセストークンを設定
-    channelSecret: LINE_CHANNEL_SECRET || 'YOUR_CHANNEL_SECRET_HERE' // ★重要: あなたのLINEチャンネルシークレットを設定
+    channelAccessToken: LINE_ACCESS_TOKEN || 'YOUR_LINE_CHANNEL_ACCESS_TOKEN_HERE', // ★重要: あなたのLINEチャンネルアクセストークンを設定
+    channelSecret: LINE_CHANNEL_SECRET || 'YOUR_LINE_CHANNEL_SECRET_HERE' // ★重要: あなたのLINEチャンネルシークレットを設定
 });
 
 // Gemini APIクライアントの初期化
@@ -31,8 +31,8 @@ const PORT = process.env.PORT || 3000;
 
 // LINE Webhook用の生のボディを取得するミドルウェア
 // line.middlewareが署名検証のために生のボディを必要とするため、express.json()より前に配置します。
+// /webhookパスへのリクエストに対してのみraw-bodyミドルウェアを適用し、それ以外のパスではexpress.json()を適用
 app.use((req, res, next) => {
-    // /webhookパスの場合のみraw-bodyミドルウェアを適用
     if (req.path === '/webhook') {
         getRawBody(req, {
             length: req.headers['content-length'],
@@ -311,8 +311,8 @@ const watchMessages = [
     "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
     "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
-    "元気出してね！こころちゃん、あなたの味方だよ�",
-    "こころちゃんだよ🌸 今日も一日お疲れ様💖",
+    "元気出してね！こころちゃん、あなたの味方だよ😊",
+    "こころちゃんだよ🌸 今日も一日お疲れ様�",
     "こんにちは😊 笑顔で過ごせてるかな？",
     "やっほー！ こころだよ🌸 素敵な日になりますように💖",
     "元気かな？💖 こころはいつでもあなたのそばにいるよ！",
@@ -452,16 +452,16 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 
 
 // LINE BotのWebhookイベントハンドラ
+// LINEミドルウェアをExpressのapp.postの直下で使う場合、
+// req.bodyが既にパースされていると署名検証エラーになるため、
+// raw-bodyミドルウェアをapp.useでグローバルに適用し、rawBodyを先に取得します。
 app.post('/webhook', line.middleware({ channelAccessToken: LINE_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET }), async (req, res) => {
-    const events = req.body.events;
+    const events = req.body.events; // ここでは既にLINE SDKによってパースされたJSONが使える
     if (!events || events.length === 0) {
         return res.status(200).send('OK');
     }
 
     try {
-        // req.bodyにはLINEからのパースされたJSONが入っている
-        // LINE SDKのミドルウェアが署名検証とボディパースを行っているため、ここでは直接req.bodyを使用します。
-        // getRawBodyミドルウェアがreq.rawBodyをセットし、line.middlewareがそれを利用して検証しています。
         for (const event of events) {
             await handleEvent(event);
         }
@@ -637,7 +637,8 @@ async function recordToDatabase(userId, message, type, error = null) {
  */
 async function generateGeminiResponse(userId, userMessage) {
     // モデルをインスタンス化
-    const model = gemini_api_client.getGenerativeModel(modelConfig);
+    // modelConfig.defaultModelを直接モデル名として渡すように修正
+    const model = gemini_api_client.getGenerativeModel({ model: modelConfig.defaultModel });
 
     const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`;
     let chatHistory = [];
