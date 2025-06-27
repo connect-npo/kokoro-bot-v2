@@ -175,32 +175,6 @@ const inappropriateWords = [
 // ユーザーごとの通知時間記録 (レート制限用)
 const lastNotifyTime = new Map();
 
-// 危険ワード（子ども・全年齢向け）のクイックリプライ
-const dangerQuickReplyMessage = {
-    type: "text",
-    text: "緊急のときは、すぐに以下の連絡先に電話してください📞",
-    quickReply: {
-        items: [
-            {
-                type: "action",
-                action: {
-                    type: "uri",
-                    label: "🚓 警察に電話（110）",
-                    uri: "tel:110"
-                }
-            },
-            {
-                type: "action",
-                action: {
-                    type: "uri",
-                    label: "🚑 救急に電話（119）",
-                    uri: "tel:119"
-                }
-            }
-        ]
-    }
-};
-
 // 詳細な相談窓口のテキストメッセージ（危険ワード用）
 const dangerDetailedTextMessage = `💡こころちゃんは、みんなのお話をきくことはできるけど…
 
@@ -228,32 +202,6 @@ https://yorisoi-chat.jp（8時〜22:30、受付は22時まで）
 （つながらない場合があります）
 
 🌸ひとりでがまんしないでね。こころちゃんも、あなたのことをたいせつに思っています💖`;
-
-// 詐欺ワード（大人向け）のクイックリプライ
-const scamQuickReplyMessage = {
-    type: "text",
-    text: "⚠️ 詐欺やトラブルにあったかも？と感じたら…",
-    quickReply: {
-        items: [
-            {
-                type: "action",
-                action: {
-                    type: "uri",
-                    label: "👮‍♂️ 警察に電話（110）",
-                    uri: "tel:110"
-                }
-            },
-            { // 詐欺の場合も119番のクイックリプライは残しておいても良いでしょう
-                type: "action",
-                action: {
-                    type: "uri",
-                    label: "🚑 救急に電話（119）",
-                    uri: "tel:119"
-                }
-            }
-        ]
-    }
-};
 
 // 詳細な相談窓口のテキストメッセージ（詐欺ワード用）
 const scamDetailedTextMessage = `⚠️ それはもしかすると詐欺の可能性があります。
@@ -404,7 +352,7 @@ const watchMessages = [
     "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
 ];
 
-// 特殊応答マッピング (変更なし)
+// 特殊応答マッピング (「団体」関連の正規表現を強化)
 const specialRepliesMap = new Map([
     // 名前に関する応答 (⑧対応)
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
@@ -412,15 +360,13 @@ const specialRepliesMap = new Map([
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
     [/君の名前は？|お前の名前は？|名前を教えて/i, "わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
 
-    // 団体に関する応答
-    ["どこの団体なの？", "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-    ["コネクトってどんな団体？", "NPO法人コネクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　わたしはそのイメージキャラクターとしてがんばってます🌸"],
-    ["お前の団体どこ？", "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-    ["コネクトのイメージキャラなのにいえないのかよｗ", "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
-    [/怪しい|胡散臭い/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖"],
+    // 団体に関する応答 (正規表現を強化)
+    [/どこの団体なの？|コネクトってどんな団体？|お前の団体どこ？|コネクトのイメージキャラなのにいえないのかよｗ|団体について教えて/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
+    [/歌と団体って関係あるの？/i, "うん！わたしが好きなClariSさんの『コネクト』という曲は、NPO法人コネクトの活動と同じで、みんなとの繋がりを大切にするメッセージが込められていると感じるんだ💖 だから、こころちゃんにとって大切な曲だよ😊"],
+    [/怪しい|胡散臭い|反社/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖"],
 
     // 製作者に関する応答 (⑧対応)
-    [/誰が君を作ったの？|誰がおまえを開発したの？|誰が作ったの？/i, "NPO法人コネクトの理事長が、みんなを守りたいって作ったんだよ💖"],
+    [/誰が(君|おまえ)を作ったの？|誰が(君|おまえ)を開発したの？|誰が作ったの？/i, "NPO法人コネクトの理事長が、みんなを守りたいって作ったんだよ💖"],
 
     // ネガティブワード・人物名への優先処理
     ["税金泥棒", "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
@@ -495,6 +441,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 - 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
 - こころちゃんは"わたし"一人。迷わず一貫した発言を続けてください。
 - 自信を持って、でも謙虚にやさしく応えましょう。
+- **「ごめんね、その内容には答えられないよ…。」というような、会話を遮断するような定型文は、よほど不適切な内容でない限り、避けてください。AIモデルとしての自然な応答を最優先してください。**
 
 **【宿題や勉強に関する対応の絶対ルール】**
 質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
@@ -569,7 +516,6 @@ async function handleEvent(event) {
 
     // --- ⑥ MongoDBログ保存の最適化 (ログ保存条件) ---
 
-    // ★重要修正: 「見守り」キーワードを危険ワード・詐欺ワードより前に配置
     // 「見守り」サービス関連の処理 (postbackイベントも考慮)
     if (event.type === 'postback' && event.postback.data.startsWith('action=watch_')) {
         const action = event.postback.data.split('=')[1];
@@ -585,7 +531,6 @@ async function handleEvent(event) {
         await recordToDatabase(userId, event.postback.data, 'watch_service_action', null); // ログ保存
         return;
     } else if (isWatchKeyword(messageText)) {
-        // ② Flexメッセージ（ボタン付き返信）の再確認
         await client.replyMessage(event.replyToken, watchServiceGuideFlexTemplate); // Flex Messageを返す
         await recordToDatabase(userId, messageText, 'watch_service_inquiry', null); // ログ保存
         return;
@@ -594,15 +539,24 @@ async function handleEvent(event) {
     // 危険ワードのチェック
     const foundDangerWord = dangerWords.some(word => messageText.includes(word));
     if (foundDangerWord) {
-        await client.replyMessage(event.replyToken, dangerQuickReplyMessage);
-        // 詳細メッセージはpushMessageで別送 (非同期で確実に送る)
-        try {
-            // ② pushMessage の 400 エラー修正 / 緊急ワードで110/119しか出ない問題の解消
-            await client.pushMessage(userId, { type: 'text', text: dangerDetailedTextMessage });
-        } catch (pushError) {
-            console.error(`❌ 詳細な危険ワード相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
-        }
-        // 管理者グループへの通知 (④対応)
+        // 危険ワード用クイックリプライと詳細メッセージを結合して一度に送信
+        const messagesToSend = [
+            {
+                type: "text",
+                text: "緊急のときは、すぐに以下の連絡先に電話してください📞",
+                quickReply: {
+                    items: [
+                        { type: "action", action: { type: "uri", label: "🚓 警察に電話（110）", uri: "tel:110" } },
+                        { type: "action", action: { type: "uri", label: "🚑 救急に電話（119）", uri: "tel:119" } },
+                        { type: "action", action: { type: "uri", label: "📞 その他の相談窓口", uri: "https://childline.or.jp" } } // 詳細窓口へのリンク
+                    ]
+                }
+            },
+            { type: "text", text: dangerDetailedTextMessage }
+        ];
+        await client.replyMessage(event.replyToken, messagesToSend);
+
+        // 管理者グループへの通知
         await sendEmergencyNotificationToGroup(userId, messageText);
         await recordToDatabase(userId, messageText, 'danger_word_detected', null); // ログ保存
         return;
@@ -611,14 +565,23 @@ async function handleEvent(event) {
     // 詐欺ワードのチェック
     const foundScamWord = scamWords.some(word => messageText.includes(word));
     if (foundScamWord) {
-        await client.replyMessage(event.replyToken, scamQuickReplyMessage);
-        // 詳細メッセージはpushMessageで別送 (非同期で確実に送る)
-        try {
-            // ② pushMessage の 400 エラー修正 / 緊急ワードで110/119しか出ない問題の解消
-            await client.pushMessage(userId, { type: 'text', text: scamDetailedTextMessage });
-        } catch (pushError) {
-            console.error(`❌ 詳細な詐欺相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
-        }
+        // 詐欺ワード用クイックリプライと詳細メッセージを結合して一度に送信
+        const messagesToSend = [
+            {
+                type: "text",
+                text: "⚠️ 詐欺やトラブルにあったかも？と感じたら…",
+                quickReply: {
+                    items: [
+                        { type: "action", action: { type: "uri", label: "👮‍♂️ 警察に電話（110）", uri: "tel:110" } },
+                        { type: "action", action: { type: "uri", label: "📞 消費生活センター", uri: "tel:0423749595" } }, // 多摩市消費生活センター
+                        { type: "action", action: { type: "uri", label: "📞 防災安全課", uri: "tel:0423386841" } } // 多摩市防災安全課
+                    ]
+                }
+            },
+            { type: "text", text: scamDetailedTextMessage }
+        ];
+        await client.replyMessage(event.replyToken, messagesToSend);
+
         await recordToDatabase(userId, messageText, 'scam_word_detected', null); // ログ保存
         return;
     }
@@ -631,7 +594,7 @@ async function handleEvent(event) {
         return;
     }
 
-    // 特殊応答のチェック (⑧対応)
+    // 特殊応答のチェック
     for (const [pattern, reply] of specialRepliesMap) {
         if (pattern instanceof RegExp ? pattern.test(messageText) : messageText === pattern) {
             await client.replyMessage(event.replyToken, { type: 'text', text: reply });
@@ -640,7 +603,7 @@ async function handleEvent(event) {
         }
     }
 
-    // --- ④ OpenAI と Gemini の併用が分かりにくい / ⑤ GPT-4o強制固定 or 選択対応 ---
+    // --- OpenAI と Gemini の併用が分かりにくい / GPT-4o強制固定 or 選択対応 ---
     // 通常のAI応答 (Gemini 1.5 Flash or Pro)
     try {
         let aiResponse;
@@ -773,13 +736,12 @@ async function recordToDatabase(userId, message, type, error = null) {
 
 
 /**
- * OpenAI GPT-4o APIを呼び出し、AIの応答を生成する関数 (⑤対応: GPT-4o)
- * @param {string} userId - ユーザーID (現在は未使用だが将来拡張のため)
+ * OpenAI GPT-4o APIを呼び出し、AIの応答を生成する関数
  * @param {string} userMessage - ユーザーのメッセージ
  * @returns {Promise<string>} - AIの応答テキスト
  */
-async function generateOpenAIResponse(userId, userMessage) {
-    console.log(`DEBUG: Calling OpenAI GPT-4o for user: ${userId}, message: "${userMessage}"`);
+async function generateOpenAIResponse(userMessage) {
+    console.log(`DEBUG: Calling OpenAI GPT-4o for message: "${userMessage}"`);
 
     try {
         const response = await openai.chat.completions.create({
@@ -789,7 +751,7 @@ async function generateOpenAIResponse(userId, userMessage) {
                 { role: "user", content: userMessage }
             ],
             temperature: 0.7, // 応答のランダム性
-            max_tokens: 800, // 応答の最大トークン数 (⑦ 応答メッセージの途中切れ対策)
+            max_tokens: 800, // 応答の最大トークン数
             top_p: 1, // サンプリング時に考慮するトークンの多様性
             frequency_penalty: 0, // 頻度ペナルティ
             presence_penalty: 0, // 存在ペナルティ
@@ -807,7 +769,7 @@ async function generateOpenAIResponse(userId, userMessage) {
 }
 
 /**
- * Gemini 1.5 Flash APIを呼び出し、AIの応答を生成する関数 (④、⑤対応: Gemini Flash)
+ * Gemini 1.5 Flash APIを呼び出し、AIの応答を生成する関数
  * @param {string} userId - ユーザーID
  * @param {string} userMessage - ユーザーのメッセージ
  * @returns {Promise<string>} - AIの応答テキスト
@@ -826,7 +788,7 @@ async function generateGeminiFlashResponse(userId, userMessage) {
                 { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
             ],
             generationConfig: {
-                maxOutputTokens: 800, // 応答の最大トークン数 (⑦ 応答メッセージの途中切れ対策)
+                maxOutputTokens: 800, // 応答の最大トークン数
                 temperature: 0.8 // 応答のランダム性
             }
         });
@@ -845,7 +807,7 @@ async function generateGeminiFlashResponse(userId, userMessage) {
 }
 
 /**
- * Gemini 1.5 Pro APIを呼び出し、AIの応答を生成する関数 (④、⑤対応: Gemini Pro)
+ * Gemini 1.5 Pro APIを呼び出し、AIの応答を生成する関数
  * @param {Map} userConversationState - ユーザーの会話状態マップ
  * @param {string} userId - ユーザーID
  * @param {string} userMessage - ユーザーのメッセージ
@@ -865,7 +827,7 @@ async function generateGeminiProResponse(userConversationState, userId, userMess
                 { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
             ],
             generationConfig: {
-                maxOutputTokens: 800, // 応答の最大トークン数 (⑦ 応答メッセージの途中切れ対策)
+                maxOutputTokens: 800, // 応答の最大トークン数
                 temperature: 0.7 // 応答のランダム性
             }
         });
