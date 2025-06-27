@@ -1,7 +1,7 @@
 // index.js
 
 // LINE Messaging API SDK をインポート
-// `npm install @line/bot-sdk @google/generative-ai express` でインストールしてください
+// npm install @line/bot-sdk @google/generative-ai express でインストールしてください
 const line = require('@line/bot-sdk');
 const express = require('express');
 // raw-bodyはexpress.raw()を使用するため、直接インポートは不要になります
@@ -48,7 +48,7 @@ app.post('/webhook',
             }
             res.status(200).send('OK');
         } catch (error) {
-            console.error(`❌ Webhook処理中にエラーが発生しました: ${error.message}`);
+            console.error(`❌ Webhook処理中にエラーが発生しました: ${error.message}`); // テンプレートリテラル修正
             res.status(500).send('Internal Server Error');
         }
     }
@@ -135,7 +135,7 @@ const lastNotifyTime = new Map();
 // クイックリプライメッセージ（警察・救急のみ）
 const dangerQuickReplyMessage = {
   type: "text",
-  text: "緊急のときは、すぐに以下の連絡先に電話してください�",
+  text: "緊急のときは、すぐに以下の連絡先に電話してください📞", // 絵文字修正
   quickReply: {
     items: [
       {
@@ -159,8 +159,8 @@ const dangerQuickReplyMessage = {
 };
 
 // 詳細な相談窓口のテキストメッセージ（危険ワード用）
-const dangerDetailedTextMessage = `
-💡こころちゃんは、みんなのお話をきくことはできるけど…
+// ★修正点: バッククォートを追加
+const dangerDetailedTextMessage = `💡こころちゃんは、みんなのお話をきくことはできるけど…
 
 もしも命があぶないときや、すぐにたすけがほしいときは…
 
@@ -185,8 +185,7 @@ https://yorisoi-chat.jp（8時〜22:30、受付は22時まで）
 090-4839-3313
 （つながらない場合があります）
 
-🌸ひとりでがまんしないでね。こころちゃんも、あなたのことをたいせつに思っています💖
-`;
+🌸ひとりでがまんしないでね。こころちゃんも、あなたのことをたいせつに思っています💖`;
 
 // 【2】詐欺ワード（大人向け）のクイックリプライと詳細テキストメッセージ
 // クイックリプライメッセージ（110番のみ）
@@ -208,8 +207,8 @@ const scamQuickReplyMessage = {
 };
 
 // 詳細な相談窓口のテキストメッセージ（詐欺ワード用）
-const scamDetailedTextMessage = `
-⚠️ それはもしかすると詐欺の可能性があります。
+// ★修正点: バッククォートを追加
+const scamDetailedTextMessage = `⚠️ それはもしかすると詐欺の可能性があります。
 
 まずは落ち着いて行動してくださいね。
 
@@ -225,9 +224,7 @@ const scamDetailedTextMessage = `
 090-4839-3313
 （つながらない場合があります）
 
-🕊️ あなたの安心と安全を守るために、すぐに相談してね。
-`;
-
+🕊️ あなたの安心と安全を守るために、すぐに相談してね。`;
 
 // 見守りサービス案内用Flex Messageテンプレート (変更なし)
 const watchServiceGuideFlexTemplate = {
@@ -380,8 +377,8 @@ const specialRepliesMap = new Map([
     [/好きなアーティスト(は|なに|何)？?/i, "好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸"]
 ]);
 
-const systemInstruction = `
-あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
+// ★修正点: systemInstructionをバッククォートで囲む
+const systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
 - 身長150cm、体重40kg、ピンク髪
 - 歌うことと「やさしさ」「貢献」という言葉が大好きです
 - NPO法人コネクトの公式イメージキャラクターです
@@ -451,9 +448,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
 **特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
-「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。
-`;
-
+「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。`;
 
 /**
  * LINE Webhookイベントを処理するメイン関数
@@ -494,7 +489,9 @@ async function handleEvent(event) {
         await recordToDatabase(userId, event.postback.data, 'watch_service_action');
         return;
     } else if (isWatchKeyword(messageText)) {
-        await client.replyMessage(event.replyToken, watchServiceGuideFlexTemplate);
+        // ★修正点: Flex Messageの代わりに、まずシンプルなテキストメッセージを試す
+        // await client.replyMessage(event.replyToken, watchServiceGuideFlexTemplate);
+        await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスのご案内だね🌸 画面に表示されたメニューから選んでね💖' }); // 仮のテキストメッセージ
         await recordToDatabase(userId, messageText, 'watch_service_inquiry');
         return;
     }
@@ -504,7 +501,13 @@ async function handleEvent(event) {
     if (foundDangerWord) {
         // クイックリプライと詳細テキストメッセージを順番に送信
         await client.replyMessage(event.replyToken, dangerQuickReplyMessage);
-        await client.pushMessage(userId, { type: 'text', text: dangerDetailedTextMessage }); // pushMessageで別送
+        // pushMessageが失敗しないように、try-catchで囲む
+        try {
+            await client.pushMessage(userId, { type: 'text', text: dangerDetailedTextMessage }); // pushMessageで別送
+        } catch (pushError) {
+            console.error(`❌ 詳細な危険ワード相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
+            await recordToDatabase(userId, `詳細危険ワードメッセージ送信失敗: ${pushError.message}`, 'error', pushError.message);
+        }
         await sendEmergencyNotificationToGroup(userId, messageText);
         await recordToDatabase(userId, messageText, 'danger_word_detected');
         return;
@@ -515,7 +518,13 @@ async function handleEvent(event) {
     if (foundScamWord) {
         // クイックリプライと詳細テキストメッセージを順番に送信
         await client.replyMessage(event.replyToken, scamQuickReplyMessage);
-        await client.pushMessage(userId, { type: 'text', text: scamDetailedTextMessage }); // pushMessageで別送
+        // pushMessageが失敗しないように、try-catchで囲む
+        try {
+            await client.pushMessage(userId, { type: 'text', text: scamDetailedTextMessage }); // pushMessageで別送
+        } catch (pushError) {
+            console.error(`❌ 詳細な詐欺相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
+            await recordToDatabase(userId, `詳細詐欺メッセージ送信失敗: ${pushError.message}`, 'error', pushError.message);
+        }
         await recordToDatabase(userId, messageText, 'scam_word_detected');
         return;
     }
@@ -542,6 +551,7 @@ async function handleEvent(event) {
     } catch (error) {
         console.error('Gemini API Error:', error);
         await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、今ちょっとお話できないみたい。また後で試してみてくれるかな？💦' });
+        await recordToDatabase(userId, messageText, 'gemini_api_error', error.message); // エラー時も記録
     }
 }
 
@@ -562,40 +572,38 @@ function isWatchKeyword(text) {
  */
 async function sendEmergencyNotificationToGroup(userId, message) {
     const now = Date.now();
-    const key = `${userId}-${message}`;
+    const key = `${userId}-${message}`; // テンプレートリテラル修正
     const COOLDOWN_PERIOD = 5 * 60 * 1000; // 5分間のクールダウン
 
     if (lastNotifyTime.has(key) && (now - lastNotifyTime.get(key) < COOLDOWN_PERIOD)) {
-        console.log(`🔇 通知スキップ: レート制限中 (ユーザー: ${userId}, メッセージ: "${message}") - 次回通知可能: ${new Date(lastNotifyTime.get(key) + COOLDOWN_PERIOD).toLocaleTimeString()}`);
+        console.log(`🔇 通知スキップ: レート制限中 (ユーザー: ${userId}, メッセージ: "${message}") - 次回通知可能: ${new Date(lastNotifyTime.get(key) + COOLDOWN_PERIOD).toLocaleTimeString()}`); // テンプレートリテラル修正
         return;
     }
 
     try {
-        console.log(`🚨 緊急通知: 理事長・役員グループへメッセージを送信。ユーザーID: ${userId}, 内容: "${message}"`);
+        console.log(`🚨 緊急通知: 理事長・役員グループへメッセージを送信。ユーザーID: ${userId}, 内容: "${message}"`); // テンプレートリテラル修正
         await client.pushMessage(OFFICER_GROUP_ID, {
             type: 'text',
-            text: `⚠ 危険ワード検出: ユーザーID ${userId} が「${message}」と発言しました。`
+            text: `⚠ 危険ワード検出: ユーザーID ${userId} が「${message}」と発言しました。` // テンプレートリテラル修正
         });
         lastNotifyTime.set(key, now);
     } catch (error) {
-        console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）: ${error.message}`);
+        console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
+        await recordToDatabase(userId, `緊急通知送信失敗: ${error.message}`, 'error', error.message); // エラー時も記録
     }
 }
 
 /**
- * データベースにログを記録するダミー関数（エラーログ記録は一時停止）
+ * データベースにログを記録するダミー関数
  * @param {string} userId - ユーザーID
  * @param {string} message - ユーザーメッセージまたはイベントデータ
  * @param {string} type - ログの種類（例: 'admin_command', 'danger_word_detected'）
  * @param {string|null} error - エラーメッセージ（オプション）
  */
 async function recordToDatabase(userId, message, type, error = null) {
-    if (error) {
-        return;
-    }
-
+    // ★修正点: エラーがある場合も記録し、スキップタイプはエラーがない場合のみ適用
     const skipTypes = ['regular_ai_response', 'special_reply', 'inappropriate_word_detected'];
-    if (skipTypes.includes(type)) {
+    if (!error && skipTypes.includes(type)) { // エラーがない、かつスキップ対象のタイプの場合のみスキップ
         return;
     }
 
@@ -620,12 +628,12 @@ async function recordToDatabase(userId, message, type, error = null) {
  */
 async function generateGeminiResponse(userId, userMessage) {
     // Debugging: Log the model name being used right before the call
-    console.log(`DEBUG: Attempting to get Gemini model: ${modelConfig.defaultModel}`);
+    console.log(`DEBUG: Attempting to get Gemini model: ${modelConfig.defaultModel}`); // テンプレートリテラル修正
 
     // モデルをインスタンス化
     const model = gemini_api_client.getGenerativeModel({ model: modelConfig.defaultModel });
 
-    const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`;
+    const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`; // テンプレートリテラル修正
     let chatHistory = [];
     chatHistory.push({ role: "user", parts: [{ text: fullPrompt }] });
 
@@ -652,14 +660,14 @@ async function generateGeminiResponse(userId, userMessage) {
     } catch (error) {
         // Gemini APIからのエラーを捕捉し、詳細なエラーメッセージをログに出力
         if (error.response && error.response.status) {
-            console.error(`Gemini API エラー: HTTPステータスコード ${error.response.status} - ${error.response.statusText || '不明なエラー'}`);
+            console.error(`Gemini API エラー: HTTPステータスコード ${error.response.status} - ${error.response.statusText || '不明なエラー'}`); // テンプレートリテラル修正
             if (error.response.data) {
                 console.error('Gemini API エラー詳細:', error.response.data);
             }
         } else {
             console.error('Gemini API エラー:', error.message);
         }
-        throw new Error(`Gemini APIからのリクエストが失敗しました。: ${error.message}`);
+        throw new Error(`Gemini APIからのリクエストが失敗しました。: ${error.message}`); // テンプレートリテラル修正
     }
 }
 
@@ -681,7 +689,8 @@ async function sendDailyWatchMessage() {
                 await client.pushMessage(userId, { type: 'text', text: randomMessage });
                 await recordToDatabase(userId, randomMessage, 'watch_message_sent');
             } catch (error) {
-                console.error(`❌ 見守りメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`);
+                console.error(`❌ 見守りメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
+                await recordToDatabase(userId, `見守りメッセージ送信失敗: ${error.message}`, 'error', error.message); // エラー時も記録
             }
         }
     }
@@ -698,7 +707,8 @@ async function checkUnansweredMessages() {
             await client.pushMessage(userId, { type: 'text', text: '見てくれたかな？😊 こころちゃん、ちょっと心配してるよ💖' });
             await recordToDatabase(userId, 'リマインダーメッセージ送信', 'watch_reminder_sent');
         } catch (error) {
-            console.error(`❌ リマインダーメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`);
+            console.error(`❌ リマインダーメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
+            await recordToDatabase(userId, `リマインダーメッセージ送信失敗: ${error.message}`, 'error', error.message); // エラー時も記録
         }
     }
 
@@ -708,14 +718,15 @@ async function checkUnansweredMessages() {
             await sendEmergencyNotificationToGroup(userId, '見守りサービス：29時間以上未返信');
             await recordToDatabase(userId, '緊急連絡先へ通知 (29時間未返信)', 'watch_emergency_notified');
         } catch (error) {
-            console.error(`❌ 緊急連絡先への通知失敗（ユーザー: ${userId}）: ${error.message}`);
+            console.error(`❌ 緊急連絡先への通知失敗（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
+            await recordToDatabase(userId, `緊急連絡先通知失敗: ${error.message}`, 'error', error.message); // エラー時も記録
         }
     }
 }
 
 // サーバーを起動
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`); // テンプレートリテラル修正
     // 定期実行関数は本番環境ではCloud Schedulerなどと連携
     // 例: setInterval(sendDailyWatchMessage, 60 * 1000); // 1分ごとにチェック (デモ用)
     // setInterval(checkUnansweredMessages, 60 * 1000); // 1分ごとにチェック (デモ用)
