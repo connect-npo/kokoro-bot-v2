@@ -245,6 +245,7 @@ const scamFlexTemplate = {
         ]
     }
 };
+// ⭐修正: watchServiceGuideFlexTemplate のボタン色を変更
 const watchServiceGuideFlexTemplate = {
     "type": "bubble",
     "body": {
@@ -281,7 +282,7 @@ const watchServiceGuideFlexTemplate = {
                     "label": "見守り登録する",
                     "data": "action=watch_register"
                 },
-                "color": "#FFC0CB"
+                "color": "#d63384" // ⭐変更: ピンク
             },
             {
                 "type": "button",
@@ -292,11 +293,80 @@ const watchServiceGuideFlexTemplate = {
                     "label": "見守りを解除する",
                     "data": "action=watch_unregister"
                 },
-                "color": "#D3D3D3"
+                "color": "#ff4444" // ⭐変更: 赤
             }
         ]
     }
 };
+
+// ⭐追加: 「元気かな？」ボタン付きFlex Message
+const watchConfirmationFlexTemplate = {
+    "type": "flex",
+    "altText": "見守りサービスの確認",
+    "contents": {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "💖こころちゃんからの見守り💖",
+                    "wrap": true,
+                    "weight": "bold",
+                    "size": "lg",
+                    "color": "#d63384"
+                },
+                {
+                    "type": "text",
+                    "text": "元気かな？ボタンを押して教えてね😊",
+                    "wrap": true,
+                    "color": "#555555",
+                    "size": "md"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "🌞 元気だよ！",
+                        "text": "元気だよ！"
+                    },
+                    "color": "#00C851"  // 緑
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "😐 まあまあかな",
+                        "text": "まあまあかな"
+                    },
+                    "color": "#ffbb33"  // オレンジ
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "😢 少し疲れた…",
+                        "text": "少し疲れた…"
+                    },
+                    "color": "##ff4444"  // 赤
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "💬 話を聞いて",
+                        "text": "話を聞いて"
+                    },
+                    "color": "#33b5e5"  // 青
+                }
+            ]
+        }
+    }
+};
+
+
 const modelConfig = {
     "defaultModel": "gemini-1.5-flash-latest",
     "safetySettings": [
@@ -675,8 +745,8 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             await logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
         }
     }
-    // 「OKだよ💖」などの安否確認応答
-    else if (lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫") || lowerUserMessage.includes("げんき") || lowerUserMessage.includes("元気")) {
+    // ⭐変更: 「元気かな？」ボタンからの応答を処理
+    else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫") || lowerUserMessage.includes("げんき") || lowerUserMessage.includes("元気")) {
         if (user && user.wantsWatchCheck) {
             try {
                 await usersCollection.updateOne(
@@ -699,6 +769,73 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             } catch (error) {
                 console.error("❌ 見守りサービスOK応答処理エラー:", error.message);
                 await logErrorToDb(userId, "見守りサービスOK応答処理エラー", { error: error.message, userId: userId });
+            }
+        }
+    }
+    else if (lowerUserMessage.includes("まあまあかな")) {
+        if (user && user.wantsWatchCheck) {
+            try {
+                // 「OK」とはみなさず、状態をログするだけに留めるか、特別なAI応答をトリガーすることも可能
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖',
+                    responsedBy: 'こころちゃん（見守り応答）',
+                    timestamp: new Date(),
+                    logType: 'watch_service_status_somewhat'
+                });
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
+                });
+                handled = true;
+            } catch (error) {
+                console.error("❌ 見守りサービス「まあまあ」応答処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービス「まあまあ」応答処理エラー", { error: error.message, userId: userId });
+            }
+        }
+    }
+    else if (lowerUserMessage.includes("少し疲れた…")) {
+        if (user && user.wantsWatchCheck) {
+            try {
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖',
+                    responsedBy: 'こころちゃん（見守り応答）',
+                    timestamp: new Date(),
+                    logType: 'watch_service_status_tired'
+                });
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
+                });
+                handled = true;
+            } catch (error) {
+                console.error("❌ 見守りサービス「疲れた」応答処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービス「疲れた」応答処理エラー", { error: error.message, userId: userId });
+            }
+        }
+    }
+    else if (lowerUserMessage.includes("話を聞いて")) {
+        if (user && user.wantsWatchCheck) {
+            try {
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖',
+                    responsedBy: 'こころちゃん（見守り応答）',
+                    timestamp: new Date(),
+                    logType: 'watch_service_status_talk'
+                });
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
+                });
+                handled = true;
+            } catch (error) {
+                console.error("❌ 見守りサービス「話を聞いて」応答処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービス「話を聞いて」応答処理エラー", { error: error.message, userId: userId });
             }
         }
     }
@@ -827,29 +964,27 @@ async function sendScheduledWatchMessage() {
 
             console.log(`ユーザー ${userId}: 最終OK応答から ${timeSinceLastOk.toFixed(2)} 日経過`);
 
-            // ⭐変更: メッセージを送信する条件を変更
+            // ⭐変更: メッセージを送信する条件とメッセージ内容を変更 (テキストからFlex Messageへ)
             // 2日以上返信がない場合 かつ、本日まだ定期メッセージが送られていない場合
             if (timeSinceLastOk >= 2 && !user.scheduledMessageSent) {
-                const messageIndex = Math.floor(Math.random() * watchMessages.length);
-                const messageText = watchMessages[messageIndex];
                 try {
-                    await client.pushMessage(userId, { type: 'text', text: messageText });
+                    await client.pushMessage(userId, watchConfirmationFlexTemplate); // ⭐変更点
                     await usersCollection.updateOne(
                         { userId: userId },
                         { $set: { scheduledMessageSent: true } } // 送信フラグを立てる
                     );
                     await messagesCollection.insertOne({
                         userId: userId,
-                        message: `（定期見守りメッセージ）`,
-                        replyText: messageText,
+                        message: `（定期見守りメッセージ - Flex）`, // ログ用メッセージ
+                        replyText: '（見守り状況確認Flex送信）',
                         responsedBy: 'こころちゃん（定期見守り）',
                         timestamp: new Date(),
                         logType: 'watch_service_scheduled_message'
                     });
-                    console.log(`✅ ユーザー ${userId} に定期見守りメッセージを送信しました。`);
+                    console.log(`✅ ユーザー ${userId} に定期見守りメッセージ（Flex）を送信しました。`);
                 } catch (error) {
-                    console.error(`❌ ユーザー ${userId} への定期見守りメッセージ送信エラー:`, error.message);
-                    await logErrorToDb(userId, "定期見守りメッセージ送信エラー", { error: error.message, userId: userId });
+                    console.error(`❌ ユーザー ${userId} への定期見守りメッセージ（Flex）送信エラー:`, error.message);
+                    await logErrorToDb(userId, "定期見守りメッセージ（Flex）送信エラー", { error: error.message, userId: userId });
                 }
             } else if (timeSinceLastOk >= 3 && !user.firstReminderSent) {
                 // 3日以上返信がない場合、リマインダーを送信
