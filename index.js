@@ -112,7 +112,7 @@ const emergencyFlexTemplate = {
                     "label": "チャイルドライン (電話・チャット)",
                     "uri": "https://childline.or.jp/tel"
                 },
-                "color": "#FFC0CB"
+                "color": "#1E90FF" // ⭐変更: 青
             },
             {
                 "type": "button",
@@ -123,7 +123,7 @@ const emergencyFlexTemplate = {
                     "label": "いのちの電話 (電話)",
                     "uri": "tel:0570064556"
                 },
-                "color": "#FFC0CB"
+                "color": "#32CD32" // ⭐変更: 緑
             },
             {
                 "type": "button",
@@ -134,7 +134,7 @@ const emergencyFlexTemplate = {
                     "label": "チャットまもるん(チャット)",
                     "uri": "https://www.web-mamorun.com/"
                 },
-                "color": "#FFC0CB"
+                "color": "#FFA500" // ⭐変更: オレンジ
             },
             {
                 "type": "button",
@@ -145,7 +145,7 @@ const emergencyFlexTemplate = {
                     "label": "警視庁(電話)",
                     "uri": "tel:0335814321"
                 },
-                "color": "#FFC0CB"
+                "color": "#FF4500" // ⭐変更: 赤
             },
             {
                 "type": "button",
@@ -156,7 +156,7 @@ const emergencyFlexTemplate = {
                     "label": "子供を守る声(電話)",
                     "uri": "tel:0120786786"
                 },
-                "color": "#FFC0CB"
+                "color": "#9370DB" // ⭐変更: 紫
             },
             {
                 "type": "button",
@@ -167,7 +167,7 @@ const emergencyFlexTemplate = {
                     "label": "こころちゃん事務局(電話)",
                     "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
                 },
-                "color": "#FFC0CB"
+                "color": "#ff69b4" // ⭐変更: ピンク
             }
         ]
     }
@@ -207,7 +207,7 @@ const scamFlexTemplate = {
                     "label": "消費者ホットライン",
                     "uri": "tel:188"
                 },
-                "color": "#FFC0CB"
+                "color": "#1E90FF" // ⭐変更: 青
             },
             {
                 "type": "button",
@@ -218,7 +218,7 @@ const scamFlexTemplate = {
                     "label": "警察相談専用電話",
                     "uri": "tel:9110"
                 },
-                "color": "#FFC0CB"
+                "color": "#32CD32" // ⭐変更: 緑
             },
             {
                 "type": "button",
@@ -229,7 +229,7 @@ const scamFlexTemplate = {
                     "label": "国民生活センター",
                     "uri": "https://www.kokusen.go.jp/"
                 },
-                "color": "#FFC0CB"
+                "color": "#FFA500" // ⭐変更: オレンジ
             },
             {
                 "type": "button",
@@ -240,12 +240,12 @@ const scamFlexTemplate = {
                     "label": "こころちゃん事務局(電話)",
                     "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
                 },
-                "color": "#FFC0CB"
+                "color": "#ff69b4" // ⭐変更: ピンク
             }
         ]
     }
 };
-// ⭐修正: watchServiceGuideFlexTemplate のボタン色を変更
+// ⭐修正: watchServiceGuideFlexTemplate の「解除」ボタン色をグレーに変更
 const watchServiceGuideFlexTemplate = {
     "type": "bubble",
     "body": {
@@ -282,7 +282,7 @@ const watchServiceGuideFlexTemplate = {
                     "label": "見守り登録する",
                     "data": "action=watch_register"
                 },
-                "color": "#d63384" // ⭐変更: ピンク
+                "color": "#d63384" // ピンク
             },
             {
                 "type": "button",
@@ -293,7 +293,7 @@ const watchServiceGuideFlexTemplate = {
                     "label": "見守りを解除する",
                     "data": "action=watch_unregister"
                 },
-                "color": "#ff4444" // ⭐変更: 赤
+                "color": "#808080" // ⭐変更: グレー
             }
         ]
     }
@@ -350,7 +350,7 @@ const watchConfirmationFlexTemplate = {
                         "label": "😢 少し疲れた…",
                         "text": "少し疲れた…"
                     },
-                    "color": "##ff4444"  // 赤
+                    "color": "#ff4444"  // 赤
                 },
                 {
                     "type": "button",
@@ -649,9 +649,10 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
                         parts: [{ text: userMessage }]
                     }
                 ],
-                // generationConfig: { // ここから
-                //     max_tokens: 500 // ⭐削除: Geminiではmax_tokensはgenerationConfigの直下ではサポートされていません
-                // } // ここまでを削除しました。
+                // ⭐修正: max_tokensをmaxOutputTokensに変更し、generationConfig内に移動
+                generationConfig: {
+                    maxOutputTokens: 500 // ⭐修正: Geminiの正しいトークン制限パラメータ
+                }
             }, { requestOptions: { signal } })
             .then(result => {
                 clearTimeout(timeoutId);
@@ -1361,13 +1362,44 @@ app.post('/webhook', async (req, res) => {
                 messageHandled = true;
             }
 
+            // ⭐変更: 相談モードの切り替えロジック
+            if (!messageHandled && (userMessage === 'そうだん' || userMessage === '相談')) {
+                try {
+                    // Proモデルを次回の相談で使うフラグを立てる
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { useProForNextConsultation: true } }
+                    );
+                    replyMessageObject = { type: 'text', text: '🌸 相談モードに入ったよ！なんでも相談してね😊' };
+                    responsedBy = 'こころちゃん（Gemini 1.5 Pro - 相談モード開始）';
+                    logType = 'consultation_mode_start';
+                    messageHandled = true;
+                    console.log(`ユーザー ${userId} が相談モードを開始しました。（次回Pro使用）`);
+                } catch (error) {
+                    console.error("❌ 「相談」モード開始エラー:", error.message);
+                    await logErrorToDb(userId, "相談モード開始エラー", { error: error.message, userId: userId });
+                    replyMessageObject = { type: 'text', text: `❌ 「相談」モード開始中にエラーが発生しました: ${error.message}` };
+                    messageHandled = true;
+                }
+            }
+
 
             // 通常のAI応答
             if (!messageHandled) {
                 try {
-                    const aiReply = await generateReply(userMessage);
+                    let modelForGemini = modelConfig.defaultModel; // デフォルトはFlash
+                    // ユーザーのuseProForNextConsultationフラグをチェック
+                    if (user && user.useProForNextConsultation) {
+                        modelForGemini = "gemini-1.5-pro-latest"; // Proに切り替え
+                        console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`);
+                        // 使用後、フラグをリセット
+                        await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } });
+                        console.log(`⭐ユーザー ${userId} のuseProForNextConsultationフラグをリセットしました。`);
+                    }
+
+                    const aiReply = await generateReply(userMessage, modelForGemini);
                     replyMessageObject = { type: 'text', text: aiReply };
-                    responsedBy = 'こころちゃん（AI）';
+                    responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
                     logType = 'normal_conversation';
                     messageHandled = true;
                 } catch (error) {
@@ -1387,7 +1419,9 @@ app.post('/webhook', async (req, res) => {
                     await client.replyMessage(replyToken, replyMessageObject);
 
                     // ログに記録するテキストを決定
-                    const replyTextForLog = typeof replyMessageObject.text === 'string' ? replyMessageObject.text : JSON.stringify(replyMessageObject);
+                    const replyTextForLog = Array.isArray(replyMessageObject)
+                        ? replyMessageObject.map(obj => (obj && typeof obj === 'object' && obj.type === 'text') ? obj.text : JSON.stringify(obj)).join(' | ')
+                        : (typeof replyMessageObject === 'object' && replyMessageObject.type === 'text') ? replyMessageObject.text : JSON.stringify(replyMessageObject);
 
                     const shouldLog = shouldLogMessage(
                         userMessage,
