@@ -691,7 +691,7 @@ const watchMessages = [
     "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
     "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
-    "元気出してね！こころちゃん、あなたの味方だよ😊",
+    "元気出してね！こころちゃん、あなたの味方だよ�",
     "こころちゃんだよ🌸 今日も一日お疲れ様💖",
     "こんにちは😊 笑顔で過ごせてるかな？",
     "やっほー！ こころだよ🌸 素敵な日になりますように💖",
@@ -941,8 +941,8 @@ async function sendScheduledWatchMessage() {
                 }
             }
             // ⭐ 24時間後リマインダー (「心配する文章」)
-            // 定期見守りメッセージが送信されてから24時間経過しており、かつまだOK応答がなく、24hリマインダー未送信の場合
-            else if (timeSinceLastOkHours >= 24 && !hasSent24hReminder) { // 最終OK応答から24時間経過
+            // 最終OK応答から24時間経過しており、かつまだOK応答がなく、24hリマインダー未送信の場合
+            else if (timeSinceLastOkHours >= 24 && !hasSent24hReminder) {
                 try {
                     await client.pushMessage(userId, { type: 'text', text: 'ねぇ、こころだよ🌸 返信がなくて少し心配してるよ。何かあったのかな？大丈夫？💖' });
                     await usersCollection.updateOne(
@@ -1006,7 +1006,7 @@ async function sendScheduledWatchMessage() {
 // 既存の9時スケジュールは変更なし。15時スケジュールを新しく追加。
 cron.schedule('0 9 * * *', () => { // 毎日午前9時 (既存)
     console.log('cron: 定期見守りメッセージ送信処理をトリガーします。（毎日9時）');
-    // sendScheduledWatchMessage(); // この関数は、3日ごと15時のロジックも含むように調整済み
+    // sendScheduledWatchMessage(); // この関数は、3日ごと15時のロジックも含むように調整済み。ただし9時と15時の二重実行になるため、どちらか一方に絞るか、関数内で制御する必要あり。
 }, {
     timezone: "Asia/Tokyo"
 });
@@ -1369,6 +1369,7 @@ app.post('/webhook', async (req, res) => {
             // メッセージの送信とログ記録
             if (replyMessageObject && replyToken) {
                 try {
+                    console.log(`Debug: Attempting to reply to userId: ${userId} with replyToken: ${replyToken.substring(0, 5)}... and message:`, JSON.stringify(replyMessageObject).substring(0, 100));
                     await client.replyMessage(replyToken, replyMessageObject);
 
                     const replyTextForLog = Array.isArray(replyMessageObject)
@@ -1389,22 +1390,29 @@ app.post('/webhook', async (req, res) => {
                             userId: userId,
                             message: userMessage,
                             replyText: replyTextForLog,
-                            responsedBy: responsedBy,
+                            responsedBy: respondedBy,
                             timestamp: new Date(),
                             logType: logType
                         });
+                        console.log(`Debug: Message for userId: ${userId} logged with type: ${logType}`);
                     } else {
                         console.log(`ユーザー ${userId} からのメッセージはDBにログされませんでした: ${userMessage.substring(0, Math.min(userMessage.length, 50))}...`);
                     }
 
                 } catch (error) {
                     console.error("❌ replyMessage送信中またはログ記録中にエラーが発生しました:", error.message);
-                    await logErrorToDb(userId, "replyMessage送信またはログ記録エラー", { error: error.message, userId: userId, replyObject: replyMessageObject });
+                    if (error.originalError && error.originalError.response && error.originalError.response.status === 400) {
+                        console.error(`Debug: LINE API 400エラーの詳細: ${JSON.stringify(error.originalError.response.data)}`);
+                        if (error.originalError.response.data.message && error.originalError.response.data.message.includes("Invalid reply token")) {
+                            console.error(`Debug: LINE APIエラー: replyTokenが期限切れか無効です。`);
+                        }
+                    }
+                    await logErrorToDb(userId, "replyMessage送信またはログ記録エラー", { error: error.message, userId: userId, replyObject: replyMessageObject, eventType: event.type, originalErrorMessage: error.originalError?.message, originalErrorData: error.originalError?.response?.data });
                     if (error.message.includes("status code 400") || error.message.includes("status code 499")) {
                         console.log(`LINE APIエラーのため、ユーザー ${userId} への応答ができませんでした。`);
                     }
                 }
-            } else if (!messageHandled && !watchServiceHandled) { // watchServiceHandledの場合はhandleWatchServiceRegistrationで処理済み
+            } else if (!messageHandled && !watchServiceHandled) {
                 console.warn(`⚠️ ユーザー ${userId} への応答メッセージが生成されませんでした、またはreplyTokenがありません。ユーザーメッセージ: ${userMessage.substring(0, Math.min(userMessage.length, 50))}...`);
             }
         } // if (event.type === 'message' && event.message.type === 'text')
@@ -1416,4 +1424,3 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
     console.log(`🚀 サーバーがポート ${PORT} で起動しました...`);
 });
-```
