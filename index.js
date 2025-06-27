@@ -23,7 +23,8 @@ const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBE
 const app = express();
 app.use(express.json());
 
-const client = new messagingApi.LineMessagingApiClient({ // Clientの初期化を修正
+// ⭐ 修正: messagingApi を正しく使用
+const client = new messagingApi.LineMessagingApiClient({
     channelAccessToken: CHANNEL_ACCESS_TOKEN,
     channelSecret: CHANNEL_SECRET,
 });
@@ -311,7 +312,7 @@ const watchConfirmationFlexTemplate = {
             "contents": [
                 {
                     "type": "text",
-                    "text": "💖こころちゃんからの見守り💖",
+                    "text": "💖こころちゃんからの見守り�",
                     "wrap": true,
                     "weight": "bold",
                     "size": "lg",
@@ -691,7 +692,7 @@ const watchMessages = [
     "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
     "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
-    "元気出してね！こころちゃん、あなたの味方だよ�",
+    "元気出してね！こころちゃん、あなたの味方だよ😊",
     "こころちゃんだよ🌸 今日も一日お疲れ様💖",
     "こんにちは😊 笑顔で過ごせてるかな？",
     "やっほー！ こころだよ🌸 素敵な日になりますように💖",
