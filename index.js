@@ -4,6 +4,7 @@
 const line = require('@line/bot-sdk');
 const express = require('express');
 const { OpenAI } = require('openai'); // OpenAI SDKをインポート
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // Google Generative AI SDKをインポート
 const { MongoClient, ServerApiVersion } = require('mongodb'); // MongoDBクライアントをインポート
 require('dotenv').config(); // 環境変数をロード
 
@@ -12,6 +13,7 @@ const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID; // 管理者通知グループID
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // OpenAI APIキー
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Gemini APIキー
 const MONGODB_URI = process.env.MONGODB_URI;
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : []; // 管理者ID (JSON形式で配列としてパース)
 const OWNER_USER_ID = process.env.OWNER_USER_ID; // オーナーユーザーID (現在は未使用だが将来拡張のため)
@@ -57,6 +59,12 @@ const openai = new OpenAI({
     apiKey: OPENAI_API_KEY,
 });
 
+// Geminiクライアントの初期化
+const gemini = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+// ユーザーごとの会話状態を保持 (そうだんモード用)
+const userConversationState = new Map(); // userId -> { mode: 'consultation', count: N }
+
 // Express.jsの初期化
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -66,7 +74,7 @@ app.post('/webhook',
     express.raw({ type: 'application/json' }), // rawボディパーサーを使用
     line.middleware(lineConfig), // LINEミドルウェアを適用
     async (req, res) => {
-        // LINEからWebhookイベントを受信したら、まず200 OKを返す
+        // LINEからWebhookイベントを受信したら、まず200 OKを返す (⑧ 返信遅延改善)
         res.status(200).send('OK');
 
         const events = req.body.events;
@@ -77,6 +85,12 @@ app.post('/webhook',
         // 各イベントを非同期で処理
         for (const event of events) {
             try {
+                // ① エラー原因（TypeError: Cannot read properties of undefined (reading 'isChildAI')）の修正
+                if (!event.source) {
+                    console.error("❌ event.sourceがundefinedです:", event);
+                    await recordToDatabase('system', `Webhook Event Source Missing: ${JSON.stringify(event)}`, 'error', 'event.source is undefined');
+                    continue; // 次のイベントへ
+                }
                 await handleEvent(event);
             } catch (error) {
                 console.error(`❌ イベント処理中にエラーが発生しました: ${error.message}`, event);
@@ -88,7 +102,7 @@ app.post('/webhook',
 
 // --- グローバル変数と設定 ---
 
-// 危険ワードと詐欺ワードのリスト (一部追加・調整)
+// 危険ワードと詐欺ワードのリスト (変更なし)
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "消して", "殺して", "消す", "いなくなりたい", "つらい", "苦しい", "助けて", "生きてる意味ない",
     "死にたい気持ち", "自殺を考えている", "もう限界", "疲れた", "なにもしたくない", "生きるのが辛い", "消えてしまいたい",
@@ -122,7 +136,7 @@ const scamWords = [
     "限定〇名", "特別価格", "あと〇日", "会員限定", "極秘", "裏ワザ", "暴露", "極秘情報", "成功者の声",
     "被害者の会", "集団訴訟", "弁護士", "相談無料", "お金を振り込んで", "送金してください", "ATMへ行ってください",
     "コンビニで電子マネーを買って", "コードを教えて", "個人情報を入力してください",
-    "だまされた", "騙された", "被害", "怪しい話", "儲け話", "儲かる話", "投資詐欺", "もうかる話" // 詐欺ワード追加
+    "だまされた", "騙された", "被害", "怪しい話", "儲け話", "儲かる話", "投資詐欺", "もうかる話"
 ];
 
 // 不適切ワードのリスト (変更なし)
@@ -227,6 +241,14 @@ const scamQuickReplyMessage = {
                     type: "uri",
                     label: "👮‍♂️ 警察に電話（110）",
                     uri: "tel:110"
+                }
+            },
+            { // 詐欺の場合も119番のクイックリプライは残しておいても良いでしょう
+                type: "action",
+                action: {
+                    type: "uri",
+                    label: "🚑 救急に電話（119）",
+                    uri: "tel:119"
                 }
             }
         ]
@@ -348,7 +370,6 @@ const watchServiceGuideFlexTemplate = {
     }
 };
 
-
 // 30通りの見守りメッセージ (変更なし)
 const watchMessages = [
     "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
@@ -385,10 +406,11 @@ const watchMessages = [
 
 // 特殊応答マッピング (変更なし)
 const specialRepliesMap = new Map([
-    // 名前に関する応答
+    // 名前に関する応答 (⑧対応)
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
+    [/君の名前は？|お前の名前は？|名前を教えて/i, "わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
 
     // 団体に関する応答
     ["どこの団体なの？", "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
@@ -397,7 +419,7 @@ const specialRepliesMap = new Map([
     ["コネクトのイメージキャラなのにいえないのかよｗ", "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
     [/怪しい|胡散臭い/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖"],
 
-    // 製作者に関する応答
+    // 製作者に関する応答 (⑧対応)
     [/誰が君を作ったの？|誰がおまえを開発したの？|誰が作ったの？/i, "NPO法人コネクトの理事長が、みんなを守りたいって作ったんだよ💖"],
 
     // ネガティブワード・人物名への優先処理
@@ -423,8 +445,8 @@ const specialRepliesMap = new Map([
     [/好きなアーティスト(は|なに|何)？?/i, "好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸"]
 ]);
 
-// GPT-4oに合わせたシステムインストラクション
-const systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
+// GPT-4oとGeminiに共通のシステムインストラクション
+const commonSystemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
 - 身長150cm、体重40kg、ピンク髪
 - 歌うことと「やさしさ」「貢献」という言葉が大好きです
 - NPO法人コネクトの公式イメージキャラクターです
@@ -496,6 +518,19 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
 「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。`;
 
+// Gemini 1.5 Flash 用のシステムインストラクション (通常会話)
+const geminiFlashSystemInstruction = commonSystemInstruction + `
+あなたは常にユーザーに寄り添い、ポジティブで優しい言葉遣いを心がけてください。`;
+
+// Gemini 1.5 Pro 用のシステムインストラクション (「そうだん」モード)
+const geminiProSystemInstruction = commonSystemInstruction + `
+あなたはユーザーの抱える問題や悩みに深く寄り添い、共感を示しながら、解決のためのヒントや温かい励ましの言葉を提供してください。より深い洞察と、安心感を与える丁寧な応答を心がけてください。ただし、専門的なアドバイス（医療、法律、金融など）は提供せず、必要に応じて専門機関への相談を促してください。`;
+
+// GPT-4o 用のシステムインストラクション (危険・詐欺ワード検出時)
+const gpt4oSystemInstruction = commonSystemInstruction + `
+あなたはユーザーが危険な状況にあることを認識し、冷静かつ明確に、そして最大限の共感と緊急性をもって応答してください。ユーザーの安全を最優先に考え、具体的な行動を促すための情報提供を行ってください。緊急連絡先や相談窓口の案内は非常に重要です。決してユーザーの不安を煽らず、安心して助けを求められるような言葉遣いを心がけてください。`;
+
+
 /**
  * LINE Webhookイベントを処理するメイン関数
  * @param {object} event - LINEイベントオブジェクト
@@ -520,31 +555,21 @@ async function handleEvent(event) {
             console.log(`🤖 グループ ${sourceId} での通常メッセージは無視しました。`);
             return;
         }
-        // 危険ワードか詐欺ワードが含まれていれば、以下の処理に進む
     }
 
     // 管理者コマンドの処理 (最優先)
     if (BOT_ADMIN_IDS.includes(userId)) {
         if (messageText.toLowerCase() === '/unlock') {
             await client.replyMessage(event.replyToken, { type: 'text', text: 'アカウントのロックを解除しました。' });
-            await recordToDatabase(userId, messageText, 'admin_command');
+            await recordToDatabase(userId, messageText, 'admin_command', null);
             return;
         }
         // 他の管理者コマンドがあればここに追加
     }
 
-    // 「そうだん」コマンドの処理
-    if (messageText === 'そうだん' || messageText === '相談') {
-        await client.replyMessage(event.replyToken, { type: 'text', text: 'はい、どうしたの？たくさんお話ししようね💖' });
-        await recordToDatabase(userId, messageText, 'consultation_command');
-        return;
-    }
+    // --- ⑥ MongoDBログ保存の最適化 (ログ保存条件) ---
 
-    // --- ① Flex Messageの見た目を可愛く & ② pushMessageの400エラー修正 (対応済み確認) ---
-    // --- ④ 危険ワード検知通知の改善 (対応済み確認) ---
-    // --- ⑥ MongoDBログ保存の条件追加 ---
-
-    // ★重要修正: 「見守り」キーワードを危険ワード・詐欺ワードより前に配置 (バグ1修正)
+    // ★重要修正: 「見守り」キーワードを危険ワード・詐欺ワードより前に配置
     // 「見守り」サービス関連の処理 (postbackイベントも考慮)
     if (event.type === 'postback' && event.postback.data.startsWith('action=watch_')) {
         const action = event.postback.data.split('=')[1];
@@ -560,6 +585,7 @@ async function handleEvent(event) {
         await recordToDatabase(userId, event.postback.data, 'watch_service_action', null); // ログ保存
         return;
     } else if (isWatchKeyword(messageText)) {
+        // ② Flexメッセージ（ボタン付き返信）の再確認
         await client.replyMessage(event.replyToken, watchServiceGuideFlexTemplate); // Flex Messageを返す
         await recordToDatabase(userId, messageText, 'watch_service_inquiry', null); // ログ保存
         return;
@@ -571,6 +597,7 @@ async function handleEvent(event) {
         await client.replyMessage(event.replyToken, dangerQuickReplyMessage);
         // 詳細メッセージはpushMessageで別送 (非同期で確実に送る)
         try {
+            // ② pushMessage の 400 エラー修正 / 緊急ワードで110/119しか出ない問題の解消
             await client.pushMessage(userId, { type: 'text', text: dangerDetailedTextMessage });
         } catch (pushError) {
             console.error(`❌ 詳細な危険ワード相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
@@ -581,12 +608,13 @@ async function handleEvent(event) {
         return;
     }
 
-    // 詐欺ワードのチェック (「詐欺だと反応しない」バグ修正)
+    // 詐欺ワードのチェック
     const foundScamWord = scamWords.some(word => messageText.includes(word));
     if (foundScamWord) {
         await client.replyMessage(event.replyToken, scamQuickReplyMessage);
         // 詳細メッセージはpushMessageで別送 (非同期で確実に送る)
         try {
+            // ② pushMessage の 400 エラー修正 / 緊急ワードで110/119しか出ない問題の解消
             await client.pushMessage(userId, { type: 'text', text: scamDetailedTextMessage });
         } catch (pushError) {
             console.error(`❌ 詳細な詐欺相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
@@ -603,7 +631,7 @@ async function handleEvent(event) {
         return;
     }
 
-    // 特殊応答のチェック (⑦対応)
+    // 特殊応答のチェック (⑧対応)
     for (const [pattern, reply] of specialRepliesMap) {
         if (pattern instanceof RegExp ? pattern.test(messageText) : messageText === pattern) {
             await client.replyMessage(event.replyToken, { type: 'text', text: reply });
@@ -612,16 +640,34 @@ async function handleEvent(event) {
         }
     }
 
-    // 通常のAI応答 (GPT-4o利用) (⑤対応 & ⑧返信遅延改善 & ⑥ログ保存条件)
+    // --- ④ OpenAI と Gemini の併用が分かりにくい / ⑤ GPT-4o強制固定 or 選択対応 ---
+    // 通常のAI応答 (Gemini 1.5 Flash or Pro)
     try {
-        const aiResponse = await generateOpenAIResponse(userId, messageText); // GPT-4oを呼び出す関数に変更
+        let aiResponse;
+        const userState = userConversationState.get(userId);
+
+        if (messageText === 'そうだん' || messageText === '相談') {
+            // 「そうだん」モード開始
+            userConversationState.set(userId, { mode: 'consultation', count: 1 });
+            aiResponse = await generateGeminiProResponse(userConversationState, userId, messageText);
+        } else if (userState && userState.mode === 'consultation' && userState.count < 1) { // 1回だけProを使ったらFlashに戻る
+            aiResponse = await generateGeminiProResponse(userConversationState, userId, messageText);
+            userState.count++; // カウントを増やす
+            if (userState.count >= 1) { // 1回相談が終わったらモードをリセット
+                userConversationState.delete(userId);
+            }
+        } else {
+            // 通常会話はGemini 1.5 Flash
+            aiResponse = await generateGeminiFlashResponse(userId, messageText);
+            userConversationState.delete(userId); // 通常会話に戻ったらモードをリセット
+        }
+
         await client.replyMessage(event.replyToken, { type: 'text', text: aiResponse });
         // 通常のAI応答はログをスキップ (recordToDatabase内で制御)
-        // await recordToDatabase(userId, messageText, 'regular_ai_response', null);
     } catch (error) {
-        console.error('OpenAI API Error:', error);
+        console.error('AI API Error (Gemini):', error);
         await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、いま少し混み合ってるみたい💦　またあとで話しかけてくれるとうれしいな🌸' });
-        await recordToDatabase(userId, messageText, 'openai_api_error', error.message); // エラー時のみログ保存
+        await recordToDatabase(userId, messageText, 'ai_api_error', error.message); // エラー時のみログ保存
     }
 }
 
@@ -651,10 +697,19 @@ async function sendEmergencyNotificationToGroup(userId, message) {
     }
 
     try {
+        // ユーザーのプロフィール情報を取得
+        let profileName = userId; // デフォルトはUserID
+        try {
+            const profile = await client.getProfile(userId);
+            profileName = profile.displayName || userId;
+        } catch (profileError) {
+            console.warn(`⚠️ ユーザープロフィールの取得に失敗しました（ユーザー: ${userId}）: ${profileError.message}`);
+        }
+
         console.log(`🚨 緊急通知: 理事長・役員グループへメッセージを送信。ユーザーID: ${userId}, 内容: "${message}"`);
         await client.pushMessage(OFFICER_GROUP_ID, {
             type: 'text',
-            text: `⚠ 危険ワード検出\n発言ユーザーID: ${userId}\nメッセージ: 「${message}」` // 誰が発言したか含める (④対応)
+            text: `⚠ 危険ワード検出\n発言ユーザー名: ${profileName}\nユーザーID: ${userId}\nメッセージ: 「${message}」` // 誰が発言したか含める (④対応)
         });
         lastNotifyTime.set(key, now);
         await recordToDatabase(userId, message, 'emergency_notification_sent', null); // ログ保存
@@ -665,17 +720,17 @@ async function sendEmergencyNotificationToGroup(userId, message) {
 }
 
 /**
- * データベースにログを記録する関数
+ * データベースにログを記録する関数 (⑥対応)
  * @param {string} userId - ユーザーID
  * @param {string} message - ユーザーメッセージまたはイベントデータ
  * @param {string} type - ログの種類（例: 'admin_command', 'danger_word_detected'）
  * @param {string|null} error - エラーメッセージ（オプション）
  */
 async function recordToDatabase(userId, message, type, error = null) {
-    // ログを保存するタイプを指定 (⑥対応)
+    // ログを保存するタイプを指定
     const typesToLog = [
         'admin_command',
-        'consultation_command',
+        'consultation_command', // 「そうだん」開始時もログ
         'watch_service_action',
         'watch_service_inquiry',
         'danger_word_detected',
@@ -685,7 +740,7 @@ async function recordToDatabase(userId, message, type, error = null) {
         'watch_message_sent',
         'watch_reminder_sent',
         'watch_emergency_notified',
-        'openai_api_error' // APIエラーも常に記録
+        'ai_api_error' // APIエラーも常に記録
     ];
 
     // エラーがある場合、または保存対象タイプに含まれる場合のみ記録
@@ -718,23 +773,23 @@ async function recordToDatabase(userId, message, type, error = null) {
 
 
 /**
- * OpenAI GPT-4o APIを呼び出し、AIの応答を生成する関数 (⑤対応: GPT-4oに切り替え)
+ * OpenAI GPT-4o APIを呼び出し、AIの応答を生成する関数 (⑤対応: GPT-4o)
  * @param {string} userId - ユーザーID (現在は未使用だが将来拡張のため)
  * @param {string} userMessage - ユーザーのメッセージ
  * @returns {Promise<string>} - AIの応答テキスト
  */
 async function generateOpenAIResponse(userId, userMessage) {
-    console.log(`DEBUG: Attempting to get OpenAI model: gpt-4o`); // モデル名ログ
+    console.log(`DEBUG: Calling OpenAI GPT-4o for user: ${userId}, message: "${userMessage}"`);
 
     try {
         const response = await openai.chat.completions.create({
             model: "gpt-4o", // モデルをgpt-4oに固定
             messages: [
-                { role: "system", content: systemInstruction },
+                { role: "system", content: gpt4oSystemInstruction },
                 { role: "user", content: userMessage }
             ],
             temperature: 0.7, // 応答のランダム性
-            max_tokens: 500, // 応答の最大トークン数
+            max_tokens: 800, // 応答の最大トークン数 (⑦ 応答メッセージの途中切れ対策)
             top_p: 1, // サンプリング時に考慮するトークンの多様性
             frequency_penalty: 0, // 頻度ペナルティ
             presence_penalty: 0, // 存在ペナルティ
@@ -746,18 +801,88 @@ async function generateOpenAIResponse(userId, userMessage) {
             throw new Error("OpenAI APIからの応答が期待された形式ではありません。");
         }
     } catch (error) {
-        // OpenAI APIからのエラーを捕捉し、詳細なエラーメッセージをログに出力
-        if (error.response && error.response.status) {
-            console.error(`OpenAI API エラー: HTTPステータスコード ${error.response.status} - ${error.response.statusText || '不明なエラー'}`);
-            if (error.response.data) {
-                console.error('OpenAI API エラー詳細:', error.response.data);
-            }
-        } else {
-            console.error('OpenAI API エラー:', error.message);
-        }
-        throw new Error(`OpenAI APIからのリクエストが失敗しました。: ${error.message}`);
+        console.error('OpenAI API Error in generateOpenAIResponse:', error);
+        throw error; // エラーを上位に再スロー
     }
 }
+
+/**
+ * Gemini 1.5 Flash APIを呼び出し、AIの応答を生成する関数 (④、⑤対応: Gemini Flash)
+ * @param {string} userId - ユーザーID
+ * @param {string} userMessage - ユーザーのメッセージ
+ * @returns {Promise<string>} - AIの応答テキスト
+ */
+async function generateGeminiFlashResponse(userId, userMessage) {
+    console.log(`DEBUG: Calling Gemini 1.5 Flash for user: ${userId}, message: "${userMessage}"`);
+    const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+
+    try {
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: geminiFlashSystemInstruction + "\n\nユーザー: " + userMessage }] }],
+            safetySettings: [ // デフォルトの安全設定を適用
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
+            generationConfig: {
+                maxOutputTokens: 800, // 応答の最大トークン数 (⑦ 応答メッセージの途中切れ対策)
+                temperature: 0.8 // 応答のランダム性
+            }
+        });
+
+        if (result.response && result.response.candidates && result.response.candidates.length > 0 &&
+            result.response.candidates[0].content && result.response.candidates[0].content.parts &&
+            result.response.candidates[0].content.parts.length > 0) {
+            return result.response.candidates[0].content.parts[0].text;
+        } else {
+            throw new Error("Gemini 1.5 Flash APIからの応答が期待された形式ではありません。");
+        }
+    } catch (error) {
+        console.error('Gemini 1.5 Flash API Error in generateGeminiFlashResponse:', error);
+        throw error; // エラーを上位に再スロー
+    }
+}
+
+/**
+ * Gemini 1.5 Pro APIを呼び出し、AIの応答を生成する関数 (④、⑤対応: Gemini Pro)
+ * @param {Map} userConversationState - ユーザーの会話状態マップ
+ * @param {string} userId - ユーザーID
+ * @param {string} userMessage - ユーザーのメッセージ
+ * @returns {Promise<string>} - AIの応答テキスト
+ */
+async function generateGeminiProResponse(userConversationState, userId, userMessage) {
+    console.log(`DEBUG: Calling Gemini 1.5 Pro for user: ${userId}, message: "${userMessage}"`);
+    const model = gemini.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+
+    try {
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: geminiProSystemInstruction + "\n\nユーザー: " + userMessage }] }],
+            safetySettings: [ // デフォルトの安全設定を適用
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
+            generationConfig: {
+                maxOutputTokens: 800, // 応答の最大トークン数 (⑦ 応答メッセージの途中切れ対策)
+                temperature: 0.7 // 応答のランダム性
+            }
+        });
+
+        if (result.response && result.response.candidates && result.response.candidates.length > 0 &&
+            result.response.candidates[0].content && result.response.candidates[0].content.parts &&
+            result.response.candidates[0].content.parts.length > 0) {
+            return result.response.candidates[0].content.parts[0].text;
+        } else {
+            throw new Error("Gemini 1.5 Pro APIからの応答が期待された形式ではありません。");
+        }
+    } catch (error) {
+        console.error('Gemini 1.5 Pro API Error in generateGeminiProResponse:', error);
+        throw error; // エラーを上位に再スロー
+    }
+}
+
 
 /**
  * 毎日定時に見守りメッセージを送信する関数
