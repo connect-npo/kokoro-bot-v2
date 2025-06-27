@@ -1,42 +1,69 @@
 // index.js
 
 // LINE Messaging API SDK をインポート
-// npm install @line/bot-sdk @google/generative-ai express でインストールしてください
 const line = require('@line/bot-sdk');
 const express = require('express');
-// raw-bodyはexpress.raw()を使用するため、直接インポートは不要になります
-const { GoogleGenerativeAI } = require('@google/generative-ai'); // Gemini APIクライアントをインポート
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { MongoClient, ServerApiVersion } = require('mongodb'); // MongoDBクライアントをインポート
+require('dotenv').config(); // 環境変数をロード
 
-// 環境変数からLINEアクセストークンとシークレット、理事長グループID、そしてGemini APIキーを取得
-// Renderの環境変数設定を必ず確認してください
-const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN; // 環境変数名に合わせて修正
+// 環境変数から各種キーを取得
+const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // ★重要: Gemini APIキーを環境変数から取得
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const MONGODB_URI = process.env.MONGODB_URI;
+const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : []; // 管理者ID (JSON形式で配列としてパース)
+const OWNER_USER_ID = process.env.OWNER_USER_ID; // オーナーユーザーID
 
-// LINEクライアントの初期化 (本番用)
-// 環境変数が設定されていない場合のフォールバック値はテスト用です。
-// 実際の運用では必ず正しい環境変数を設定してください。
-const lineConfig = { // line.middlewareに渡すためのconfigオブジェクト
-    channelAccessToken: LINE_ACCESS_TOKEN || 'YOUR_LINE_CHANNEL_ACCESS_TOKEN_HERE', // ★重要: あなたのLINEチャンネルアクセストークンを設定
-    channelSecret: LINE_CHANNEL_SECRET || 'YOUR_LINE_CHANNEL_SECRET_HERE' // ★重要: あなたのLINEチャンネルシークレットを設定
+// MongoDBクライアントの初期化
+const dbClient = new MongoClient(MONGODB_URI, {
+    serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+    }
+});
+
+// MongoDBデータベースとコレクションの定義
+let db;
+let logsCollection;
+let watchUsersCollection; // 見守りサービスユーザーを管理するコレクション
+
+async function connectToDatabase() {
+    try {
+        await dbClient.connect();
+        db = dbClient.db("kokoro-chat-db"); // データベース名
+        logsCollection = db.collection("logs"); // ログコレクション
+        watchUsersCollection = db.collection("watchUsers"); // 見守りユーザーコレクション
+        console.log("🟢 MongoDBに接続しました！");
+    } catch (e) {
+        console.error("❌ MongoDB接続エラー:", e);
+        process.exit(1); // 接続失敗時はプロセスを終了
+    }
+}
+
+connectToDatabase();
+
+// LINEクライアントの初期化
+const lineConfig = {
+    channelAccessToken: LINE_ACCESS_TOKEN,
+    channelSecret: LINE_CHANNEL_SECRET
 };
 const client = new line.Client(lineConfig);
 
 // Gemini APIクライアントの初期化
-const gemini_api_client = new GoogleGenerativeAI(GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE'); // ★重要: Gemini APIキーを渡す
+const gemini_api_client = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // Express.jsの初期化
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // LINE BotのWebhookイベントハンドラ
-// express.raw() を使用して生のボディを適切に処理します。
 app.post('/webhook',
-    express.raw({ type: 'application/json' }), // LINE Webhook用に生のJSONボディを解析
-    line.middleware(lineConfig), // LINE SDKのミドルウェアがrawボディを利用して署名検証
+    express.raw({ type: 'application/json' }),
+    line.middleware(lineConfig),
     async (req, res) => {
-        // req.bodyはline.middlewareによって既にパースされたJSONが入っている
         const events = req.body.events;
         if (!events || events.length === 0) {
             return res.status(200).send('OK');
@@ -48,15 +75,11 @@ app.post('/webhook',
             }
             res.status(200).send('OK');
         } catch (error) {
-            console.error(`❌ Webhook処理中にエラーが発生しました: ${error.message}`); // テンプレートリテラル修正
+            console.error(`❌ Webhook処理中にエラーが発生しました: ${error.message}`);
             res.status(500).send('Internal Server Error');
         }
     }
 );
-
-// Webhook以外のルートでJSONボディをパースしたい場合は、ここに express.json() を追加します。
-// 例: app.use(express.json());
-
 
 // --- グローバル変数と設定 ---
 
@@ -127,39 +150,36 @@ const inappropriateWords = [
     "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
 ];
 
-
 // ユーザーごとの通知時間記録 (レート制限用)
 const lastNotifyTime = new Map();
 
 // 【1】危険ワード（子ども・全年齢向け）のクイックリプライと詳細テキストメッセージ
-// クイックリプライメッセージ（警察・救急のみ）
 const dangerQuickReplyMessage = {
-  type: "text",
-  text: "緊急のときは、すぐに以下の連絡先に電話してください📞", // 絵文字修正
-  quickReply: {
-    items: [
-      {
-        type: "action",
-        action: {
-          type: "uri",
-          label: "🚓 警察に電話（110）",
-          uri: "tel:110"
-        }
-      },
-      {
-        type: "action",
-        action: {
-          type: "uri",
-          label: "🚑 救急に電話（119）",
-          uri: "tel:119"
-        }
-      }
-    ]
-  }
+    type: "text",
+    text: "緊急のときは、すぐに以下の連絡先に電話してください📞", // 絵文字修正
+    quickReply: {
+        items: [
+            {
+                type: "action",
+                action: {
+                    type: "uri",
+                    label: "🚓 警察に電話（110）",
+                    uri: "tel:110"
+                }
+            },
+            {
+                type: "action",
+                action: {
+                    type: "uri",
+                    label: "🚑 救急に電話（119）",
+                    uri: "tel:119"
+                }
+            }
+        ]
+    }
 };
 
 // 詳細な相談窓口のテキストメッセージ（危険ワード用）
-// ★修正点: バッククォートを追加
 const dangerDetailedTextMessage = `💡こころちゃんは、みんなのお話をきくことはできるけど…
 
 もしも命があぶないときや、すぐにたすけがほしいときは…
@@ -188,26 +208,24 @@ https://yorisoi-chat.jp（8時〜22:30、受付は22時まで）
 🌸ひとりでがまんしないでね。こころちゃんも、あなたのことをたいせつに思っています💖`;
 
 // 【2】詐欺ワード（大人向け）のクイックリプライと詳細テキストメッセージ
-// クイックリプライメッセージ（110番のみ）
 const scamQuickReplyMessage = {
-  type: "text",
-  text: "⚠️ 詐欺やトラブルにあったかも？と感じたら…",
-  quickReply: {
-    items: [
-      {
-        type: "action",
-        action: {
-          type: "uri",
-          label: "👮‍♂️ 緊急時は迷わず 110番 に通報",
-          uri: "tel:110"
-        }
-      }
-    ]
-  }
+    type: "text",
+    text: "⚠️ 詐欺やトラブルにあったかも？と感じたら…",
+    quickReply: {
+        items: [
+            {
+                type: "action",
+                action: {
+                    type: "uri",
+                    label: "👮‍♂️ 緊急時は迷わず 110番 に通報",
+                    uri: "tel:110"
+                }
+            }
+        ]
+    }
 };
 
 // 詳細な相談窓口のテキストメッセージ（詐欺ワード用）
-// ★修正点: バッククォートを追加
 const scamDetailedTextMessage = `⚠️ それはもしかすると詐欺の可能性があります。
 
 まずは落ち着いて行動してくださいね。
@@ -291,7 +309,6 @@ const watchServiceGuideFlexTemplate = {
         ]
     }
 };
-
 
 const modelConfig = {
     "defaultModel": "gemini-1.5-flash-latest",
@@ -377,7 +394,6 @@ const specialRepliesMap = new Map([
     [/好きなアーティスト(は|なに|何)？?/i, "好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸"]
 ]);
 
-// ★修正点: systemInstructionをバッククォートで囲む
 const systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
 - 身長150cm、体重40kg、ピンク髪
 - 歌うことと「やさしさ」「貢献」という言葉が大好きです
@@ -462,11 +478,15 @@ async function handleEvent(event) {
     const userId = event.source.userId;
     const messageText = event.message.text;
 
-    // 管理者コマンドの処理
-    if (messageText.toLowerCase() === '/unlock') {
-        await client.replyMessage(event.replyToken, { type: 'text', text: 'アカウントのロックを解除しました。' });
-        await recordToDatabase(userId, messageText, 'admin_command');
-        return;
+    // 管理者コマンドの処理 (最優先)
+    // BOT_ADMIN_IDSに含まれるユーザーのみ実行可能
+    if (BOT_ADMIN_IDS.includes(userId)) {
+        if (messageText.toLowerCase() === '/unlock') {
+            await client.replyMessage(event.replyToken, { type: 'text', text: 'アカウントのロックを解除しました。' });
+            await recordToDatabase(userId, messageText, 'admin_command');
+            return;
+        }
+        // 他の管理者コマンドがあればここに追加
     }
 
     // 「そうだん」コマンドの処理
@@ -476,22 +496,26 @@ async function handleEvent(event) {
         return;
     }
 
-    // 見守りサービス関連の処理 (postbackイベントも考慮)
+    // ★重要修正: 「見守り」キーワードを危険ワード・詐欺ワードより前に配置
+    // 「見守り」サービス関連の処理 (postbackイベントも考慮)
     if (event.type === 'postback' && event.postback.data.startsWith('action=watch_')) {
         const action = event.postback.data.split('=')[1];
         if (action === 'watch_register') {
             await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスへの登録が完了しました！ありがとう💖 毎日午後3時頃にメッセージを送るね😊 もし内容を変更したくなったら、「見守り」と送ってね🌸' });
+            await watchUsersCollection.updateOne({ userId: userId }, { $set: { enabled: true, registeredAt: new Date() } }, { upsert: true });
         } else if (action === 'watch_unregister') {
             await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスを解除しました。いつでもまた登録できるからね🌸' });
+            await watchUsersCollection.updateOne({ userId: userId }, { $set: { enabled: false } });
         } else if (action === 'watch_update_emergency_contact') {
             await client.replyMessage(event.replyToken, { type: 'text', text: '緊急連絡先の登録や変更については、こころちゃん事務局にお問い合わせくださいね。' });
         }
         await recordToDatabase(userId, event.postback.data, 'watch_service_action');
         return;
     } else if (isWatchKeyword(messageText)) {
-        // ★修正点: Flex Messageの代わりに、まずシンプルなテキストメッセージを試す
-        // await client.replyMessage(event.replyToken, watchServiceGuideFlexTemplate);
-        await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスのご案内だね🌸 画面に表示されたメニューから選んでね💖' }); // 仮のテキストメッセージ
+        await client.replyMessage(event.replyToken, { type: 'flex', altText: '見守りサービスのご案内', contents: watchServiceGuideFlexTemplate });
+        // ★修正: Flex Message が問題ないか確認するため、元の Flex Message に戻しました
+        // もし Flex Message でエラーが出る場合は、再度シンプルなテキストメッセージに切り替えてテストしてください
+        // await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスのご案内だね🌸 画面に表示されたメニューから選んでね💖' }); // 仮のテキストメッセージ
         await recordToDatabase(userId, messageText, 'watch_service_inquiry');
         return;
     }
@@ -499,11 +523,9 @@ async function handleEvent(event) {
     // 危険ワードのチェック
     const foundDangerWord = dangerWords.some(word => messageText.includes(word));
     if (foundDangerWord) {
-        // クイックリプライと詳細テキストメッセージを順番に送信
         await client.replyMessage(event.replyToken, dangerQuickReplyMessage);
-        // pushMessageが失敗しないように、try-catchで囲む
         try {
-            await client.pushMessage(userId, { type: 'text', text: dangerDetailedTextMessage }); // pushMessageで別送
+            await client.pushMessage(userId, { type: 'text', text: dangerDetailedTextMessage });
         } catch (pushError) {
             console.error(`❌ 詳細な危険ワード相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
             await recordToDatabase(userId, `詳細危険ワードメッセージ送信失敗: ${pushError.message}`, 'error', pushError.message);
@@ -516,11 +538,9 @@ async function handleEvent(event) {
     // 詐欺ワードのチェック
     const foundScamWord = scamWords.some(word => messageText.includes(word));
     if (foundScamWord) {
-        // クイックリプライと詳細テキストメッセージを順番に送信
         await client.replyMessage(event.replyToken, scamQuickReplyMessage);
-        // pushMessageが失敗しないように、try-catchで囲む
         try {
-            await client.pushMessage(userId, { type: 'text', text: scamDetailedTextMessage }); // pushMessageで別送
+            await client.pushMessage(userId, { type: 'text', text: scamDetailedTextMessage });
         } catch (pushError) {
             console.error(`❌ 詳細な詐欺相談窓口メッセージの送信に失敗しました（ユーザー: ${userId}）: ${pushError.message}`);
             await recordToDatabase(userId, `詳細詐欺メッセージ送信失敗: ${pushError.message}`, 'error', pushError.message);
@@ -533,6 +553,7 @@ async function handleEvent(event) {
     const foundInappropriateWord = inappropriateWords.some(word => messageText.includes(word));
     if (foundInappropriateWord) {
         await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、その内容には答えられないよ…。' });
+        await recordToDatabase(userId, messageText, 'inappropriate_word_detected'); // 不適切ワードも記録
         return;
     }
 
@@ -540,18 +561,20 @@ async function handleEvent(event) {
     for (const [pattern, reply] of specialRepliesMap) {
         if (pattern instanceof RegExp ? pattern.test(messageText) : messageText === pattern) {
             await client.replyMessage(event.replyToken, { type: 'text', text: reply });
+            await recordToDatabase(userId, messageText, 'special_reply'); // 特殊応答も記録
             return;
         }
     }
 
-    // 通常のAI応答 (Gemini APIの呼び出しを想定)
+    // 通常のAI応答 (Gemini APIの呼び出し)
     try {
         const aiResponse = await generateGeminiResponse(userId, messageText);
         await client.replyMessage(event.replyToken, { type: 'text', text: aiResponse });
+        await recordToDatabase(userId, messageText, 'regular_ai_response'); // 通常応答も記録
     } catch (error) {
         console.error('Gemini API Error:', error);
-        await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、今ちょっとお話できないみたい。また後で試してみてくれるかな？💦' });
-        await recordToDatabase(userId, messageText, 'gemini_api_error', error.message); // エラー時も記録
+        await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、いま少し混み合ってるみたい💦　またあとで話しかけてくれるとうれしいな🌸' });
+        await recordToDatabase(userId, messageText, 'gemini_api_error', error.message);
     }
 }
 
@@ -572,38 +595,44 @@ function isWatchKeyword(text) {
  */
 async function sendEmergencyNotificationToGroup(userId, message) {
     const now = Date.now();
-    const key = `${userId}-${message}`; // テンプレートリテラル修正
+    const key = `${userId}-${message}`;
     const COOLDOWN_PERIOD = 5 * 60 * 1000; // 5分間のクールダウン
 
     if (lastNotifyTime.has(key) && (now - lastNotifyTime.get(key) < COOLDOWN_PERIOD)) {
-        console.log(`🔇 通知スキップ: レート制限中 (ユーザー: ${userId}, メッセージ: "${message}") - 次回通知可能: ${new Date(lastNotifyTime.get(key) + COOLDOWN_PERIOD).toLocaleTimeString()}`); // テンプレートリテラル修正
+        console.log(`🔇 通知スキップ: レート制限中 (ユーザー: ${userId}, メッセージ: "${message}") - 次回通知可能: ${new Date(lastNotifyTime.get(key) + COOLDOWN_PERIOD).toLocaleTimeString()}`);
         return;
     }
 
     try {
-        console.log(`🚨 緊急通知: 理事長・役員グループへメッセージを送信。ユーザーID: ${userId}, 内容: "${message}"`); // テンプレートリテラル修正
+        console.log(`🚨 緊急通知: 理事長・役員グループへメッセージを送信。ユーザーID: ${userId}, 内容: "${message}"`);
         await client.pushMessage(OFFICER_GROUP_ID, {
             type: 'text',
-            text: `⚠ 危険ワード検出: ユーザーID ${userId} が「${message}」と発言しました。` // テンプレートリテラル修正
+            text: `⚠ 危険ワード検出: ユーザーID ${userId} が「${message}」と発言しました。`
         });
         lastNotifyTime.set(key, now);
+        await recordToDatabase(userId, message, 'emergency_notification_sent'); // 緊急通知成功も記録
     } catch (error) {
-        console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
-        await recordToDatabase(userId, `緊急通知送信失敗: ${error.message}`, 'error', error.message); // エラー時も記録
+        console.error(`❌ 危険ワード通知の送信に失敗しました（ユーザー: ${userId}）: ${error.message}`);
+        await recordToDatabase(userId, `緊急通知送信失敗: ${error.message}`, 'error', error.message);
     }
 }
 
 /**
- * データベースにログを記録するダミー関数
+ * データベースにログを記録する関数
  * @param {string} userId - ユーザーID
  * @param {string} message - ユーザーメッセージまたはイベントデータ
  * @param {string} type - ログの種類（例: 'admin_command', 'danger_word_detected'）
  * @param {string|null} error - エラーメッセージ（オプション）
  */
 async function recordToDatabase(userId, message, type, error = null) {
-    // ★修正点: エラーがある場合も記録し、スキップタイプはエラーがない場合のみ適用
+    // スキップ対象のタイプで、かつエラーがない場合のみ記録をスキップ
     const skipTypes = ['regular_ai_response', 'special_reply', 'inappropriate_word_detected'];
-    if (!error && skipTypes.includes(type)) { // エラーがない、かつスキップ対象のタイプの場合のみスキップ
+    if (!error && skipTypes.includes(type)) {
+        return;
+    }
+
+    if (!logsCollection) {
+        console.warn("⚠️ データベースコレクションが初期化されていません。ログをスキップします。");
         return;
     }
 
@@ -616,8 +645,12 @@ async function recordToDatabase(userId, message, type, error = null) {
         error: error
     };
 
-    console.log('💾 DBに記録:', record);
-    // ここに実際のデータベース（例: MongoDB, Firestore）への保存ロジックを実装
+    try {
+        await logsCollection.insertOne(record);
+        console.log('💾 DBに記録:', record);
+    } catch (dbError) {
+        console.error('❌ データベースへのログ記録中にエラーが発生しました:', dbError);
+    }
 }
 
 /**
@@ -627,27 +660,18 @@ async function recordToDatabase(userId, message, type, error = null) {
  * @returns {Promise<string>} - AIの応答テキスト
  */
 async function generateGeminiResponse(userId, userMessage) {
-    // Debugging: Log the model name being used right before the call
-    console.log(`DEBUG: Attempting to get Gemini model: ${modelConfig.defaultModel}`); // テンプレートリテラル修正
+    console.log(`DEBUG: Attempting to get Gemini model: ${modelConfig.defaultModel}`);
 
-    // モデルをインスタンス化
     const model = gemini_api_client.getGenerativeModel({ model: modelConfig.defaultModel });
 
-    const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`; // テンプレートリテラル修正
+    const fullPrompt = `${systemInstruction}\n\nユーザー: ${userMessage}`;
     let chatHistory = [];
     chatHistory.push({ role: "user", parts: [{ text: fullPrompt }] });
 
     try {
         const result = await model.generateContent({
             contents: chatHistory,
-            // safetySettingsをgenerationConfigの外に移動し、トップレベルに配置
-            // Gemini APIのドキュメントに従い、safetySettingsはgenerationConfigとは別のトップレベルプロパティに配置
             safetySettings: modelConfig.safetySettings
-            // generationConfigは空でも良いし、必要な他の設定（temperatureなど）があれば追加
-            // generationConfig: {
-            //     temperature: 0.7,
-            //     topK: 40
-            // }
         });
 
         if (result.response && result.response.candidates && result.response.candidates.length > 0 &&
@@ -658,75 +682,103 @@ async function generateGeminiResponse(userId, userMessage) {
             throw new Error("Gemini APIからの応答が期待された形式ではありません。");
         }
     } catch (error) {
-        // Gemini APIからのエラーを捕捉し、詳細なエラーメッセージをログに出力
         if (error.response && error.response.status) {
-            console.error(`Gemini API エラー: HTTPステータスコード ${error.response.status} - ${error.response.statusText || '不明なエラー'}`); // テンプレートリテラル修正
+            console.error(`Gemini API エラー: HTTPステータスコード ${error.response.status} - ${error.response.statusText || '不明なエラー'}`);
             if (error.response.data) {
                 console.error('Gemini API エラー詳細:', error.response.data);
             }
         } else {
             console.error('Gemini API エラー:', error.message);
         }
-        throw new Error(`Gemini APIからのリクエストが失敗しました。: ${error.message}`); // テンプレートリテラル修正
+        throw new Error(`Gemini APIからのリクエストが失敗しました。: ${error.message}`);
     }
 }
 
 /**
- * 毎日定時に見守りメッセージを送信する関数（ダミー）
+ * 毎日定時に見守りメッセージを送信する関数
  * ※実際にはCloud SchedulerやCronジョブなどで定期的にトリガーする必要があります。
  */
 async function sendDailyWatchMessage() {
-    const currentTime = new Date();
-    // 毎日午後3時に実行される想定
-    if (currentTime.getHours() === 15 && currentTime.getMinutes() === 0) {
-        // 見守りサービス登録済みの全ユーザーを取得 (ダミーデータ)
-        const watchUsers = ['user1', 'user2']; // 実際にはDBから取得
+    console.log('--- sendDailyWatchMessage が実行されました ---');
+    try {
+        const users = await watchUsersCollection.find({ enabled: true }).toArray();
+        const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)];
 
-        const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)]; // 30通りからランダム選択
-
-        for (const userId of watchUsers) {
+        for (const user of users) {
             try {
-                await client.pushMessage(userId, { type: 'text', text: randomMessage });
-                await recordToDatabase(userId, randomMessage, 'watch_message_sent');
+                await client.pushMessage(user.userId, { type: 'text', text: randomMessage });
+                console.log(`✉️ 見守りメッセージ送信成功（ユーザー: ${user.userId}）`);
+                await recordToDatabase(user.userId, randomMessage, 'watch_message_sent');
+                // 最終メッセージ送信時刻を更新 (未返信チェック用)
+                await watchUsersCollection.updateOne({ userId: user.userId }, { $set: { lastMessageSentAt: new Date(), lastReplyAt: null } });
             } catch (error) {
-                console.error(`❌ 見守りメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
-                await recordToDatabase(userId, `見守りメッセージ送信失敗: ${error.message}`, 'error', error.message); // エラー時も記録
+                console.error(`❌ 見守りメッセージ送信失敗（ユーザー: ${user.userId}）: ${error.message}`);
+                await recordToDatabase(user.userId, `見守りメッセージ送信失敗: ${error.message}`, 'error', error.message);
             }
         }
+    } catch (dbError) {
+        console.error('❌ 見守りユーザー取得エラー:', dbError);
+        await recordToDatabase('system', '見守りユーザー取得エラー', 'error', dbError.message);
     }
 }
 
 /**
- * 未返信ユーザーをチェックし、リマインダーや緊急通知を送信する関数（ダミー）
+ * 未返信ユーザーをチェックし、リマインダーや緊急通知を送信する関数
  * ※実際にはCloud SchedulerやCronジョブなどで定期的にトリガーする必要があります。
  */
 async function checkUnansweredMessages() {
-    const unanswered24hUsers = ['user1']; // 実際にはDBから取得
-    for (const userId of unanswered24hUsers) {
-        try {
-            await client.pushMessage(userId, { type: 'text', text: '見てくれたかな？😊 こころちゃん、ちょっと心配してるよ💖' });
-            await recordToDatabase(userId, 'リマインダーメッセージ送信', 'watch_reminder_sent');
-        } catch (error) {
-            console.error(`❌ リマインダーメッセージ送信失敗（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
-            await recordToDatabase(userId, `リマインダーメッセージ送信失敗: ${error.message}`, 'error', error.message); // エラー時も記録
-        }
-    }
+    console.log('--- checkUnansweredMessages が実行されました ---');
+    try {
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000)); // 24時間前
+        const twentyNineHoursAgo = new Date(now.getTime() - (29 * 60 * 60 * 1000)); // 29時間前
 
-    const unanswered29hUsers = ['user1']; // 実際にはDBから取得
-    for (const userId of unanswered29hUsers) {
-        try {
-            await sendEmergencyNotificationToGroup(userId, '見守りサービス：29時間以上未返信');
-            await recordToDatabase(userId, '緊急連絡先へ通知 (29時間未返信)', 'watch_emergency_notified');
-        } catch (error) {
-            console.error(`❌ 緊急連絡先への通知失敗（ユーザー: ${userId}）: ${error.message}`); // テンプレートリテラル修正
-            await recordToDatabase(userId, `緊急連絡先通知失敗: ${error.message}`, 'error', error.message); // エラー時も記録
+        // 24時間以上29時間未満未返信のユーザーにリマインダー
+        const reminderUsers = await watchUsersCollection.find({
+            enabled: true,
+            lastMessageSentAt: { $lte: oneDayAgo },
+            lastReplyAt: null // まだ返信がない
+        }).toArray();
+
+        for (const user of reminderUsers) {
+            try {
+                await client.pushMessage(user.userId, { type: 'text', text: '見てくれたかな？😊 こころちゃん、ちょっと心配してるよ💖' });
+                console.log(`🔔 リマインダーメッセージ送信（ユーザー: ${user.userId}）`);
+                await recordToDatabase(user.userId, 'リマインダーメッセージ送信', 'watch_reminder_sent');
+                // リマインダー送信後もlastReplyAtはnullのまま
+            } catch (error) {
+                console.error(`❌ リマインダーメッセージ送信失敗（ユーザー: ${user.userId}）: ${error.message}`);
+                await recordToDatabase(user.userId, `リマインダーメッセージ送信失敗: ${error.message}`, 'error', error.message);
+            }
         }
+
+        // 29時間以上未返信のユーザーに対して緊急通知
+        const emergencyUsers = await watchUsersCollection.find({
+            enabled: true,
+            lastMessageSentAt: { $lte: twentyNineHoursAgo },
+            lastReplyAt: null // まだ返信がない
+        }).toArray();
+
+        for (const user of emergencyUsers) {
+            try {
+                await sendEmergencyNotificationToGroup(user.userId, '見守りサービス：29時間以上未返信');
+                console.log(`🚨 緊急連絡先へ通知 (29時間未返信)（ユーザー: ${user.userId}）`);
+                await recordToDatabase(user.userId, '緊急連絡先へ通知 (29時間未返信)', 'watch_emergency_notified');
+                // 通知後もlastReplyAtはnullのまま
+            } catch (error) {
+                console.error(`❌ 緊急連絡先への通知失敗（ユーザー: ${user.userId}）: ${error.message}`);
+                await recordToDatabase(user.userId, `緊急連絡先通知失敗: ${error.message}`, 'error', error.message);
+            }
+        }
+    } catch (dbError) {
+        console.error('❌ 未返信ユーザーチェックエラー:', dbError);
+        await recordToDatabase('system', '未返信ユーザーチェックエラー', 'error', dbError.message);
     }
 }
 
 // サーバーを起動
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`); // テンプレートリテラル修正
+    console.log(`Server is running on port ${PORT}`);
     // 定期実行関数は本番環境ではCloud Schedulerなどと連携
     // 例: setInterval(sendDailyWatchMessage, 60 * 1000); // 1分ごとにチェック (デモ用)
     // setInterval(checkUnansweredMessages, 60 * 1000); // 1分ごとにチェック (デモ用)
