@@ -447,7 +447,7 @@ const specialRepliesMap = new Map([
     ["コネクトのホームページだよ？", "教えてくれてありがとう😊 コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
 
     // 会話の終了・拒否・不満に対する応答
-    ["使えないな", "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
+    ["使えないな", "ごめんね…。わたし、もっと頑張るね💖〠またいつかお話できたらうれしいな🌸"],
     ["サービス辞めるわ", "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
     [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
     ["何も答えないじゃない", "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
@@ -1338,7 +1338,7 @@ app.post('/webhook', async (req, res) => {
                     const isScam = checkContainsScamWords(userMessage);
                     const isInappropriate = checkContainsInappropriateWords(userMessage);
 
-                    // ⭐修正: 緊急ワード検出時のAI応答とFlexメッセージの順序とエラーハンドリング
+                    // ⭐再修正: 緊急・詐欺ワード検出時のAI応答とLINE APIメッセージ送信を分離
                     if (isDangerWord) {
                         let aiReplyText = "ごめんね、今、うまくお話できないんだけど、あなたのことはちゃんと気にかけているよ。ひとりじゃないから安心してね。"; // フォールバックメッセージ
                         try {
@@ -1348,30 +1348,32 @@ app.post('/webhook', async (req, res) => {
                             await logErrorToDb(userId, "GPT-4o 緊急応答生成エラー", { error: aiError.message, userId: userId, userMessage: userMessage });
                         }
 
+                        // テキストメッセージの送信 (replyMessage)
                         try {
-                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText }); // まずAI応答（またはフォールバック）を返す
-                            await client.pushMessage(userId, { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate }); // その後Flexメッセージをプッシュ
-                            responsedBy = 'こころちゃん（緊急対応）';
-                            logType = 'danger_word_triggered';
-                            messageHandled = true; // このイベントはここで完全に処理済み
-                            replyMessageObject = null; // 最後のreplyMessageをスキップするため
-                        } catch (lineApiError) {
-                            console.error("❌ 緊急時LINE APIメッセージ送信エラー:", lineApiError.message);
-                            await logErrorToDb(userId, "緊急時LINE APIメッセージ送信エラー", { error: lineApiError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
-                            // replyTokenエラーの場合、pushMessageでエラーメッセージをユーザーに通知する最後の試み
-                            try {
-                                if (lineApiError.statusCode === 400 && lineApiError.message && (lineApiError.message.includes("replyToken has expired") || lineApiError.message.includes("Invalid reply token"))) {
-                                    await client.pushMessage(userId, { type: 'text', text: "ごめんね、今、ちょっと連絡がうまくいかないんだけど、あなたのことはちゃんと気にかけているよ。" });
-                                }
-                            } catch (finalError) {
-                                console.error("❌ 緊急時最終フォールバックメッセージ送信エラー:", finalError.message);
-                                await logErrorToDb(userId, "緊急時最終フォールバックメッセージ送信エラー", { error: finalError.message, userId: userId });
-                            }
-                            messageHandled = true; // 失敗しても処理済みとしてマーク
-                            replyMessageObject = null; // 最後のreplyMessageをスキップ
+                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText });
+                            // console.log(`✅ ユーザー ${userId} に緊急テキストメッセージを送信しました。`); // ログ出力停止
+                        } catch (replyError) {
+                            console.error("❌ 緊急時テキストメッセージ送信エラー (replyMessage):", replyError.message);
+                            await logErrorToDb(userId, "緊急時テキストメッセージ送信エラー", { error: replyError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
+                            // replyTokenが期限切れの場合でも、次のpushMessageは試行する
                         }
+
+                        // Flexメッセージ（ボタン）の送信 (pushMessage)
+                        try {
+                            await client.pushMessage(userId, { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate });
+                            // console.log(`✅ ユーザー ${userId} に緊急Flexメッセージ（ボタン）を送信しました。`); // ログ出力停止
+                        } catch (pushError) {
+                            console.error("❌ 緊急時Flexメッセージ送信エラー (pushMessage):", pushError.message);
+                            await logErrorToDb(userId, "緊急時Flexメッセージ送信エラー", { error: pushError.message, userId: userId, userMessage: userMessage });
+                            // Flexメッセージが失敗しても、ユーザーには何かしら送られたはずなので、ここで追加のメッセージは送らない
+                        }
+
+                        responsedBy = 'こころちゃん（緊急対応）';
+                        logType = 'danger_word_triggered';
+                        messageHandled = true;
+                        replyMessageObject = null; // 最後のreplyMessageをスキップするため
                     } 
-                    // ⭐修正: 詐欺ワード検出時のAI応答とFlexメッセージの順序とエラーハンドリング
+                    // ⭐再修正: 詐欺ワード検出時のAI応答とLINE APIメッセージ送信を分離
                     else if (isScam) {
                         let aiReplyText = "ごめんね、今、うまくお話できないんだけど、怪しい話には十分注意してね。"; // フォールバックメッセージ
                         try {
@@ -1381,28 +1383,28 @@ app.post('/webhook', async (req, res) => {
                             await logErrorToDb(userId, "GPT-4o 詐欺応答生成エラー", { error: aiError.message, userId: userId, userMessage: userMessage });
                         }
 
+                        // テキストメッセージの送信 (replyMessage)
                         try {
-                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText }); // まずAI応答（またはフォールバック）を返す
-                            await client.pushMessage(userId, { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate }); // その後Flexメッセージをプッシュ
-                            responsedBy = 'こころちゃん（詐欺対応）';
-                            logType = 'scam_word_triggered';
-                            messageHandled = true; // このイベントはここで完全に処理済み
-                            replyMessageObject = null; // 最後のreplyMessageをスキップするため
-                        } catch (lineApiError) {
-                            console.error("❌ 詐欺時LINE APIメッセージ送信エラー:", lineApiError.message);
-                            await logErrorToDb(userId, "詐欺時LINE APIメッセージ送信エラー", { error: lineApiError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
-                            // replyTokenエラーの場合、pushMessageでエラーメッセージをユーザーに通知する最後の試み
-                            try {
-                                if (lineApiError.statusCode === 400 && lineApiError.message && (lineApiError.message.includes("replyToken has expired") || lineApiError.message.includes("Invalid reply token"))) {
-                                    await client.pushMessage(userId, { type: 'text', text: "ごめんね、今、ちょっと連絡がうまくいかないんだけど、怪しい話には注意してね。" });
-                                }
-                            } catch (finalError) {
-                                console.error("❌ 詐欺時最終フォールバックメッセージ送信エラー:", finalError.message);
-                                await logErrorToDb(userId, "詐欺時最終フォールバックメッセージ送信エラー", { error: finalError.message, userId: userId });
-                            }
-                            messageHandled = true; // 失敗しても処理済みとしてマーク
-                            replyMessageObject = null; // 最後のreplyMessageをスキップ
+                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText });
+                            // console.log(`✅ ユーザー ${userId} に詐欺注意テキストメッセージを送信しました。`); // ログ出力停止
+                        } catch (replyError) {
+                            console.error("❌ 詐欺時テキストメッセージ送信エラー (replyMessage):", replyError.message);
+                            await logErrorToDb(userId, "詐欺時テキストメッセージ送信エラー", { error: replyError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
                         }
+
+                        // Flexメッセージ（ボタン）の送信 (pushMessage)
+                        try {
+                            await client.pushMessage(userId, { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate });
+                            // console.log(`✅ ユーザー ${userId} に詐欺注意Flexメッセージ（ボタン）を送信しました。`); // ログ出力停止
+                        } catch (pushError) {
+                            console.error("❌ 詐欺時Flexメッセージ送信エラー (pushMessage):", pushError.message);
+                            await logErrorToDb(userId, "詐欺時Flexメッセージ送信エラー", { error: pushError.message, userId: userId, userMessage: userMessage });
+                        }
+
+                        responsedBy = 'こころちゃん（詐欺対応）';
+                        logType = 'scam_word_triggered';
+                        messageHandled = true;
+                        replyMessageObject = null; // 最後のreplyMessageをスキップするため
                     }
                     else if (isInappropriate) {
                         replyMessageObject = { type: 'text', text: 'ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖' };
