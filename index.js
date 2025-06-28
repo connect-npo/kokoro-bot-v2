@@ -745,7 +745,8 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             await logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
         }
     }
-    else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫") || lowerUserMessage.includes("げんき") || lowerUserMessage.includes("元気")) {
+    // ⭐修正: 「元気」という質問の意図が含まれうるキーワードを削除し、見守りメッセージへの返答に特化
+    else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.wantsWatchCheck) {
             try {
                 await usersCollection.updateOne(
