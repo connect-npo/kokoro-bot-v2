@@ -1,17 +1,12 @@
-// ⭐注意：以下のコードは、前回の私の提供コードから大幅な修正を伴います。
-//    特に `app.post('/webhook', ...)` のブロック全体が変わります。
-//    よく確認しながら適用してください。
-
+// --- 環境変数の読み込み ---
 require('dotenv').config();
 
-const path = require('path');
 const express = require('express');
 const { Client } = require('@line/bot-sdk');
-const { MongoClient } = require('mongodb');
-const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { OpenAI } = require('openai');
+const OpenAI = require('openai');
 
+// --- 環境変数の定義 ---
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -22,14 +17,20 @@ const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : [];
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 
+// --- Expressアプリケーション初期化 ---
 const app = express();
 app.use(express.json());
+
+// --- LINE Botクライアント初期化 ---
 const client = new Client({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
+  channelAccessToken: CHANNEL_ACCESS_TOKEN,
+  channelSecret: CHANNEL_SECRET,
 });
 
+// --- Gemini AI 初期化 ---
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+// --- OpenAI 初期化 ---
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 let dbInstance;
