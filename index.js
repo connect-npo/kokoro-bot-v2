@@ -593,7 +593,8 @@ async function generateEmergencyReply(userMessage) {
     } catch (error) {
         console.error("GPT-4o 緊急応答エラー:", error.message);
         await logErrorToDb(null, "GPT-4o 緊急応答エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
-        return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
+        // ⭐修正: エラー時のフォールバックメッセージ
+        return "ごめんね、ちょっと今うまくお話できなかったの…💦 でも、あなたのことはちゃんと気にかけているよ。ひとりじゃないから安心してね。";
     }
 }
 
@@ -622,7 +623,8 @@ async function generateScamReply(userMessage) {
     } catch (error) {
         console.error("GPT-4o 詐欺応答エラー:", error.message);
         await logErrorToDb(null, "GPT-4o 詐欺応答エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
-        return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
+        // ⭐修正: エラー時のフォールバックメッセージ
+        return "ごめんね、ちょっと今うまくお話できなかったの…💦 でも、怪しい話には十分注意してね。";
     }
 }
 
@@ -1009,7 +1011,7 @@ async function sendScheduledWatchMessage() {
     try {
         const db = await connectToMongoDB();
         if (!db) {
-            console.error("MongoDBに接続できません。定期見守りメッセージの送信をスキップします。");
+            console.error("MongoDBに接続できません。定期見守りメッセージの送信をスキsプします。");
             return;
         }
         const usersCollection = db.collection("users");
@@ -1336,44 +1338,70 @@ app.post('/webhook', async (req, res) => {
                     const isScam = checkContainsScamWords(userMessage);
                     const isInappropriate = checkContainsInappropriateWords(userMessage);
 
-                    // ⭐変更: 緊急ワード検出時のAI応答とFlexメッセージの順序
+                    // ⭐修正: 緊急ワード検出時のAI応答とFlexメッセージの順序とエラーハンドリング
                     if (isDangerWord) {
+                        let aiReplyText = "ごめんね、今、うまくお話できないんだけど、あなたのことはちゃんと気にかけているよ。ひとりじゃないから安心してね。"; // フォールバックメッセージ
                         try {
-                            const aiReply = await generateEmergencyReply(userMessage);
-                            await client.replyMessage(replyToken, { type: 'text', text: aiReply }); // まずAI応答を返す
+                            aiReplyText = await generateEmergencyReply(userMessage); // GPT-4o応答を試みる
+                        } catch (aiError) {
+                            console.error("❌ GPT-4o 緊急応答生成エラー（フォールバックを使用）:", aiError.message);
+                            await logErrorToDb(userId, "GPT-4o 緊急応答生成エラー", { error: aiError.message, userId: userId, userMessage: userMessage });
+                        }
+
+                        try {
+                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText }); // まずAI応答（またはフォールバック）を返す
                             await client.pushMessage(userId, { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate }); // その後Flexメッセージをプッシュ
                             responsedBy = 'こころちゃん（緊急対応）';
                             logType = 'danger_word_triggered';
                             messageHandled = true; // このイベントはここで完全に処理済み
                             replyMessageObject = null; // 最後のreplyMessageをスキップするため
-                        } catch (error) {
-                            console.error("❌ 緊急時AI応答またはFlex送信エラー:", error.message);
-                            await logErrorToDb(userId, "緊急時AI応答Flex送信エラー", { error: error.message, userId: userId });
-                            // エラー発生時は通常のAI応答にフォールバック、またはエラーメッセージ
-                            replyMessageObject = { type: 'text', text: 'ごめんなさい、緊急対応中にエラーが発生しました💦 もう一度試してくれますか？🌸' };
-                            responsedBy = 'こころちゃん（緊急対応エラー）';
-                            logType = 'ai_error';
-                            messageHandled = true;
+                        } catch (lineApiError) {
+                            console.error("❌ 緊急時LINE APIメッセージ送信エラー:", lineApiError.message);
+                            await logErrorToDb(userId, "緊急時LINE APIメッセージ送信エラー", { error: lineApiError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
+                            // replyTokenエラーの場合、pushMessageでエラーメッセージをユーザーに通知する最後の試み
+                            try {
+                                if (lineApiError.statusCode === 400 && lineApiError.message && (lineApiError.message.includes("replyToken has expired") || lineApiError.message.includes("Invalid reply token"))) {
+                                    await client.pushMessage(userId, { type: 'text', text: "ごめんね、今、ちょっと連絡がうまくいかないんだけど、あなたのことはちゃんと気にかけているよ。" });
+                                }
+                            } catch (finalError) {
+                                console.error("❌ 緊急時最終フォールバックメッセージ送信エラー:", finalError.message);
+                                await logErrorToDb(userId, "緊急時最終フォールバックメッセージ送信エラー", { error: finalError.message, userId: userId });
+                            }
+                            messageHandled = true; // 失敗しても処理済みとしてマーク
+                            replyMessageObject = null; // 最後のreplyMessageをスキップ
                         }
                     } 
-                    // ⭐変更: 詐欺ワード検出時のAI応答とFlexメッセージの順序
+                    // ⭐修正: 詐欺ワード検出時のAI応答とFlexメッセージの順序とエラーハンドリング
                     else if (isScam) {
+                        let aiReplyText = "ごめんね、今、うまくお話できないんだけど、怪しい話には十分注意してね。"; // フォールバックメッセージ
                         try {
-                            const aiReply = await generateScamReply(userMessage); // 新しい詐欺応答AIを使用
-                            await client.replyMessage(replyToken, { type: 'text', text: aiReply }); // まずAI応答を返す
+                            aiReplyText = await generateScamReply(userMessage); // GPT-4o応答を試みる
+                        } catch (aiError) {
+                            console.error("❌ GPT-4o 詐欺応答生成エラー（フォールバックを使用）:", aiError.message);
+                            await logErrorToDb(userId, "GPT-4o 詐欺応答生成エラー", { error: aiError.message, userId: userId, userMessage: userMessage });
+                        }
+
+                        try {
+                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText }); // まずAI応答（またはフォールバック）を返す
                             await client.pushMessage(userId, { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate }); // その後Flexメッセージをプッシュ
                             responsedBy = 'こころちゃん（詐欺対応）';
                             logType = 'scam_word_triggered';
                             messageHandled = true; // このイベントはここで完全に処理済み
                             replyMessageObject = null; // 最後のreplyMessageをスキップするため
-                        } catch (error) {
-                            console.error("❌ 詐欺時AI応答またはFlex送信エラー:", error.message);
-                            await logErrorToDb(userId, "詐欺時AI応答Flex送信エラー", { error: error.message, userId: userId });
-                            // エラー発生時は通常のAI応答にフォールバック、またはエラーメッセージ
-                            replyMessageObject = { type: 'text', text: 'ごめんなさい、詐欺注意喚起中にエラーが発生しました💦 もう一度試してくれますか？🌸' };
-                            responsedBy = 'こころちゃん（詐欺対応エラー）';
-                            logType = 'ai_error';
-                            messageHandled = true;
+                        } catch (lineApiError) {
+                            console.error("❌ 詐欺時LINE APIメッセージ送信エラー:", lineApiError.message);
+                            await logErrorToDb(userId, "詐欺時LINE APIメッセージ送信エラー", { error: lineApiError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
+                            // replyTokenエラーの場合、pushMessageでエラーメッセージをユーザーに通知する最後の試み
+                            try {
+                                if (lineApiError.statusCode === 400 && lineApiError.message && (lineApiError.message.includes("replyToken has expired") || lineApiError.message.includes("Invalid reply token"))) {
+                                    await client.pushMessage(userId, { type: 'text', text: "ごめんね、今、ちょっと連絡がうまくいかないんだけど、怪しい話には注意してね。" });
+                                }
+                            } catch (finalError) {
+                                console.error("❌ 詐欺時最終フォールバックメッセージ送信エラー:", finalError.message);
+                                await logErrorToDb(userId, "詐欺時最終フォールバックメッセージ送信エラー", { error: finalError.message, userId: userId });
+                            }
+                            messageHandled = true; // 失敗しても処理済みとしてマーク
+                            replyMessageObject = null; // 最後のreplyMessageをスキップ
                         }
                     }
                     else if (isInappropriate) {
@@ -1442,7 +1470,8 @@ app.post('/webhook', async (req, res) => {
 
             // メッセージ送信とログ記録
             // ⭐変更: messageHandledがtrueの場合、かつreplyMessageObjectがnullでない場合にのみ実行
-            if (replyMessageObject && replyToken && messageHandled) {
+            //       ただし、緊急・詐欺の場合は既にreply/push済みなのでここでの処理はスキップ
+            if (replyMessageObject && replyToken && messageHandled) { // messageHandledがtrueで、かつreplyMessageObjectがある場合のみ実行
                 try {
                     await client.replyMessage(replyToken, replyMessageObject);
 
