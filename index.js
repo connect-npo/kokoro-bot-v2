@@ -103,30 +103,6 @@ const emergencyFlexTemplate = {
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
-            // ⭐追加: 110番ボタン
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "🚓 110番にかける",
-                    "uri": "tel:110"
-                },
-                "color": "#FF4500" // 赤系の色
-            },
-            // ⭐追加: 119番ボタン
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "🚑 119番にかける",
-                    "uri": "tel:119"
-                },
-                "color": "#DC143C" // 赤系の色
-            },
             {
                 "type": "button",
                 "style": "primary",
@@ -222,18 +198,6 @@ const scamFlexTemplate = {
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
-            // ⭐追加: 110番ボタン (詐欺向け)
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "🚓 110番にかける",
-                    "uri": "tel:110"
-                },
-                "color": "#FF4500" // 赤系の色
-            },
             {
                 "type": "button",
                 "style": "primary",
@@ -447,7 +411,7 @@ const specialRepliesMap = new Map([
     ["コネクトのホームページだよ？", "教えてくれてありがとう😊 コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
 
     // 会話の終了・拒否・不満に対する応答
-    ["使えないな", "ごめんね…。わたし、もっと頑張るね💖〠またいつかお話できたらうれしいな🌸"],
+    ["使えないな", "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
     ["サービス辞めるわ", "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
     [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
     ["何も答えないじゃない", "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
@@ -576,11 +540,9 @@ async function generateEmergencyReply(userMessage) {
                     role: "system",
                     content: `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
 ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
-「ひとりじゃないよ」と伝えてください。
+必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
 共感・安心・やさしさが最優先です。
-「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
-**絶対に具体的な専門機関の連絡先や電話番号は言わないでください。それは後続のFlexメッセージで表示されます。**
-あくまで共感と励ましのメッセージに徹してください。`
+「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。`
                 },
                 {
                     role: "user",
@@ -593,38 +555,7 @@ async function generateEmergencyReply(userMessage) {
     } catch (error) {
         console.error("GPT-4o 緊急応答エラー:", error.message);
         await logErrorToDb(null, "GPT-4o 緊急応答エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
-        // ⭐修正: エラー時のフォールバックメッセージ
-        return "ごめんね、ちょっと今うまくお話できなかったの…💦 でも、あなたのことはちゃんと気にかけているよ。ひとりじゃないから安心してね。";
-    }
-}
-
-// ⭐追加: GPT-4oを呼び出す関数（詐欺関連応答用）
-async function generateScamReply(userMessage) {
-    try {
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                {
-                    role: "system",
-                    content: `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
-ユーザーが詐欺に関する言葉を言った時、やさしく、寄り添いながら、注意喚起と安心感を与えてください。
-「怪しい話には注意してね」「不安な時は、信頼できる人に相談してね」といった言葉を使ってください。
-**絶対に具体的な専門機関の連絡先や電話番号は言わないでください。それは後続のFlexメッセージで表示されます。**
-あくまで共感と注意喚起、そして相談を促すメッセージに徹してください。`
-                },
-                {
-                    role: "user",
-                    content: userMessage
-                }
-            ],
-            max_tokens: 300
-        });
-        return completion.choices[0].message.content.trim();
-    } catch (error) {
-        console.error("GPT-4o 詐欺応答エラー:", error.message);
-        await logErrorToDb(null, "GPT-4o 詐欺応答エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
-        // ⭐修正: エラー時のフォールバックメッセージ
-        return "ごめんね、ちょっと今うまくお話できなかったの…💦 でも、怪しい話には十分注意してね。";
+        return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
     }
 }
 
@@ -1011,7 +942,7 @@ async function sendScheduledWatchMessage() {
     try {
         const db = await connectToMongoDB();
         if (!db) {
-            console.error("MongoDBに接続できません。定期見守りメッセージの送信をスキsプします。");
+            console.error("MongoDBに接続できません。定期見守りメッセージの送信をスキップします。");
             return;
         }
         const usersCollection = db.collection("users");
@@ -1258,7 +1189,7 @@ app.post('/webhook', async (req, res) => {
             const replyToken = event.replyToken;
             let userMessage = (event.type === 'message') ? event.message.text : event.postback.data;
 
-            let replyMessageObject = null; // ⭐変更: replyMessageObjectを初期化（直接reply/pushする場合があるため）
+            let replyMessageObject = null;
             let respondedBy = 'こころちゃん';
             let logType = 'normal_conversation';
             let messageHandled = false;
@@ -1338,75 +1269,17 @@ app.post('/webhook', async (req, res) => {
                     const isScam = checkContainsScamWords(userMessage);
                     const isInappropriate = checkContainsInappropriateWords(userMessage);
 
-                    // ⭐再修正: 緊急・詐欺ワード検出時のAI応答とLINE APIメッセージ送信を分離
                     if (isDangerWord) {
-                        let aiReplyText = "ごめんね、今、うまくお話できないんだけど、あなたのことはちゃんと気にかけているよ。ひとりじゃないから安心してね。"; // フォールバックメッセージ
-                        try {
-                            aiReplyText = await generateEmergencyReply(userMessage); // GPT-4o応答を試みる
-                        } catch (aiError) {
-                            console.error("❌ GPT-4o 緊急応答生成エラー（フォールバックを使用）:", aiError.message);
-                            await logErrorToDb(userId, "GPT-4o 緊急応答生成エラー", { error: aiError.message, userId: userId, userMessage: userMessage });
-                        }
-
-                        // テキストメッセージの送信 (replyMessage)
-                        try {
-                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText });
-                            // console.log(`✅ ユーザー ${userId} に緊急テキストメッセージを送信しました。`); // ログ出力停止
-                        } catch (replyError) {
-                            console.error("❌ 緊急時テキストメッセージ送信エラー (replyMessage):", replyError.message);
-                            await logErrorToDb(userId, "緊急時テキストメッセージ送信エラー", { error: replyError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
-                            // replyTokenが期限切れの場合でも、次のpushMessageは試行する
-                        }
-
-                        // Flexメッセージ（ボタン）の送信 (pushMessage)
-                        try {
-                            await client.pushMessage(userId, { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate });
-                            // console.log(`✅ ユーザー ${userId} に緊急Flexメッセージ（ボタン）を送信しました。`); // ログ出力停止
-                        } catch (pushError) {
-                            console.error("❌ 緊急時Flexメッセージ送信エラー (pushMessage):", pushError.message);
-                            await logErrorToDb(userId, "緊急時Flexメッセージ送信エラー", { error: pushError.message, userId: userId, userMessage: userMessage });
-                            // Flexメッセージが失敗しても、ユーザーには何かしら送られたはずなので、ここで追加のメッセージは送らない
-                        }
-
+                        replyMessageObject = { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate };
                         responsedBy = 'こころちゃん（緊急対応）';
                         logType = 'danger_word_triggered';
                         messageHandled = true;
-                        replyMessageObject = null; // 最後のreplyMessageをスキップするため
-                    } 
-                    // ⭐再修正: 詐欺ワード検出時のAI応答とLINE APIメッセージ送信を分離
-                    else if (isScam) {
-                        let aiReplyText = "ごめんね、今、うまくお話できないんだけど、怪しい話には十分注意してね。"; // フォールバックメッセージ
-                        try {
-                            aiReplyText = await generateScamReply(userMessage); // GPT-4o応答を試みる
-                        } catch (aiError) {
-                            console.error("❌ GPT-4o 詐欺応答生成エラー（フォールバックを使用）:", aiError.message);
-                            await logErrorToDb(userId, "GPT-4o 詐欺応答生成エラー", { error: aiError.message, userId: userId, userMessage: userMessage });
-                        }
-
-                        // テキストメッセージの送信 (replyMessage)
-                        try {
-                            await client.replyMessage(replyToken, { type: 'text', text: aiReplyText });
-                            // console.log(`✅ ユーザー ${userId} に詐欺注意テキストメッセージを送信しました。`); // ログ出力停止
-                        } catch (replyError) {
-                            console.error("❌ 詐欺時テキストメッセージ送信エラー (replyMessage):", replyError.message);
-                            await logErrorToDb(userId, "詐欺時テキストメッセージ送信エラー", { error: replyError.message, userId: userId, userMessage: userMessage, aiReplyText: aiReplyText });
-                        }
-
-                        // Flexメッセージ（ボタン）の送信 (pushMessage)
-                        try {
-                            await client.pushMessage(userId, { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate });
-                            // console.log(`✅ ユーザー ${userId} に詐欺注意Flexメッセージ（ボタン）を送信しました。`); // ログ出力停止
-                        } catch (pushError) {
-                            console.error("❌ 詐欺時Flexメッセージ送信エラー (pushMessage):", pushError.message);
-                            await logErrorToDb(userId, "詐欺時Flexメッセージ送信エラー", { error: pushError.message, userId: userId, userMessage: userMessage });
-                        }
-
+                    } else if (isScam) {
+                        replyMessageObject = { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate };
                         responsedBy = 'こころちゃん（詐欺対応）';
                         logType = 'scam_word_triggered';
                         messageHandled = true;
-                        replyMessageObject = null; // 最後のreplyMessageをスキップするため
-                    }
-                    else if (isInappropriate) {
+                    } else if (isInappropriate) {
                         replyMessageObject = { type: 'text', text: 'ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖' };
                         responsedBy = 'こころちゃん（不適切対応）';
                         logType = 'inappropriate_word_triggered';
@@ -1471,9 +1344,7 @@ app.post('/webhook', async (req, res) => {
             }
 
             // メッセージ送信とログ記録
-            // ⭐変更: messageHandledがtrueの場合、かつreplyMessageObjectがnullでない場合にのみ実行
-            //       ただし、緊急・詐欺の場合は既にreply/push済みなのでここでの処理はスキップ
-            if (replyMessageObject && replyToken && messageHandled) { // messageHandledがtrueで、かつreplyMessageObjectがある場合のみ実行
+            if (replyMessageObject && replyToken) {
                 try {
                     await client.replyMessage(replyToken, replyMessageObject);
 
