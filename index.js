@@ -1,26 +1,43 @@
-// ⭐注意：以下のコードは、前回の私の提供コードから大幅な修正を伴います。
-//    特に `app.post('/webhook', ...)` のブロック全体が変わります。
-//    よく確認しながら適用してください。
-
 require('dotenv').config();
 
 const path = require('path');
 const express = require('express');
 const { Client } = require('@line/bot-sdk');
-const { MongoClient } = require('mongodb');
+// ⭐修正: MongoDBのクライアントをFirebase Admin SDKに置き換える
+// const { MongoClient } = require('mongodb');
+const admin = require('firebase-admin');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
 
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-const MONGODB_URI = process.env.MONGODB_URI;
+// ⭐修正: MONGODB_URIを削除し、Firebase関連の環境変数を追加
+// const MONGODB_URI = process.env.MONGODB_URI;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : [];
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
+// ⭐追加: Firebase Admin SDKの認証情報をBase64デコード
+const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
+
+// ⭐追加: Firebase Admin SDKの初期化
+try {
+    const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+    console.log("✅ Firebase Admin SDKを初期化しました。");
+} catch (error) {
+    console.error("❌ Firebase Admin SDKの初期化エラー:", error);
+    console.error("FIREBASE_CREDENTIALS_BASE64が正しく設定されているか確認してください。");
+    process.exit(1); // 初期化に失敗したらプロセスを終了
+}
+
+// ⭐修正: Firestoreデータベースインスタンスの取得
+const db = admin.firestore();
 
 const app = express();
 app.use(express.json());
@@ -32,7 +49,8 @@ const client = new Client({
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-let dbInstance;
+// let dbInstance; // MongoDB用の変数なので削除
+
 // JSONファイルを直接埋め込みます
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
@@ -345,7 +363,7 @@ const watchConfirmationFlexTemplate = {
                     "action": {
                         "type": "message",
                         "label": "😢 少し疲れた…",
-                    "text": "少し疲れた…"
+                        "text": "少し疲れた…"
                     },
                     "color": "#ff4444"
                 },
@@ -421,29 +439,30 @@ const specialRepliesMap = new Map([
     [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"]
 ]);
 
+// ⭐修正: MongoDBの関数をFirestore用に変更
 async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'system_error') {
     try {
-        const db = await connectToMongoDB();
-        if (db) {
-            await db.collection("messages").insertOne({
-                userId: userId || 'N/A',
-                message: `ERROR: ${errorMessage}`,
-                replyText: `システムエラー: ${errorMessage}`,
-                responsedBy: 'システム（エラー）',
-                timestamp: new Date(),
-                logType: logType,
-                errorDetails: errorDetails ? JSON.stringify(errorDetails) : 'N/A'
-            });
-            console.error(`🚨 DBにエラーを記録しました: ${errorMessage}`);
-        } else {
-            console.error(`🚨 MongoDB接続不可のためエラーをDBに記録できませんでした: ${errorMessage}`);
-        }
+        // Firestoreのコレクション参照を取得
+        const logsCollection = db.collection("error_logs"); // 新しいコレクション名を想定
+
+        await logsCollection.add({ // add() を使用して自動生成IDでドキュメントを追加
+            userId: userId || 'N/A',
+            message: `ERROR: ${errorMessage}`,
+            replyText: `システムエラー: ${errorMessage}`,
+            responsedBy: 'システム（エラー）',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(), // Firestoreのサーバータイムスタンプを使用
+            logType: logType,
+            errorDetails: errorDetails ? JSON.stringify(errorDetails) : 'N/A'
+        });
+        console.error(`🚨 Firestoreにエラーを記録しました: ${errorMessage}`);
     } catch (dbError) {
         console.error(`❌ エラーログ記録中にさらなるエラーが発生しました: ${dbError.message}`);
     }
 }
 
 
+// ⭐修正: MongoDB接続関数を削除
+/*
 async function connectToMongoDB() {
     if (dbInstance) {
         return dbInstance;
@@ -460,6 +479,7 @@ async function connectToMongoDB() {
         return null;
     }
 }
+*/
 
 async function getUserDisplayName(userId) {
     try {
@@ -671,7 +691,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
             return result.response.candidates[0].content.parts[0].text;
         } else {
             console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
-            return "ごめんなさい、それはわたしにはお話しできない内容です  他のお話をしましょうね💖";
+            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
     } catch (error) {
         console.error("Gemini APIエラー:", error.response?.data || error.message);
@@ -719,8 +739,15 @@ const watchMessages = [
     "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
 ];
 
-async function handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage) {
-    const user = await usersCollection.findOne({ userId: userId });
+// ⭐修正: handleWatchServiceRegistration関数をFirestore用に変更
+async function handleWatchServiceRegistration(event, userId, userMessage) {
+    const usersCollection = db.collection("users"); // Firestoreコレクション参照
+    const messagesCollection = db.collection("messages"); // Firestoreコレクション参照
+
+    // ⭐修正: findOneをdoc().get()に変更
+    const userDoc = await usersCollection.doc(userId).get();
+    const user = userDoc.exists ? userDoc.data() : null;
+
     const lowerUserMessage = userMessage.toLowerCase();
     let handled = false;
 
@@ -731,12 +758,13 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                 altText: '💖こころちゃんから見守りサービスのご案内💖',
                 contents: watchServiceGuideFlexTemplate
             });
-            await messagesCollection.insertOne({
+            // ⭐修正: insertOneをadd()に変更
+            await messagesCollection.add({
                 userId: userId,
                 message: userMessage,
                 replyText: '（見守りサービス案内Flex表示）',
                 responsedBy: 'こころちゃん（見守り案内）',
-                timestamp: new Date(),
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 logType: 'watch_service_interaction'
             });
             handled = true;
@@ -749,20 +777,21 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.wantsWatchCheck) {
             try {
-                await usersCollection.updateOne(
-                    { userId: userId },
-                    { $set: { lastOkResponse: new Date(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false } }
+                // ⭐修正: updateOneをdoc().update()に変更
+                await usersCollection.doc(userId).update(
+                    { lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false }
                 );
                 await client.replyMessage(event.replyToken, {
                     type: 'text',
                     text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
                 });
-                await messagesCollection.insertOne({
+                // ⭐修正: insertOneをadd()に変更
+                await messagesCollection.add({
                     userId: userId,
                     message: userMessage,
                     replyText: 'ありがとう🌸 元気そうで安心したよ💖 またね！',
                     responsedBy: 'こころちゃん（見守り応答）',
-                    timestamp: new Date(),
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_ok_response'
                 });
                 handled = true;
@@ -775,12 +804,13 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     else if (lowerUserMessage.includes("まあまあかな")) {
         if (user && user.wantsWatchCheck) {
             try {
-                await messagesCollection.insertOne({
+                // ⭐修正: insertOneをadd()に変更
+                await messagesCollection.add({
                     userId: userId,
                     message: userMessage,
                     replyText: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖',
                     responsedBy: 'こころちゃん（見守り応答）',
-                    timestamp: new Date(),
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_status_somewhat'
                 });
                 await client.replyMessage(event.replyToken, {
@@ -797,12 +827,13 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     else if (lowerUserMessage.includes("少し疲れた…")) {
         if (user && user.wantsWatchCheck) {
             try {
-                await messagesCollection.insertOne({
+                // ⭐修正: insertOneをadd()に変更
+                await messagesCollection.add({
                     userId: userId,
                     message: userMessage,
                     replyText: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖',
                     responsedBy: 'こころちゃん（見守り応答）',
-                    timestamp: new Date(),
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_status_tired'
                 });
                 await client.replyMessage(event.replyToken, {
@@ -819,12 +850,13 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     else if (lowerUserMessage.includes("話を聞いて")) {
         if (user && user.wantsWatchCheck) {
             try {
-                await messagesCollection.insertOne({
+                // ⭐修正: insertOneをadd()に変更
+                await messagesCollection.add({
                     userId: userId,
                     message: userMessage,
                     replyText: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖',
                     responsedBy: 'こころちゃん（見守り応答）',
-                    timestamp: new Date(),
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_status_talk'
                 });
                 await client.replyMessage(event.replyToken, {
@@ -853,21 +885,22 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                 });
                 handled = true;
             } else {
-                await usersCollection.updateOne(
-                    { userId: userId },
-                    { $set: { registrationStep: 'awaiting_contact' } },
-                    { upsert: true } // ユーザーが存在しない場合も考慮
+                // ⭐修正: updateOneをdoc().set()またはdoc().update()に変更 (upsert考慮)
+                await usersCollection.doc(userId).set(
+                    { registrationStep: 'awaiting_contact' },
+                    { merge: true } // 既存フィールドを上書きせず、指定フィールドのみ更新
                 );
                 await client.replyMessage(event.replyToken, {
                     type: 'text',
                     text: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸 (例: 09012345678)'
                 });
-                await messagesCollection.insertOne({
+                // ⭐修正: insertOneをadd()に変更
+                await messagesCollection.add({
                     userId: userId,
                     message: userMessage,
                     replyText: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸',
                     responsedBy: 'こころちゃん（見守り登録開始）',
-                    timestamp: new Date(),
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_registration_start'
                 });
                 handled = true;
@@ -879,20 +912,21 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     }
     else if (user && user.registrationStep === 'awaiting_contact' && userMessage.match(/^0\d{9,10}$/)) {
         try {
-            await usersCollection.updateOne(
-                { userId: userId },
-                { $set: { emergencyContact: userMessage, wantsWatchCheck: true, registrationStep: null, lastOkResponse: new Date() } }
+            // ⭐修正: updateOneをdoc().update()に変更
+            await usersCollection.doc(userId).update(
+                { emergencyContact: userMessage, wantsWatchCheck: true, registrationStep: null, lastOkResponse: admin.firestore.FieldValue.serverTimestamp() }
             );
             await client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖`
             });
-            await messagesCollection.insertOne({
+            // ⭐修正: insertOneをadd()に変更
+            await messagesCollection.add({
                 userId: userId,
                 message: userMessage, // ログには電話番号が記録されます
                 replyText: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖`,
                 responsedBy: 'こころちゃん（見守り登録完了）',
-                timestamp: new Date(),
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 logType: 'watch_service_registration_complete'
             });
             handled = true;
@@ -901,61 +935,34 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             await logErrorToDb(userId, "見守りサービス登録完了処理エラー", { error: error.message, userId: userId });
         }
     }
-    else if (userMessage.includes("見守り解除します") || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
-        try {
-            if (user && user.wantsWatchCheck) {
-                await usersCollection.updateOne(
-                    { userId: userId },
-                    { $set: { wantsWatchCheck: false, emergencyContact: null, registrationStep: null, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false } }
-                );
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: '見守りサービスを解除したよ🌸 またいつでも登録できるからね💖'
-                });
-                await messagesCollection.insertOne({
-                    userId: userId,
-                    message: userMessage,
-                    replyText: '見守りサービスを解除したよ🌸 またいつでも登録できるからね💖',
-                    responsedBy: 'こころちゃん（見守り解除）',
-                    timestamp: new Date(),
-                    logType: 'watch_service_unregister'
-                });
-                handled = true;
-            } else {
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: '見守りサービスは登録されていないみたい🌸'
-                });
-                handled = true;
-            }
-        } catch (error) {
-            console.error("❌ 見守りサービス解除処理エラー:", error.message);
-            await logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId: userId });
-        }
-    }
     return handled;
 }
 
 // ⭐修正: エスカレーションロジックを「24時間で確認、29時間で通知」に変更
+// ⭐修正: sendScheduledWatchMessage関数をFirestore用に変更
 async function sendScheduledWatchMessage() {
     console.log('--- 定期見守りメッセージ送信処理を開始します ---');
     try {
-        const db = await connectToMongoDB();
-        if (!db) {
-            console.error("MongoDBに接続できません。定期見守りメッセージの送信をスキップします。");
-            return;
-        }
         const usersCollection = db.collection("users");
         const messagesCollection = db.collection("messages");
 
-        const watchUsers = await usersCollection.find({ wantsWatchCheck: true }).toArray();
+        // ⭐修正: find().toArray()をwhere().get()に変更
+        const snapshot = await usersCollection.where('wantsWatchCheck', '==', true).get();
+        const watchUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         for (const user of watchUsers) {
             const userId = user.userId;
-            const lastOkResponse = user.lastOkResponse;
+            // FirestoreのTimestampオブジェクトをDateオブジェクトに変換
+            const lastOkResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : null; 
             const emergencyContact = user.emergencyContact;
 
             const now = new Date();
+            // lastOkResponseが存在しない場合は処理をスキップ (登録直後などでtimestampがまだない可能性)
+            if (!lastOkResponse) {
+                // console.warn(`ユーザー ${userId}: lastOkResponseが未設定のため、見守りチェックをスキップします。`);
+                continue;
+            }
+
             // 時間単位で計算
             const timeSinceLastOkHours = (now.getTime() - lastOkResponse.getTime()) / (1000 * 60 * 60);
 
@@ -965,16 +972,17 @@ async function sendScheduledWatchMessage() {
             if (timeSinceLastOkHours >= 24 && !user.scheduledMessageSent) {
                 try {
                     await client.pushMessage(userId, watchConfirmationFlexTemplate);
-                    await usersCollection.updateOne(
-                        { userId: userId },
-                        { $set: { scheduledMessageSent: true } }
+                    // ⭐修正: updateOneをdoc().update()に変更
+                    await usersCollection.doc(userId).update(
+                        { scheduledMessageSent: true }
                     );
-                    await messagesCollection.insertOne({
+                    // ⭐修正: insertOneをadd()に変更
+                    await messagesCollection.add({
                         userId: userId,
                         message: `（定期見守りメッセージ - Flex）`,
                         replyText: '（見守り状況確認Flex送信）',
                         responsedBy: 'こころちゃん（定期見守り）',
-                        timestamp: new Date(),
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
                         logType: 'watch_service_scheduled_message'
                     });
                     // console.log(`✅ ユーザー ${userId} に定期見守りメッセージ（Flex）を送信しました。`); // ログ出力停止
@@ -982,7 +990,7 @@ async function sendScheduledWatchMessage() {
                     console.error(`❌ ユーザー ${userId} への定期見守りメッセージ（Flex）送信エラー:`, error.message);
                     await logErrorToDb(userId, "定期見守りメッセージ（Flex）送信エラー", { error: error.message, userId: userId });
                 }
-            } 
+            }    
             // 29時間以上応答がなく、まだ最終通知を送っていない場合
             else if (timeSinceLastOkHours >= 29 && !user.thirdReminderSent) {
                 if (emergencyContact && OFFICER_GROUP_ID) {
@@ -992,16 +1000,17 @@ async function sendScheduledWatchMessage() {
                     try {
                         await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: officerMessage });
                         // thirdReminderSentフラグを使って、通知が1回だけ送られるようにする
-                        await usersCollection.updateOne(
-                            { userId: userId },
-                            { $set: { thirdReminderSent: true } }
+                        // ⭐修正: updateOneをdoc().update()に変更
+                        await usersCollection.doc(userId).update(
+                            { thirdReminderSent: true }
                         );
-                        await messagesCollection.insertOne({
+                        // ⭐修正: insertOneをadd()に変更
+                        await messagesCollection.add({
                             userId: userId,
                             message: `（見守り事務局通知）`,
                             replyText: `事務局へ緊急通知を送信しました: ${officerMessage}`,
                             responsedBy: 'システム（見守り事務局通知）',
-                            timestamp: new Date(),
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
                             logType: 'watch_service_emergency_notification'
                         });
                         // console.log(`✅ ユーザー ${userId} の状況を事務局に通知しました。`); // ログ出力停止
@@ -1092,17 +1101,19 @@ async function sendRichMenu(replyToken) {
 }
 
 // ⭐修正: webhookハンドラをリファクタリングし、postbackイベントを正しく処理するように変更
+// ⭐修正: webhookハンドラのデータベース操作をFirestore用に変更
 app.post('/webhook', async (req, res) => {
     const events = req.body.events;
     if (!events || events.length === 0) {
         return res.status(200).send('OK');
     }
 
-    const db = await connectToMongoDB();
-    if (!db) {
-        console.error("MongoDB接続不可。Webhook処理をスキップします。");
-        return res.status(500).send('MongoDB connection error');
-    }
+    // ⭐修正: MongoDB接続チェックを削除（Firebaseは初期化済みのため）
+    // const db = await connectToMongoDB();
+    // if (!db) {
+    //     console.error("MongoDB接続不可。Webhook処理をスキップします。");
+    //     return res.status(500).send('MongoDB connection error');
+    // }
 
     const usersCollection = db.collection("users");
     const messagesCollection = db.collection("messages");
@@ -1115,9 +1126,9 @@ app.post('/webhook', async (req, res) => {
 
         // unfollowイベント処理
         if (event.type === 'unfollow') {
-            await usersCollection.updateOne(
-                { userId: userId },
-                { $set: { isBlocked: true } }
+            // ⭐修正: updateOneをdoc().update()に変更
+            await usersCollection.doc(userId).update(
+                { isBlocked: true }
             );
             // console.log(`ユーザー ${userId} がボットをブロックしました。`); // ログ出力停止
             continue;
@@ -1125,10 +1136,10 @@ app.post('/webhook', async (req, res) => {
 
         // followイベント処理
         if (event.type === 'follow') {
-            await usersCollection.updateOne(
-                { userId: userId },
-                { $set: { isBlocked: false, createdAt: new Date() }, $setOnInsert: { userId: userId } },
-                { upsert: true }
+            // ⭐修正: updateOneをdoc().set()に変更 (upsert trueはFirestoreのsetに相当)
+            await usersCollection.doc(userId).set(
+                { isBlocked: false, createdAt: admin.firestore.FieldValue.serverTimestamp() },
+                { merge: true } // 既存ドキュメントがあればマージ、なければ新規作成
             );
             // console.log(`ユーザー ${userId} がボットをフォローしました。`); // ログ出力停止
             try {
@@ -1136,49 +1147,55 @@ app.post('/webhook', async (req, res) => {
                     type: 'text',
                     text: 'はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊'
                 });
-                await messagesCollection.insertOne({
+                // ⭐修正: insertOneをadd()に変更
+                await messagesCollection.add({
                     userId: userId,
                     message: `（新規フォロー）`,
                     replyText: `はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊`,
                     responsedBy: 'こころちゃん（新規フォロー）',
-                    timestamp: new Date(),
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'system_follow'
                 });
             } catch (error) {
-                 console.error("❌ フォロー応答メッセージ送信エラー:", error.message);
-                 await logErrorToDb(userId, "フォロー応答メッセージ送信エラー", { error: error.message, userId: userId });
+                    console.error("❌ フォロー応答メッセージ送信エラー:", error.message);
+                    await logErrorToDb(userId, "フォロー応答メッセージ送信エラー", { error: error.message, userId: userId });
             }
             continue;
         }
-        
+
         // ユーザー情報を取得または新規作成
-        let user = await usersCollection.findOne({ userId: userId });
+        // ⭐修正: findOneをdoc().get()に変更
+        let userDoc = await usersCollection.doc(userId).get();
+        let user = userDoc.exists ? userDoc.data() : null;
+
         if (!user) {
             const displayName = await getUserDisplayName(userId);
             user = {
                 userId: userId,
                 displayName: displayName,
-                createdAt: new Date(),
-                lastMessageAt: new Date(),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(), // Firestoreのサーバータイムスタンプを使用
+                lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
                 messageCount: 0,
                 isBlocked: false,
                 wantsWatchCheck: false,
                 registrationStep: null,
                 emergencyContact: null,
-                lastOkResponse: new Date(),
+                lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
                 scheduledMessageSent: false,
                 firstReminderSent: false, // 念のため残しておく
                 secondReminderSent: false, // 念のため残しておく
                 thirdReminderSent: false,
             };
-            await usersCollection.insertOne(user);
+            // ⭐修正: insertOneをdoc().set()に変更 (ドキュメントIDをuserIdに指定)
+            await usersCollection.doc(userId).set(user);
             // console.log(`新規ユーザーを登録しました: ${displayName} (${userId})`); // ログ出力停止
         } else {
-            await usersCollection.updateOne(
-                { userId: userId },
+            // ⭐修正: updateOneをdoc().update()に変更
+            await usersCollection.doc(userId).update(
                 {
-                    $set: { lastMessageAt: new Date(), isBlocked: false },
-                    $inc: { messageCount: 1 }
+                    lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+                    isBlocked: false,
+                    messageCount: admin.firestore.FieldValue.increment(1) // カウントインクリメント
                 }
             );
         }
@@ -1204,7 +1221,15 @@ app.post('/webhook', async (req, res) => {
                     logType = 'admin_command_denied';
                 } else if (userMessage.startsWith('!reset')) {
                      try {
-                        await messagesCollection.deleteMany({ userId: userId });
+                        // ⭐修正: deleteManyをコレクション全体の削除に変更（userId指定）
+                        // Firestoreではコレクション全体を効率的に削除する機能がないため、クエリで取得してループで削除する
+                        const batch = db.batch();
+                        const querySnapshot = await messagesCollection.where('userId', '==', userId).get();
+                        querySnapshot.docs.forEach(doc => {
+                            batch.delete(doc.ref);
+                        });
+                        await batch.commit();
+
                         replyMessageObject = { type: 'text', text: 'あなたのチャット履歴をすべて削除しました。' };
                         responsedBy = 'システム（管理者）';
                         logType = 'admin_reset';
@@ -1221,10 +1246,17 @@ app.post('/webhook', async (req, res) => {
                     messageHandled = true; // reply済みなのでフラグを立てる
                 } else if (userMessage.toLowerCase() === '!history') {
                     try {
-                        const userMessages = await messagesCollection.find({ userId: userId }).sort({ timestamp: -1 }).limit(10).toArray();
+                        // ⭐修正: find().sort().limit().toArray()をFirestoreのorderBy().limit().get()に変更
+                        const querySnapshot = await messagesCollection.where('userId', '==', userId)
+                                                                    .orderBy('timestamp', 'desc')
+                                                                    .limit(10)
+                                                                    .get();
+                        const userMessages = querySnapshot.docs.map(doc => doc.data());
                         let historyText = "あなたの最新の会話履歴だよ🌸\n\n";
                         userMessages.reverse().forEach(msg => {
-                            historyText += `【${msg.responsedBy === 'ユーザー' ? 'あなた' : msg.responsedBy}】${msg.message || msg.replyText}\n`;
+                            // FirestoreのTimestampをDateに変換して表示
+                            const timestamp = msg.timestamp ? msg.timestamp.toDate() : new Date();
+                            historyText += `【${msg.responsedBy === 'ユーザー' ? 'あなた' : msg.responsedBy}】${msg.message || msg.replyText} (${timestamp.toLocaleString()})\n`;
                         });
                         replyMessageObject = { type: 'text', text: historyText };
                         responsedBy = 'システム（管理者）';
@@ -1245,7 +1277,8 @@ app.post('/webhook', async (req, res) => {
 
             // 見守りサービス関連の処理 (テキストとPostbackの両方)
             if (!messageHandled) {
-                watchServiceHandled = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
+                // ⭐修正: handleWatchServiceRegistrationにdbコレクションを渡さないように変更（関数内で取得する）
+                watchServiceHandled = await handleWatchServiceRegistration(event, userId, userMessage);
                 if (watchServiceHandled) {
                     messageHandled = true;
                 }
@@ -1299,9 +1332,9 @@ app.post('/webhook', async (req, res) => {
                 // 相談モードの切り替えロジック
                 if (!messageHandled && (userMessage === 'そうだん' || userMessage === '相談')) {
                     try {
-                        await usersCollection.updateOne(
-                            { userId: userId },
-                            { $set: { useProForNextConsultation: true } }
+                        // ⭐修正: updateOneをdoc().update()に変更
+                        await usersCollection.doc(userId).update(
+                            { useProForNextConsultation: true }
                         );
                         replyMessageObject = { type: 'text', text: '🌸 相談モードに入ったよ！なんでも相談してね😊' };
                         responsedBy = 'こころちゃん（Gemini 1.5 Pro - 相談モード開始）';
@@ -1323,7 +1356,8 @@ app.post('/webhook', async (req, res) => {
                         if (user && user.useProForNextConsultation) {
                             modelForGemini = "gemini-1.5-pro-latest";
                             // console.log(`⭐ユーザー ${userId} の次回の相談にGemini 1.5 Proを使用します。`); // ログ出力停止
-                            await usersCollection.updateOne({ userId: userId }, { $set: { useProForNextConsultation: false } });
+                            // ⭐修正: updateOneをdoc().update()に変更
+                            await usersCollection.doc(userId).update({ useProForNextConsultation: false });
                             // console.log(`⭐ユーザー ${userId} のuseProForNextConsultationフラグをリセットしました。`); // ログ出力停止
                         }
 
@@ -1353,12 +1387,13 @@ app.post('/webhook', async (req, res) => {
                     const isResetCommand = userMessage.startsWith('!reset');
 
                     if (shouldLogMessage(userMessage, isFlagged, watchServiceHandled, isAdminCommand, isResetCommand)) {
-                        await messagesCollection.insertOne({
+                        // ⭐修正: insertOneをadd()に変更
+                        await messagesCollection.add({
                             userId: userId,
                             message: userMessage,
                             replyText: replyTextForLog,
-                            responsedBy: respondedBy,
-                            timestamp: new Date(),
+                            responsedBy: responsedBy,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
                             logType: logType
                         });
                     } else {
@@ -1379,6 +1414,8 @@ app.post('/webhook', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
-    await connectToMongoDB(); // 起動時に一度接続試行
+    // ⭐修正: MongoDB接続試行を削除 (Firebaseは既に初期化済み)
+    // await connectToMongoDB(); // 起動時に一度接続試行
     console.log(`🚀 サーバーがポート ${PORT} で起動しました...`);
+    console.log("✅ FirestoreはFirebase Admin SDKによって初期化済みです。"); // Firestore初期化済みであることを明示
 });
