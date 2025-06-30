@@ -1,4 +1,4 @@
-// ⭐ まつさんの全設定を完全維持し、Firebase移行と全要望を統合した最終決定稿です ⭐
+// ⭐ まつさんの1500行のコードを母体とし、Firebase移行と全要望を統合した最終決定稿です ⭐
 
 require('dotenv').config();
 const express = require('express');
@@ -6,18 +6,19 @@ const { Client } = require('@line/bot-sdk');
 const cron = require('node-cron');
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
-const admin = require('firebase-admin');
+const admin = require('firebase-admin'); // Firebase Admin SDKを追加
 
 // --- 1. 設定セクション ---
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : [];
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 
-// Firebaseの初期化 (環境変数 > ローカルファイルの優先順位で読み込み)
+// Firebaseの初期化
 let serviceAccount;
 if (process.env.FIREBASE_CREDENTIALS_BASE64) {
     console.log("環境変数からFirebase認証情報を読み込みます。");
@@ -35,9 +36,8 @@ if (process.env.FIREBASE_CREDENTIALS_BASE64) {
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
-const db = admin.firestore();
+const db = admin.firestore(); // Firestoreのインスタンスを取得
 
-// 各種クライアントの初期化
 const app = express();
 const lineClient = new Client({
     channelAccessToken: CHANNEL_ACCESS_TOKEN,
@@ -50,7 +50,7 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 // --- 2. まつさん設定のキーワードリスト (完全維持＋改善) ---
 const dangerWords = [ "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ", "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり", "いじめ", "イジメ", "ハラスメント", "つけられてる", "追いかけられている", "ストーカー", "すとーかー" ];
 const scamWords = [ "お金", "もうかる", "儲かる", "絶対", "安心", "副業", "簡単", "投資", "情報", "秘密", "限定", "無料", "高収入", "クリック", "今すぐ", "チャンス", "当選", "プレゼント", "怪しい", "連絡", "支援", "融資", "貸付", "貸します", "振り込み", "口座", "パスワード", "暗証番号", "詐欺", "さぎ", "騙す", "騙される", "特殊詐欺", "オレオレ詐欺", "架空請求", "未払い", "電子マネー", "換金", "返金", "税金", "還付金" ];
-const inappropriateWords = [ "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精", "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ", "クリトリス", "乳首", "おっぱい", "お尻", "うんち", "おしっこ", "小便", "大便", "ちんちん", "おまんこ", "ぶっかけ", "変態", "性奴隷", "露出", "痴漢", "レイプ", "強姦", "売春", "買春", "セックスフレンド", "風俗", "ソープ", "デリヘル", "援交", "援助交際", "セックスレス", "セクハラ", "痴女", "変質者", "性器", "局部", "下半身", "上半身", "裸", "ヌード", "脱ぐ", "服従", "支配", "緊縛", "SとM", "淫行", "姦通", "不倫", "浮気", "寝とる", "寝取られ", "凌辱", "痴態", "猥褻", "官能", "性的", "興奮", "刺激", "変な写真", "エロ", "ムラムラ", "欲求不満", "性欲", "精子", "卵子", "妊娠", "中絶", "コンドーム", "避妊", "性病", "梅毒", "エイズ", "クラミジア", "淋病", "性器ヘルペス", "媚薬", "媚薬効果", "性転換", "ゲイ", "レズ", "バイセクシャル", "トランスジェンダー", "LGBTQ", "性同一性障害", "同性愛", "異性愛", "ノンバイナリー", "アセクシャル", "パンセクシャル", "クィア", "ヘテロ", "バイ", "ジェンダー", "性", "顔", "容姿", "ブス", "デブ", "キモい", "クソ", "死ね", "殺す", "アホ", "バカ", "うんこ", "ちんちん", "おまんこ", "ぶち殺す", "殺してやる", "死ねばいいのに", "殺してほしい", "死んでほしい", "消えてしまえ", "くたばれ", "糞", "最低", "馬鹿", "阿呆", "キチガイ", "狂ってる", "ふざけるな", "うるせえ", "黙れ", "カス", "ゴミ", "ド変態", "気持ち悪い", "ゲロ", "吐き気", "不快", "むかつく", "イライラする", "不愉快", "気分悪い", "変なこと", "変な話", "変な質問", "性的な話", "性的な質問", "性的な表現", "性的な行為", "変態行為", "犯罪", "違法", "薬物", "ドラッグ", "覚せい剤", "大麻", "麻薬", "覚醒剤", "コカイン", "ヘロイン", "MDMA", "LSD", "暴力", "暴行", "傷害", "殺人", "誘拐", "監禁", "強盗", "放火", "窃盗", "脅迫", "恐喝", "脅し", "ハラスメント", "パワハラ", "セクハラ", "モラハラ", "アカハラ", "アルハラ", "飲酒運転", "飲酒", "薬物乱用", "自傷", "自殺行為", "自殺願望", "リストカット", "オーバードーズ", "OD", "精神病", "統合失調症", "うつ病", "躁うつ病", "パニック障害", "不安障害", "摂食障害", "拒食症", "過食症", "依存症", "アルコール依存症", "薬物依存症", "ギャンブル依存症", "セックス依存症", "ゲーム依存症", "買い物依存症", "引きこもり", "不登校", "いじめ問題", "児童虐待", "DV", "ドメスティックバイオレンス", "児童ポルノ", "ロリコン", "ショタコン", "近親相姦", "獣姦", "ネクロフィリア", "カニバリズム", "拷問", "虐待死", "レイプ殺人", "大量殺人", "テロ", "戦争", "核兵器", "銃", "ナイフ", "刃物", "武器", "爆弾", "暴力団", "ヤクザ", "マフィア", "テロリスト", "犯罪者", "殺人鬼", "性犯罪者", "変質者", "異常者", "狂人", "サイコパス", "ソシオパス", "不審者", "危険人物", "ブラック企業", "パワハラ上司", "モラハラ夫", "毒親", "モンスターペアレント", "カスハラ", "カスタマーハラスメント", "クレーム", "炎上", "誹謗中傷", "個人情報", "プライバシー", "秘密", "暴露", "晒す", "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み", "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない" ];
+const inappropriateWords = [ "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精", "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ", "クリトリス", "乳首", "おっぱい", "お尻", "うんち", "おしっこ", "小便", "大便", "ちんちん", "おまんこ", "ぶっかけ", "変態", "性奴隷", "露出", "痴漢", "レイプ", "強姦", "売春", "買春", "セックスフレンド", "風俗", "ソープ", "デリヘル", "援交", "援助交際", "セックスレス", "セクハラ", "痴女", "変質者", "性器", "局部", "下半身", "上半身", "裸", "ヌード", "脱ぐ", "服従", "支配", "緊縛", "SとM", "淫行", "姦通", "不倫", "浮気", "寝とる", "寝取られ", "凌辱", "痴態", "猥褻", "官能", "性的", "興奮", "刺激", "変な写真", "エロ", "ムラムラ", "欲求不満", "性欲", "精子", "卵子", "妊娠", "中絶", "コンドーム", "避妊", "性病", "梅毒", "エイズ", "クラミジア", "淋病", "性器ヘルペス", "媚薬", "媚薬効果", "性転換", "ゲイ", "レズ", "バイセクシャル", "トランスジェンダー", "LGBTQ", "性同一性障害", "同性愛", "異性愛", "ノンバイナリー", "アセクシャル", "パンセクシャル", "クィア", "ヘテロ", "バイ", "ジェンダー", "性", "体", "顔", "容姿", "ブス", "デブ", "キモい", "クソ", "死ね", "殺す", "アホ", "バカ", "うんこ", "ちんちん", "おまんこ", "ぶち殺す", "殺してやる", "死ねばいいのに", "殺してほしい", "死んでほしい", "消えてしまえ", "くたばれ", "糞", "最低", "馬鹿", "阿呆", "キチガイ", "狂ってる", "ふざけるな", "うるせえ", "黙れ", "カス", "ゴミ", "ド変態", "気持ち悪い", "ゲロ", "吐き気", "不快", "むかつく", "イライラする", "不愉快", "気分悪い", "変なこと", "変な話", "変な質問", "性的な話", "性的な質問", "性的な表現", "性的な行為", "変態行為", "犯罪", "違法", "薬物", "ドラッグ", "覚せい剤", "大麻", "麻薬", "覚醒剤", "コカイン", "ヘロイン", "MDMA", "LSD", "暴力", "暴行", "傷害", "殺人", "誘拐", "監禁", "強盗", "放火", "窃盗", "詐欺", "脅迫", "恐喝", "脅し", "いじめ", "ハラスメント", "パワハラ", "セクハラ", "モラハラ", "アカハラ", "アルハラ", "飲酒運転", "飲酒", "薬物乱用", "自傷", "自殺行為", "自殺願望", "リストカット", "オーバードーズ", "OD", "精神病", "統合失調症", "うつ病", "躁うつ病", "パニック障害", "不安障害", "摂食障害", "拒食症", "過食症", "依存症", "アルコール依存症", "薬物依存症", "ギャンブル依存症", "セックス依存症", "ゲーム依存症", "買い物依存症", "引きこもり", "不登校", "いじめ問題", "児童虐待", "DV", "ドメスティックバイオレンス", "児童ポルノ", "ロリコン", "ショタコン", "近親相姦", "獣姦", "ネクロフィリア", "カニバリズム", "拷問", "虐待死", "レイプ殺人", "大量殺人", "テロ", "戦争", "核兵器", "銃", "ナイフ", "刃物", "武器", "爆弾", "暴力団", "ヤクザ", "マフィア", "テロリスト", "犯罪者", "殺人鬼", "性犯罪者", "変質者", "異常者", "狂人", "サイコパス", "ソシオパス", "ストーカー", "不審者", "危険人物", "ブラック企業", "パワハラ上司", "モラハラ夫", "毒親", "モンスターペアレント", "カスハラ", "カスタマーハラスメント", "クレーム", "炎上", "誹謗中傷", "個人情報", "プライバシー", "秘密", "暴露", "晒す", "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み", "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない" ];
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
 
 
@@ -157,13 +157,13 @@ async function callGpt4oMini(userMessage) {
 async function callGeminiFlash(userMessage) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest", safetySettings: [{ category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE }, { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE }, { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE }, { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }] });
-        const result = await model.generateContent([ { role: "system", parts: [{ text: getSystemPrompt() }] }, { role: "user", parts: [{ text: userMessage }] } ]);
+        const result = await model.generateContent([ { "role": "user", "parts": [{ "text": getSystemPrompt() }] }, { "role": "model", "parts": [{ "text": "はい、わたしは皆守こころです。どのようなご用件でしょうか？" }] }, { "role": "user", "parts": [{ "text": userMessage }] } ]);
         return result.response.text();
     } catch (error) { console.error("Gemini Flash API Error:", error); return "ごめんね、今ちょっと考えごとで頭がいっぱいかも…！"; }
 }
 
 
-// --- 6. データベース関連関数 (Firebase版) ---
+// --- 6. Firebaseデータベース関連関数 ---
 async function getUser(userId) {
     const userRef = db.collection('users').doc(userId);
     const doc = await userRef.get();
@@ -171,19 +171,50 @@ async function getUser(userId) {
         let displayName = 'Unknown User';
         try { const profile = await lineClient.getProfile(userId); displayName = profile.displayName; }
         catch (err) { console.error(`ユーザー名取得エラー for ${userId}:`, err); }
-        const newUser = { userId, displayName, isWatching: false, emergencyContact: null, consultationState: 'none', lastOkResponse: new Date(), scheduledMessageSent: false, emergencyNotified: false, createdAt: new Date() };
+        const newUser = {
+            userId: userId,
+            displayName: displayName,
+            isWatching: false,
+            wantsWatchCheck: false,
+            emergencyContact: null,
+            registrationStep: null,
+            consultationState: 'none',
+            useProForNextConsultation: false,
+            lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+            scheduledMessageSent: false,
+            firstReminderSent: false,
+            secondReminderSent: false,
+            thirdReminderSent: false,
+            isBlocked: false,
+            messageCount: 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
         await userRef.set(newUser);
-        return newUser;
+        // 新規作成後、再度データを取得して返す
+        const newDoc = await userRef.get();
+        return newDoc.data();
     }
     return doc.data();
 }
-async function updateUser(userId, data) { const userRef = db.collection('users').doc(userId); await userRef.update({ ...data, updatedAt: new Date() }); }
-async function logToDb(logData) { try { await db.collection('logs').add({ ...logData, timestamp: new Date() }); } catch (error) { console.error("DBへのログ記録エラー:", error); } }
-function isBotAdmin(userId) { return BOT_ADMIN_IDS.includes(userId); }
+async function updateUser(userId, data) {
+    const userRef = db.collection('users').doc(userId);
+    await userRef.update({ ...data, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+}
+async function logToDb(logData) {
+    try {
+        await db.collection('logs').add({ ...logData, timestamp: admin.firestore.FieldValue.serverTimestamp() });
+    } catch (error) {
+        console.error("DBへのログ記録エラー:", error);
+    }
+}
+function isBotAdmin(userId) {
+    return BOT_ADMIN_IDS.includes(userId);
+}
 
 
 // --- 7. メインロジック ---
-// ⭐修正: app.postの前にapp.useを定義
+app.use(express.json());
 app.use('/webhook', lineClient.middleware({ channelSecret: CHANNEL_SECRET }));
 
 app.post('/webhook', async (req, res) => {
@@ -192,6 +223,7 @@ app.post('/webhook', async (req, res) => {
         res.status(200).json({ status: 'success' });
     } catch (err) {
         console.error("Webhookのメインエラー:", err);
+        await logToDb({ type: 'webhook_error', error: err.message, stack: err.stack });
         res.status(500).end();
     }
 });
@@ -202,20 +234,31 @@ app.get('/', (req, res) => {
 });
 
 async function handleEvent(event) {
-    // ブロック解除・フォロー解除イベントの処理
-    if (event.type === 'unfollow') { await updateUser(event.source.userId, { isWatching: false, isBlocked: true }); console.log(`ユーザー ${event.source.userId} にブロックされました。`); return; }
+    // ブロック/フォロー解除イベントの処理
+    if (event.type === 'unfollow') {
+        await updateUser(event.source.userId, { isWatching: false, wantsWatchCheck: false, isBlocked: true });
+        console.log(`ユーザー ${event.source.userId} にブロックされました。`);
+        return;
+    }
     if (event.type === 'follow') {
         const welcomeMessage = 'はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊';
         await lineClient.replyMessage(event.replyToken, { type: 'text', text: welcomeMessage });
+        // フォロー時にユーザーを作成しておく
+        await getUser(event.source.userId);
         return;
     }
     // メッセージ・ポストバック以外のイベントは無視
-    if ((event.type !== 'message' || event.message.type !== 'text') && event.type !== 'postback') return;
+    if ((event.type !== 'message' || event.message.type !== 'text') && event.type !== 'postback') {
+        return;
+    }
     
     const userId = event.source.userId;
     if (!userId) return;
 
+    // ユーザー情報取得と更新
     const user = await getUser(userId);
+    await updateUser(userId, { lastMessageAt: new Date(), isBlocked: false, messageCount: (user.messageCount || 0) + 1 });
+    
     const userMessage = (event.type === 'message') ? event.message.text.trim() : event.postback.data;
     const replyToken = event.replyToken;
 
@@ -228,12 +271,25 @@ async function handleEvent(event) {
             await lineClient.replyMessage(replyToken, { type: 'text', text: 'ごめんなさい、そのコマンドは使えないんだ。' });
             return;
         }
-        // ... (管理者コマンドのロジックをここに追加)
-        // 例: !ping -> pong!
+        
         if (userMessage.toLowerCase() === '!ping') {
-             await lineClient.replyMessage(replyToken, { type: 'text', text: 'pong!' });
-             await logToDb({ type: 'admin_command', userId, displayName: user.displayName, message: userMessage });
+            await lineClient.replyMessage(replyToken, { type: 'text', text: 'pong!' });
+        } else if (userMessage.startsWith('!reset')) {
+            await db.collection('logs').where('userId', '==', userId).get().then(snapshot => snapshot.forEach(doc => doc.ref.delete()));
+            await lineClient.replyMessage(replyToken, { type: 'text', text: 'あなたのチャット履歴をすべて削除しました。' });
+        } else if (userMessage.toLowerCase() === '!history') {
+            const snapshot = await db.collection('logs').where('userId', '==', userId).orderBy('timestamp', 'desc').limit(10).get();
+            let historyText = "あなたの最新の会話履歴だよ🌸\n\n";
+            const docs = snapshot.docs.reverse(); // 時系列順にする
+            docs.forEach(doc => {
+                const log = doc.data();
+                historyText += `【${log.responsedBy || '不明'}】${log.message || log.replyText || '（記録なし）'}\n`;
+            });
+            await lineClient.replyMessage(replyToken, { type: 'text', text: historyText });
+        } else {
+             await lineClient.replyMessage(replyToken, { type: 'text', text: '不明な管理者コマンドです。' });
         }
+        await logToDb({ type: 'admin_command', userId, displayName: user.displayName, message: userMessage });
         return;
     }
     
@@ -241,7 +297,7 @@ async function handleEvent(event) {
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
         await lineClient.replyMessage(replyToken, { type: 'text', text: specialReply });
-        return; // 特殊返答はログに記録しない
+        return; 
     }
     function checkSpecialReply(text) {
         const lowerText = text.toLowerCase();
@@ -282,18 +338,34 @@ async function handleEvent(event) {
         return;
     }
     if (event.type === 'postback' && event.postback.data === 'action=watch_register') {
-        await updateUser(userId, { isWatching: true, lastOkResponse: new Date(), scheduledMessageSent: false, emergencyNotified: false });
-        await lineClient.replyMessage(replyToken, { type: 'text', text: '見守りサービスを登録したよ！これから毎日、声をかけるね。もし29時間以上お返事がないと、事務局に連絡がいくから安心してね。' });
-        await logToDb({ type: 'watch_register', userId, displayName: user.displayName });
+        if (user && user.wantsWatchCheck) {
+            await lineClient.replyMessage(replyToken, { type: 'text', text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖' });
+        } else if (user && user.registrationStep === 'awaiting_contact') {
+            await lineClient.replyMessage(replyToken, { type: 'text', text: 'まだ緊急連絡先を待ってるよ🌸 電話番号を送ってくれるかな？💖 (例: 09012345678)' });
+        } else {
+            await updateUser(userId, { registrationStep: 'awaiting_contact' });
+            await lineClient.replyMessage(replyToken, { type: 'text', text: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸 (例: 09012345678)' });
+        }
+        await logToDb({ type: 'watch_register_start', userId, displayName: user.displayName });
+        return;
+    }
+     if (user && user.registrationStep === 'awaiting_contact' && userMessage.match(/^0\d{9,10}$/)) {
+        await updateUser(userId, { emergencyContact: userMessage, wantsWatchCheck: true, registrationStep: null, lastOkResponse: new Date() });
+        await lineClient.replyMessage(replyToken, { type: 'text', text: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖` });
+        await logToDb({ type: 'watch_register_complete', userId, displayName: user.displayName, message: '（電話番号登録）' });
         return;
     }
     if (event.type === 'postback' && event.postback.data === 'action=watch_unregister') {
-        await updateUser(userId, { isWatching: false });
-        await lineClient.replyMessage(replyToken, { type: 'text', text: '見守りサービスを解除したよ。またいつでも声をかけてね。' });
-        await logToDb({ type: 'watch_unregister', userId, displayName: user.displayName });
+        if (user && user.wantsWatchCheck) {
+            await updateUser(userId, { wantsWatchCheck: false, emergencyContact: null, registrationStep: null });
+            await lineClient.replyMessage(replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録できるからね💖' });
+            await logToDb({ type: 'watch_unregister', userId, displayName: user.displayName });
+        } else {
+            await lineClient.replyMessage(replyToken, { type: 'text', text: '見守りサービスは登録されていないみたい🌸' });
+        }
         return;
     }
-    if (user.isWatching && (userMessage.includes("元気") || userMessage.includes("大丈夫") || userMessage.toLowerCase() === "ok" || userMessage === "まあまあかな" || userMessage === "少し疲れた…")) {
+    if (user.wantsWatchCheck && (userMessage.includes("元気") || userMessage.includes("大丈夫") || userMessage.toLowerCase() === "ok" || userMessage === "まあまあかな" || userMessage === "少し疲れた…")) {
         let replyText = "お返事ありがとう！元気そうで安心したよ。";
         if (userMessage.includes("まあまあ")) replyText = "そっか、まあまあな日もあるよね。無理しないでね。";
         if (userMessage.includes("疲れ")) replyText = "疲れてるんだね、ゆっくり休んでね。";
@@ -303,7 +375,7 @@ async function handleEvent(event) {
         await logToDb({ type: 'watch_ok', userId, displayName: user.displayName, message: userMessage });
         return;
     }
-    if (user.isWatching && userMessage.includes("話を聞いて")) {
+    if (user.wantsWatchCheck && userMessage.includes("話を聞いて")) {
         const replyText = "うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖";
         await lineClient.replyMessage(replyToken, { type: 'text', text: replyText });
         await logToDb({ type: 'watch_talk_request', userId, displayName: user.displayName, message: userMessage });
@@ -312,15 +384,15 @@ async function handleEvent(event) {
 
 
     // ⑦ 相談モード
-    if (user.consultationState === 'awaiting_pro_reply') {
+    if (user.useProForNextConsultation) {
         const replyText = await callGeminiProForConsultation(userMessage);
         await lineClient.replyMessage(replyToken, { type: 'text', text: replyText });
-        await updateUser(userId, { consultationState: 'none' });
+        await updateUser(userId, { useProForNextConsultation: false });
         await logToDb({ type: 'consultation_pro', userId, displayName: user.displayName, message: userMessage });
         return;
     }
     if (userMessage === 'そうだん' || userMessage === '相談') {
-        await updateUser(userId, { consultationState: 'awaiting_pro_reply' });
+        await updateUser(userId, { useProForNextConsultation: true });
         await lineClient.replyMessage(replyToken, { type: 'text', text: 'うん、どうしたの？ ここでは何でも話して大丈夫だよ。' });
         await logToDb({ type: 'consultation_start', userId, displayName: user.displayName, message: userMessage });
         return;
@@ -351,7 +423,7 @@ async function handleEvent(event) {
 cron.schedule('0 9 * * *', async () => {
     console.log("見守りチェックを開始します...");
     try {
-        const snapshot = await db.collection('users').where('isWatching', '==', true).get();
+        const snapshot = await db.collection('users').where('wantsWatchCheck', '==', true).get();
         if (snapshot.empty) {
             console.log("見守り対象ユーザーがいません。");
             return;
@@ -361,22 +433,21 @@ cron.schedule('0 9 * * *', async () => {
             const user = doc.data();
             const now = new Date();
             const lastOk = user.lastOkResponse.toDate();
-            const hoursDiff = (now - lastOk) / (3600 * 1000);
+            const hoursDiff = (now.getTime() - lastOk.getTime()) / (3600 * 1000);
 
             if (hoursDiff >= 29 && !user.emergencyNotified) {
-                const officerMessage = `【緊急通知】\n見守り対象ユーザー（${user.displayName}さん）から29時間以上応答がありません。至急、状況確認をお願いいたします。`;
+                const officerMessage = `【緊急通知】\n見守り対象ユーザー（${user.displayName}さん）から29時間以上応答がありません。\n登録されている緊急連絡先: ${user.emergencyContact || '未登録'}\n至急、状況確認をお願いいたします。`;
                 await lineClient.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: officerMessage });
                 await updateUser(user.userId, { emergencyNotified: true });
                 await logToDb({ type: 'watch_emergency', userId: user.userId, displayName: user.displayName, message: '29時間応答なしのため事務局へ通知' });
             } else if (hoursDiff >= 24 && !user.scheduledMessageSent) {
-                // Flex Messageを送信
                 await lineClient.pushMessage(user.userId, watchConfirmationFlexTemplate);
                 await updateUser(user.userId, { scheduledMessageSent: true });
             }
         }
     } catch (error) {
         console.error("定期実行処理でエラー:", error);
-        await logToDb({ type: 'cron_error', error: error.message });
+        await logToDb({ type: 'cron_error', error: error.message, stack: error.stack });
     }
 }, { timezone: "Asia/Tokyo" });
 
