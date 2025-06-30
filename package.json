@@ -1,18 +1,10 @@
-{
-  "name": "kokoro-chat-bot",
-  "version": "1.0.0",
-  "description": "NPO法人コネクト こころチャットボット",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "express": "^4.19.2",
-    "@line/bot-sdk": "^9.2.2",
-    "firebase-admin": "^12.1.1",
-    "dotenv": "^16.4.5",
-    "node-cron": "^3.0.3",
-    "@google/generative-ai": "^0.12.0",
-    "openai": "^4.52.0"
-  }
+"dependencies": {
+  "express": "^4.19.2",
+  "@line/bot-sdk": "^9.2.2",
+  "firebase-admin": "^12.1.1",
+  "dotenv": "^16.4.5",
+  "node-cron": "^3.0.3",
+  "@google/generative-ai": "^0.12.0",
+  "openai": "^4.52.0",
+  "mongodb": "^6.5.0" 
 }
