@@ -449,15 +449,10 @@ const specialRepliesMap = new Map([
     [/元気(かな)?(\?|？)?/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/やっほー|こんにちは|こんばんわ|おはよう|こんばんは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
 
-    // 団体に関する応答をより明確に、かつ包括的に
-    [/どこの団体なの？|何の団体なの？|運営団体は？|所属団体は？|団体教えて|団体いえないの？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"], // 「団体いえないの？」も追加
-    [/コネクトってどんな団体？|コネクトの活動内容は？|NPO法人コネクトとは？/i, "うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org"],
-    [/お前の団体どこ？|お前の団体何？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-    [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
+    // 団体に関する応答は isOrganizationInquiry で最優先で処理されるため、ここからは削除
     
-    // 怪しい・胡散臭い・反社に対する応答を追加し、より多くのバリエーションをカバー
-    [/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しでも信頼してもらえるように、誠実にがんばっていくね💖　何か、他に聞きたいことあるかな？🌸"],
-    
+    // 怪しい・胡散臭い・反社に対する応答は isScam で処理されるため、ここからは削除
+
     // ネガティブワード・人物名への優先処理
     ["税金泥棒", "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     ["松本博文", "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
@@ -499,7 +494,7 @@ async function generateGPTReply(userMessage, modelToUse) {
 医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
 
 ${modelToUse === modelConfig.empatheticModel ? `
-ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、電話番号やウェブサイトのURL）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
+ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
 例：「一人で抱え込まないでね。もし本当に辛い時は、専門の人が助けてくれる場所があるから、頼ってみてね。例えば、チャイルドラインやいのちの電話に相談することもできるよ。」
 ` : ''}
 `
@@ -727,9 +722,13 @@ function checkSpecialReply(text) {
 
 const isOrganizationInquiry = (text) => {
     const lower = text.toLowerCase();
-    // 「団体」に関する広範なキーワードで判定
-    return (lower.includes("コネクト") || lower.includes("connect") || lower.includes("団体") || lower.includes("npo") || lower.includes("運営") || lower.includes("組織")) && (lower.includes("どこ") || lower.includes("何") || lower.includes("どんな") || lower.includes("教えて") || lower.includes("いえない")); // ⭐修正: 「いえない」も追加
+    // 「団体」に関する広範なキーワードで判定。「いえない」のような否定形もキャッチ
+    return (lower.includes("コネクト") || lower.includes("connect") || lower.includes("団体") || lower.includes("npo") || lower.includes("運営") || lower.includes("組織")) && (lower.includes("どこ") || lower.includes("何") || lower.includes("どんな") || lower.includes("教えて") || lower.includes("いえない")); 
 };
+
+// 固定の団体応答メッセージ
+const ORGANIZATION_REPLY_MESSAGE = "ウチの団体かな？コネクトっていう団体で、子供からお年寄りまでが集まれる場所を作っている団体だよ😊";
+
 
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
 function containsHomeworkTrigger(text) {
@@ -782,6 +781,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
 
     if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
         try {
+            // 見守りサービス案内は replyToken で即座に返す
             await client.replyMessage(event.replyToken, {
                 type: 'flex',
                 altText: '💖見守りサービス案内💖', 
@@ -801,13 +801,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
             await logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
         }
     }
+    // 以下、pushMessage で応答するため、replyToken は使わない
     else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.wantsWatchCheck) {
             try {
                 await usersCollection.doc(userId).update(
                     { lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false }
                 );
-                await client.replyMessage(event.replyToken, {
+                await client.pushMessage(userId, {
                     type: 'text',
                     text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
                 });
@@ -837,7 +838,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_status_somewhat'
                 });
-                await client.replyMessage(event.replyToken, {
+                await client.pushMessage(userId, {
                     type: 'text',
                     text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
                 });
@@ -859,7 +860,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_status_tired'
                 });
-                await client.replyMessage(event.replyToken, {
+                await client.pushMessage(userId, {
                     type: 'text',
                     text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
                 });
@@ -881,7 +882,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     logType: 'watch_service_status_talk'
                 });
-                await client.replyMessage(event.replyToken, {
+                await client.pushMessage(userId, {
                     type: 'text',
                     text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
                 });
@@ -895,13 +896,13 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
     else if (userMessage.includes("見守り登録します") || (event.type === 'postback' && event.postback.data === 'action=watch_register')) {
         try {
             if (user && user.wantsWatchCheck) {
-                await client.replyMessage(event.replyToken, {
+                await client.pushMessage(userId, {
                     type: 'text',
                     text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖'
                 });
                 handled = true;
             } else if (user && user.registrationStep === 'awaiting_contact') {
-                await client.replyMessage(event.replyToken, {
+                await client.pushMessage(userId, {
                     type: 'text',
                     text: 'まだ緊急連絡先を待ってるよ🌸 電話番号を送ってくれるかな？💖 (例: 09012345678)'
                 });
@@ -911,7 +912,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
                     { registrationStep: 'awaiting_contact' },
                     { merge: true }
                 );
-                await client.replyMessage(event.replyToken, {
+                await client.pushMessage(userId, {
                     type: 'text',
                     text: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸 (例: 09012345678)'
                 });
@@ -935,7 +936,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage) {
             await usersCollection.doc(userId).update(
                 { emergencyContact: userMessage, wantsWatchCheck: true, registrationStep: null, lastOkResponse: admin.firestore.FieldValue.serverTimestamp() }
             );
-            await client.replyMessage(event.replyToken, {
+            await client.pushMessage(userId, {
                 type: 'text',
                 text: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖`
             });
@@ -1189,8 +1190,8 @@ app.post('/webhook', async (req, res) => {
             let messageHandled = false;
             let watchServiceHandled = false;
 
-            // ⭐重要: LINEに即座に200 OKを返す
-            res.status(200).send('OK'); // ここで即座に応答を返す
+            // ⭐重要: LINEに即座に200 OKを返す (Webhookタイムアウト対策)
+            res.status(200).send('OK'); 
 
             // ここから非同期処理としてAI応答やメッセージ送信を行う
             try {
@@ -1219,7 +1220,7 @@ app.post('/webhook', async (req, res) => {
                             logType = 'admin_error';
                         }
                     } else if (userMessage.startsWith('!メニュー') || userMessage.toLowerCase() === 'メニュー') {
-                        await sendRichMenu(replyToken); // この場合はreplyTokenで返せる
+                        await sendRichMenu(replyToken); // replyTokenで即座に返せるFlexメッセージ
                         responsedBy = 'こころちゃん（メニュー）';
                         logType = 'system_menu';
                     } else if (userMessage.toLowerCase() === '!history') {
@@ -1248,25 +1249,23 @@ app.post('/webhook', async (req, res) => {
                         responsedBy = 'システム（拒否）';
                         logType = 'admin_command_unknown';
                     }
-                    messageHandled = true; // 管理者コマンドは常に処理済みと見なす
+                    messageHandled = true; 
                 }
 
                 if (!messageHandled) {
+                    // 見守りサービス関連の処理。一部はreplyTokenで即座に返すものもある
                     watchServiceHandled = await handleWatchServiceRegistration(event, userId, userMessage);
                     if (watchServiceHandled) {
                         messageHandled = true;
                     }
                 }
                 
-                // isOrganizationInquiryを最優先で処理するように移動
+                // ⭐最優先: 団体に関する問い合わせを固定応答で処理
                 if (event.type === 'message' && event.message.type === 'text' && !messageHandled && isOrganizationInquiry(userMessage)) {
-                    const orgReply = checkSpecialReply(userMessage); // specialRepliesMapから回答を取得
-                    if (orgReply) {
-                        await client.pushMessage(userId, { type: 'text', text: orgReply });
-                        responsedBy = 'こころちゃん（団体情報）';
-                        logType = 'organization_inquiry';
-                        messageHandled = true;
-                    }
+                    await client.pushMessage(userId, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
+                    responsedBy = 'こころちゃん（団体固定応答）';
+                    logType = 'organization_inquiry_fixed';
+                    messageHandled = true;
                 }
 
                 // 危険・詐欺・不適切ワードのチェックと、GPT-4oでの応答を統合
@@ -1276,25 +1275,24 @@ app.post('/webhook', async (req, res) => {
                     const isInappropriate = checkContainsInappropriateWords(userMessage);
 
                     if (isDangerWord) {
-                        const emergencyReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); // GPT-4oで応答生成
+                        const emergencyReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); 
                         await client.pushMessage(userId, [
                             { type: 'text', text: emergencyReplyText },
-                            { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate } // 緊急連絡先Flex
+                            { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate } 
                         ]);
                         responsedBy = `こころちゃん（緊急対応: ${modelConfig.emergencyModel}）`;
                         logType = 'danger_word_triggered';
                         messageHandled = true;
                     } else if (isScam) {
-                        const scamReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); // GPT-4oで応答生成
+                        const scamReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); 
                         await client.pushMessage(userId, [
                             { type: 'text', text: scamReplyText },
-                            { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate } // 詐欺注意Flex
+                            { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate } 
                         ]);
                         responsedBy = `こころちゃん（詐欺対応: ${modelConfig.emergencyModel}）`;
                         logType = 'scam_word_triggered';
                         messageHandled = true;
                     } else if (isInappropriate) {
-                        // 不適切ワードはAI応答ではなく固定メッセージで拒否
                         await client.pushMessage(userId, { type: 'text', text: 'ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖' });
                         responsedBy = 'こころちゃん（不適切対応）';
                         logType = 'inappropriate_word_triggered';
@@ -1315,7 +1313,7 @@ app.post('/webhook', async (req, res) => {
 
                 // 宿題・勉強に関する質問のチェック (特殊返答より後に実行)
                 if (containsHomeworkTrigger(userMessage) && !messageHandled) {
-                    const homeworkReply = await generateGeminiReply(userMessage, modelConfig.defaultModel); // Gemini Flashを使用
+                    const homeworkReply = await generateGeminiReply(userMessage, modelConfig.defaultModel); 
                     await client.pushMessage(userId, { type: 'text', text: homeworkReply });
                     responsedBy = 'こころちゃん（宿題対応: Gemini Flash）';
                     logType = 'homework_query';
@@ -1328,7 +1326,6 @@ app.post('/webhook', async (req, res) => {
                         await usersCollection.doc(userId).update(
                             { useProForNextConsultation: true }
                         );
-                        // ⭐修正: 相談モード開始のメッセージはここでpushMessageで即座に送信
                         await client.pushMessage(userId, { type: 'text', text: '🌸 相談モードに入ったよ！なんでも相談してね😊' });
                         responsedBy = 'こころちゃん（Gemini 1.5 Pro - 相談モード開始）';
                         logType = 'consultation_mode_start';
@@ -1346,15 +1343,15 @@ app.post('/webhook', async (req, res) => {
                     let aiReply;
                     let aiModelUsed;
 
-                    if (user && user.useProForNextConsultation) { // 相談モードが有効な場合
-                        aiReply = await generateGeminiReply(userMessage, modelConfig.consultationModel); // Gemini Proを使用
+                    if (user && user.useProForNextConsultation) { 
+                        aiReply = await generateGeminiReply(userMessage, modelConfig.consultationModel); 
                         aiModelUsed = modelConfig.consultationModel;
-                        await usersCollection.doc(userId).update({ useProForNextConsultation: false }); // 1回使用したらリセット
-                    } else if (isEmpatheticMessage(userMessage)) { // 共感が必要なメッセージの場合
-                        aiReply = await generateGPTReply(userMessage, modelConfig.empatheticModel); // GPT-4o miniを使用
+                        await usersCollection.doc(userId).update({ useProForNextConsultation: false }); 
+                    } else if (isEmpatheticMessage(userMessage)) { 
+                        aiReply = await generateGPTReply(userMessage, modelConfig.empatheticModel); 
                         aiModelUsed = modelConfig.empatheticModel;
-                    } else { // それ以外はデフォルトのGemini Flash
-                        aiReply = await generateGeminiReply(userMessage, modelConfig.defaultModel); // Gemini Flashを使用
+                    } else { 
+                        aiReply = await generateGeminiReply(userMessage, modelConfig.defaultModel); 
                         aiModelUsed = modelConfig.defaultModel;
                     }
                     
@@ -1364,9 +1361,8 @@ app.post('/webhook', async (req, res) => {
                     messageHandled = true;
                 }
 
-                // メッセージ送信とログ記録（replyTokenを使わないので、ここではpushMessageで送ったもののログを記録）
-                // 各処理ブロックでpushMessageを呼び出すように変更したので、ここではログだけ記録
-                const replyTextForLog = '（メッセージがpushMessageで送信されました）'; // または実際に送信したテキストを取得
+                // メッセージ送信とログ記録（各処理ブロックでpushMessage/replyMessageで送ったもののログを記録）
+                const replyTextForLog = '（メッセージがpushMessage/replyMessageで送信されました）'; 
                 const isFlagged = checkContainsDangerWords(userMessage) || checkContainsScamWords(userMessage) || checkContainsInappropriateWords(userMessage);
                 const isResetCommand = userMessage.startsWith('!reset');
 
@@ -1374,18 +1370,15 @@ app.post('/webhook', async (req, res) => {
                     await messagesCollection.add({
                         userId: userId,
                         message: userMessage,
-                        replyText: replyTextForLog, // ここは実際の返信内容で埋めるように調整が必要だが、今回は簡略化
+                        replyText: replyTextForLog, 
                         responsedBy: responsedBy,
                         timestamp: admin.firestore.FieldValue.serverTimestamp(),
                         logType: logType
                     });
                 }
             } catch (error) {
-                // 上記のtry-catchはAI呼び出しやDB操作のエラーをキャッチするため
-                // LINEへの送信失敗は個別のpushMessage/replyMessageのtry-catchで処理される
                 console.error("❌ Webhook内部処理でエラーが発生しました:", error.message);
                 await logErrorToDb(userId, "Webhook内部処理エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
-                // エラー時でもLINEへの200 OKは既に返しているので、ここでは何もしない
             }
         }
     }
