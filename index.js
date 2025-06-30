@@ -1,4 +1,4 @@
-// ⭐ まつさんの1500行のコードを母体とし、Firebase移行と全要望を統合した最終決定稿です（バグ修正済み） ⭐
+// ⭐【真実の最終決定稿】まつさんの1500行のコードを母体とし、全ての修正と要望を統合した最終版です ⭐
 
 require('dotenv').config();
 const express = require('express');
@@ -30,7 +30,7 @@ if (process.env.FIREBASE_CREDENTIALS_BASE64) {
         console.log("ローカルファイルからFirebase認証情報を読み込みます。");
         serviceAccount = require('./serviceAccountKey.json');
     } catch (error) {
-        console.error("Firebase認証情報の読み込みに失敗しました。serviceAccountKey.jsonファイルが存在するか、またはFIREBASE_CREDENTIALS_BASE64環境変数が正しく設定されているか確認してください。");
+        console.error("Firebase認証情報の読み込みに失敗しました。serviceAccountKey.jsonファイルが存在するか、環境変数が正しいか確認してください。");
         process.exit(1);
     }
 }
@@ -44,7 +44,6 @@ const app = express();
 const lineClient = new Client(config);
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-
 
 // --- 2. まつさん設定のキーワードリスト (完全維持＋改善) ---
 const dangerWords = [ "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ", "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり", "いじめ", "イジメ", "ハラスメント", "つけられてる", "追いかけられている", "ストーカー", "すとーかー" ];
@@ -190,7 +189,6 @@ async function getUser(userId) {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         await userRef.set(newUser);
-        // 新規作成後、再度データを取得して返す
         const newDoc = await userRef.get();
         return newDoc.data();
     }
@@ -242,19 +240,14 @@ async function handleEvent(event) {
     if (event.type === 'follow') {
         const welcomeMessage = 'はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊';
         await lineClient.replyMessage(event.replyToken, { type: 'text', text: welcomeMessage });
-        // フォロー時にユーザーを作成しておく
         await getUser(event.source.userId);
         return;
     }
-    // メッセージ・ポストバック以外のイベントは無視
-    if ((event.type !== 'message' || event.message.type !== 'text') && event.type !== 'postback') {
-        return;
-    }
+    if ((event.type !== 'message' || event.message.type !== 'text') && event.type !== 'postback') return;
     
     const userId = event.source.userId;
     if (!userId) return;
 
-    // ユーザー情報取得と更新
     const user = await getUser(userId);
     await updateUser(userId, { lastMessageAt: new Date(), isBlocked: false, messageCount: (user.messageCount || 0) + 1 });
     
@@ -274,12 +267,18 @@ async function handleEvent(event) {
         if (userMessage.toLowerCase() === '!ping') {
             await lineClient.replyMessage(replyToken, { type: 'text', text: 'pong!' });
         } else if (userMessage.startsWith('!reset')) {
-            await db.collection('logs').where('userId', '==', userId).get().then(snapshot => snapshot.forEach(doc => doc.ref.delete()));
+            const logCollection = db.collection('logs');
+            const snapshot = await logCollection.where('userId', '==', userId).get();
+            const batch = db.batch();
+            snapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
             await lineClient.replyMessage(replyToken, { type: 'text', text: 'あなたのチャット履歴をすべて削除しました。' });
         } else if (userMessage.toLowerCase() === '!history') {
             const snapshot = await db.collection('logs').where('userId', '==', userId).orderBy('timestamp', 'desc').limit(10).get();
             let historyText = "あなたの最新の会話履歴だよ🌸\n\n";
-            const docs = snapshot.docs.reverse(); // 時系列順にする
+            const docs = snapshot.docs.reverse();
             docs.forEach(doc => {
                 const log = doc.data();
                 historyText += `【${log.responsedBy || '不明'}】${log.message || log.replyText || '（記録なし）'}\n`;
@@ -401,12 +400,11 @@ async function handleEvent(event) {
     if (homeworkTriggers.some(word => userMessage.toLowerCase().includes(word))) {
         const replyText = "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦 でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
         await lineClient.replyMessage(replyToken, { type: 'text', text: replyText });
-        return; // ログには記録しない
+        return;
     }
 
     // ⑨ 通常会話（フォールバック）
     let replyText;
-    // 複雑さの判定: 句読点が含まれるか、または30文字以上の場合
     const isComplex = /[、。！？]/.test(userMessage) || userMessage.length >= 30;
     if (isComplex) {
         replyText = await callGpt4oMini(userMessage);
@@ -414,7 +412,6 @@ async function handleEvent(event) {
         replyText = await callGeminiFlash(userMessage);
     }
     await lineClient.replyMessage(replyToken, { type: 'text', text: replyText });
-    // 通常会話はログに記録しない
 }
 
 
