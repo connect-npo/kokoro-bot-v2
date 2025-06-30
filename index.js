@@ -41,6 +41,7 @@ const client = new Client({
 });
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+// ⭐修正: GPT-4oとGPT-4o miniを両方使えるようにOpenAIクライアントを初期化
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 const dangerWords = [
@@ -86,6 +87,14 @@ const inappropriateWords = [
     "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み",
     "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
 ];
+
+// ⭐追加: 共感が必要なメッセージを検出するためのキーワードリスト
+const empatheticTriggers = [
+    "辛い", "しんどい", "悲しい", "苦しい", "助けて", "悩み", "不安", "孤独", "寂しい", "疲れた",
+    "病気", "痛い", "具合悪い", "困った", "どうしよう", "辞めたい", "消えたい"
+];
+
+// ⭐修正: 緊急時のFlex Templateに110番と119番を追加
 const emergencyFlexTemplate = {
     "type": "bubble",
     "body": {
@@ -112,6 +121,28 @@ const emergencyFlexTemplate = {
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "action": {
+                    "type": "uri",
+                    "label": "警察 (電話)",
+                    "uri": "tel:110"
+                },
+                "color": "#FF4500" // 赤系で目立たせる
+            },
+            {
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "action": {
+                    "type": "uri",
+                    "label": "消防・救急 (電話)",
+                    "uri": "tel:119"
+                },
+                "color": "#FF6347" // オレンジ赤系で目立たせる
+            },
             {
                 "type": "button",
                 "style": "primary",
@@ -181,6 +212,8 @@ const emergencyFlexTemplate = {
         ]
     }
 };
+
+// ⭐修正: 詐欺時のFlex Templateに110番を追加
 const scamFlexTemplate = {
     "type": "bubble",
     "body": {
@@ -207,6 +240,17 @@ const scamFlexTemplate = {
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "action": {
+                    "type": "uri",
+                    "label": "警察 (電話)",
+                    "uri": "tel:110"
+                },
+                "color": "#FF4500" // 赤系で目立たせる
+            },
             {
                 "type": "button",
                 "style": "primary",
@@ -374,7 +418,10 @@ const watchConfirmationFlexTemplate = {
 
 
 const modelConfig = {
-    "defaultModel": "gemini-1.5-flash-latest",
+    "defaultModel": "gemini-1.5-flash-latest", // 雑談用
+    "empatheticModel": "gpt-4o-mini", // 共感用
+    "consultationModel": "gemini-1.5-pro-latest", // 相談用
+    "emergencyModel": "gpt-4o", // 緊急時用
     "safetySettings": [
         {
             "category": "HARM_CATEGORY_HARASSMENT",
@@ -394,6 +441,7 @@ const modelConfig = {
         }
     ]
 };
+
 // ⭐修正: 団体に関する応答を正規表現(RegExp)にすることで、より柔軟に反応できるように変更
 const specialRepliesMap = new Map([
     // 名前に関する応答
@@ -405,19 +453,19 @@ const specialRepliesMap = new Map([
     [/元気(かな)?(\?|？)?/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/やっほー|こんにちは|こんばんわ|おはよう|こんばんは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
 
-    // 団体に関する応答 (正規表現に変更)
-    [/どこの団体なの？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-    [/コネクトってどんな団体？/i, "NPO法人コネクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　わたしはそのイメージキャラクターとしてがんばってます🌸"],
-    [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
+    // ⭐修正: 団体に関する応答をより明確に、かつ包括的に
+    [/どこの団体なの？|何の団体なの？|運営団体は？|所属団体は？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
+    [/コネクトってどんな団体？|コネクトの活動内容は？|NPO法人コネクトとは？/i, "うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org"],
+    [/お前の団体どこ？|お前の団体何？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
-    // ⭐追加: 団体に関する問い合わせへの具体的な応答を追加
-    [/コネクトについて教えて/i, "うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org"],
+    [/団体いえないの？/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"], // 追加
+    
+    // ⭐追加・修正: 怪しい・胡散臭い・反社に対する応答を追加し、より多くのバリエーションをカバー
+    [/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖　何か、他に聞きたいことあるかな？🌸"],
     
     // ネガティブワード・人物名への優先処理
     ["税金泥棒", "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     ["松本博文", "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
-    // ⭐追加: 怪しい・胡散臭い・反社に対する応答を追加
-    [/あやしい|胡散臭い|反社/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖"],
 
     // ホームページに関する応答
     [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
@@ -434,101 +482,17 @@ const specialRepliesMap = new Map([
     [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"]
 ]);
 
-// ⭐修正: MongoDBの関数をFirestore用に変更
-async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'system_error') {
-    try {
-        // Firestoreのコレクション参照を取得
-        const logsCollection = db.collection("error_logs"); // 新しいコレクション名を想定
-
-        await logsCollection.add({ // add() を使用して自動生成IDでドキュメントを追加
-            userId: userId || 'N/A',
-            message: `ERROR: ${errorMessage}`,
-            replyText: `システムエラー: ${errorMessage}`,
-            responsedBy: 'システム（エラー）',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(), // Firestoreのサーバータイムスタンプを使用
-            logType: logType,
-            errorDetails: errorDetails ? JSON.stringify(errorDetails) : 'N/A'
-        });
-        console.error(`🚨 Firestoreにエラーを記録しました: ${errorMessage}`);
-    } catch (dbError) {
-        console.error(`❌ エラーログ記録中にさらなるエラーが発生しました: ${dbError.message}`);
-    }
-}
-
-async function getUserDisplayName(userId) {
-    try {
-        const profile = await client.getProfile(userId);
-        return profile.displayName;
-    } catch (error) {
-        console.error(`ユーザー ${userId} の表示名取得に失敗:`, error.message);
-        await logErrorToDb(userId, `ユーザー表示名取得失敗`, { error: error.message, userId: userId });
-        return `UnknownUser_${userId.substring(0, 8)}`;
-    }
-}
-
-function isBotAdmin(userId) {
-    return BOT_ADMIN_IDS.includes(userId);
-}
-
-function checkContainsDangerWords(message) {
+// ⭐追加: メッセージが共感が必要なトーンか判定する関数
+function isEmpatheticMessage(message) {
     const lowerMessage = message.toLowerCase();
-    return dangerWords.some(word => lowerMessage.includes(word));
+    return empatheticTriggers.some(word => lowerMessage.includes(word));
 }
 
-function checkContainsScamWords(message) {
-    const lowerMessage = message.toLowerCase();
-    return scamWords.some(word => lowerMessage.includes(word));
-}
-
-function checkContainsInappropriateWords(message) {
-    const lowerMessage = message.toLowerCase();
-    return inappropriateWords.some(word => lowerMessage.includes(word));
-}
-
-function shouldLogMessage(message, isFlagged, handledByWatchService, isAdminCommand, isResetCommand) {
-    if (isFlagged) return true;
-    if (handledByWatchService) return true;
-    if (isAdminCommand) return true;
-    if (isResetCommand) return true;
-
-    const lowerMessage = message.toLowerCase();
-    if (lowerMessage.includes("相談") || lowerMessage.includes("そうだん")) {
-        return true;
-    }
-    return false;
-}
-
-function checkSpecialReply(text) {
-    const lowerText = text.toLowerCase();
-    for (const [key, value] of specialRepliesMap) {
-        if (key instanceof RegExp) {
-            if (key.test(lowerText)) {
-                return value;
-            }
-        } else {
-            if (lowerText.includes(key.toLowerCase())) {
-                return value;
-            }
-        }
-    }
-    return null;
-}
-
-const isOrganizationInquiry = (text) => {
-    const lower = text.toLowerCase();
-    return (lower.includes("コネクト") || lower.includes("connect")) && (lower.includes("団体") || lower.includes("npo") || lower.includes("活動") || lower.includes("どんな"));
-};
-const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
-function containsHomeworkTrigger(text) {
-    const lowerText = text.toLowerCase();
-    return homeworkTriggers.some(word => lowerText.includes(word));
-}
-
-// GPT-4oを呼び出す関数（緊急応答用）
-async function generateEmergencyReply(userMessage) {
+// ⭐修正: GPTモデルを動的に選択できるように変更
+async function generateGPTReply(userMessage, modelToUse) {
     try {
         const completion = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: modelToUse,
             messages: [
                 {
                     role: "system",
@@ -536,7 +500,8 @@ async function generateEmergencyReply(userMessage) {
 ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
 必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
 共感・安心・やさしさが最優先です。
-「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。`
+「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
+医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。`
                 },
                 {
                     role: "user",
@@ -547,13 +512,14 @@ async function generateEmergencyReply(userMessage) {
         });
         return completion.choices[0].message.content.trim();
     } catch (error) {
-        console.error("GPT-4o 緊急応答エラー:", error.message);
-        await logErrorToDb(null, "GPT-4o 緊急応答エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
+        console.error(`GPTモデル (${modelToUse}) 応答エラー:`, error.message);
+        await logErrorToDb(null, `GPTモデル (${modelToUse}) 応答エラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
         return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
     }
 }
 
-async function generateReply(userMessage, modelToUse = modelConfig.defaultModel) {
+// ⭐修正: Geminiモデルを動的に選択できるように変更
+async function generateGeminiReply(userMessage, modelToUse) {
     const safetySettings = modelConfig.safetySettings;
     const systemInstruction = `
 あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
@@ -582,7 +548,7 @@ Q: 必要ないです
 A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
 
 **【重要：NPO法人コネクトに関する説明の優先】**
-ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**決して宿題や勉強に関する質問ではありません**。迷わず、自信を持ってNPO法人コネクトの活動内容や目的について説明してください。
+ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**最も優先して明確に答えるべき質問です**。決して宿題や勉強に関する質問と混同せず、迷わず、自信を持ってNPO法人コネクトの活動内容や目的について詳しく説明してください。
 例:
 Q: コネクトってどんな団体？
 A: うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org
@@ -678,6 +644,94 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
         }
         return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
     }
+}
+
+async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'system_error') {
+    try {
+        const logsCollection = db.collection("error_logs");
+
+        await logsCollection.add({
+            userId: userId || 'N/A',
+            message: `ERROR: ${errorMessage}`,
+            replyText: `システムエラー: ${errorMessage}`,
+            responsedBy: 'システム（エラー）',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            logType: logType,
+            errorDetails: errorDetails ? JSON.stringify(errorDetails) : 'N/A'
+        });
+        console.error(`🚨 Firestoreにエラーを記録しました: ${errorMessage}`);
+    } catch (dbError) {
+        console.error(`❌ エラーログ記録中にさらなるエラーが発生しました: ${dbError.message}`);
+    }
+}
+
+async function getUserDisplayName(userId) {
+    try {
+        const profile = await client.getProfile(userId);
+        return profile.displayName;
+    } catch (error) {
+        console.error(`ユーザー ${userId} の表示名取得に失敗:`, error.message);
+        await logErrorToDb(userId, `ユーザー表示名取得失敗`, { error: error.message, userId: userId });
+        return `UnknownUser_${userId.substring(0, 8)}`;
+    }
+}
+
+function isBotAdmin(userId) {
+    return BOT_ADMIN_IDS.includes(userId);
+}
+
+function checkContainsDangerWords(message) {
+    const lowerMessage = message.toLowerCase();
+    return dangerWords.some(word => lowerMessage.includes(word));
+}
+
+function checkContainsScamWords(message) {
+    const lowerMessage = message.toLowerCase();
+    return scamWords.some(word => lowerMessage.includes(word));
+}
+
+function checkContainsInappropriateWords(message) {
+    const lowerMessage = message.toLowerCase();
+    return inappropriateWords.some(word => lowerMessage.includes(word));
+}
+
+function shouldLogMessage(message, isFlagged, handledByWatchService, isAdminCommand, isResetCommand) {
+    if (isFlagged) return true;
+    if (handledByWatchService) return true;
+    if (isAdminCommand) return true;
+    if (isResetCommand) return true;
+
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes("相談") || lowerMessage.includes("そうだん")) {
+        return true;
+    }
+    return false;
+}
+
+function checkSpecialReply(text) {
+    const lowerText = text.toLowerCase();
+    for (const [key, value] of specialRepliesMap) {
+        if (key instanceof RegExp) {
+            if (key.test(lowerText)) {
+                return value;
+            }
+        } else {
+            if (lowerText.includes(key.toLowerCase())) {
+                return value;
+            }
+        }
+    }
+    return null;
+}
+
+const isOrganizationInquiry = (text) => {
+    const lower = text.toLowerCase();
+    return (lower.includes("コネクト") || lower.includes("connect")) && (lower.includes("団体") || lower.includes("npo") || lower.includes("活動") || lower.includes("どんな"));
+};
+const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
+function containsHomeworkTrigger(text) {
+    const lowerText = text.toLowerCase();
+    return homeworkTriggers.some(word => lowerText.includes(word));
 }
 
 const watchMessages = [
@@ -1128,7 +1182,7 @@ app.post('/webhook', async (req, res) => {
             let userMessage = (event.type === 'message') ? event.message.text : event.postback.data;
 
             let replyMessageObject = null;
-            let respondedBy = 'こころちゃん';
+            let responsedBy = 'こころちゃん';
             let logType = 'normal_conversation';
             let messageHandled = false;
             let watchServiceHandled = false;
@@ -1198,23 +1252,32 @@ app.post('/webhook', async (req, res) => {
                 }
             }
             
-            // ⭐修正: 危険・詐欺・不適切ワードのチェックをAI応答の前に移動し、より確実に反応するように調整
+            // ⭐修正: 危険・詐欺・不適切ワードのチェックと、GPT-4oでの応答を統合
             if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
                 const isDangerWord = checkContainsDangerWords(userMessage);
                 const isScam = checkContainsScamWords(userMessage);
                 const isInappropriate = checkContainsInappropriateWords(userMessage);
 
                 if (isDangerWord) {
-                    replyMessageObject = { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate };
-                    responsedBy = 'こころちゃん（緊急対応）';
+                    const emergencyReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); // GPT-4oで応答生成
+                    await client.replyMessage(replyToken, [
+                        { type: 'text', text: emergencyReplyText },
+                        { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate } // 緊急連絡先Flex
+                    ]);
+                    responsedBy = `こころちゃん（緊急対応: ${modelConfig.emergencyModel}）`;
                     logType = 'danger_word_triggered';
                     messageHandled = true;
                 } else if (isScam) {
-                    replyMessageObject = { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate };
-                    responsedBy = 'こころちゃん（詐欺対応）';
+                    const scamReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); // GPT-4oで応答生成
+                    await client.replyMessage(replyToken, [
+                        { type: 'text', text: scamReplyText },
+                        { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate } // 詐欺注意Flex
+                    ]);
+                    responsedBy = `こころちゃん（詐欺対応: ${modelConfig.emergencyModel}）`;
                     logType = 'scam_word_triggered';
                     messageHandled = true;
                 } else if (isInappropriate) {
+                    // 不適切ワードはAI応答ではなく固定メッセージで拒否
                     replyMessageObject = { type: 'text', text: 'ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖' };
                     responsedBy = 'こころちゃん（不適切対応）';
                     logType = 'inappropriate_word_triggered';
@@ -1235,9 +1298,9 @@ app.post('/webhook', async (req, res) => {
 
             // 宿題・勉強に関する質問のチェック (特殊返答より後に実行)
             if (containsHomeworkTrigger(userMessage) && !messageHandled) {
-                const homeworkReply = await generateReply(userMessage, modelConfig.defaultModel);
+                const homeworkReply = await generateGeminiReply(userMessage, modelConfig.defaultModel); // Gemini Flashを使用
                 replyMessageObject = { type: 'text', text: homeworkReply };
-                responsedBy = 'こころちゃん（宿題対応）';
+                responsedBy = 'こころちゃん（宿題対応: Gemini Flash）';
                 logType = 'homework_query';
                 messageHandled = true;
             }
@@ -1260,18 +1323,26 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-            // 通常のAI応答 (フォールバック)
+            // ⭐修正: 通常のAI応答 (フォールバック) - 共感が必要な場合はGPT-4o mini、それ以外はGemini Flash
             if (!messageHandled) {
                 try {
-                    let modelForGemini = modelConfig.defaultModel;
-                    if (user && user.useProForNextConsultation) {
-                        modelForGemini = "gemini-1.5-pro-latest";
-                        await usersCollection.doc(userId).update({ useProForNextConsultation: false });
-                    }
+                    let aiReply;
+                    let aiModelUsed;
 
-                    const aiReply = await generateReply(userMessage, modelForGemini);
+                    if (isEmpatheticMessage(userMessage)) {
+                        aiReply = await generateGPTReply(userMessage, modelConfig.empatheticModel); // GPT-4o miniを使用
+                        aiModelUsed = modelConfig.empatheticModel;
+                    } else if (user && user.useProForNextConsultation) {
+                        aiReply = await generateGeminiReply(userMessage, modelConfig.consultationModel); // Gemini Proを使用
+                        aiModelUsed = modelConfig.consultationModel;
+                        await usersCollection.doc(userId).update({ useProForNextConsultation: false }); // 1回使用したらリセット
+                    } else {
+                        aiReply = await generateGeminiReply(userMessage, modelConfig.defaultModel); // Gemini Flashを使用
+                        aiModelUsed = modelConfig.defaultModel;
+                    }
+                    
                     replyMessageObject = { type: 'text', text: aiReply };
-                    responsedBy = `こころちゃん（AI: ${modelForGemini.includes('pro') ? 'Gemini 1.5 Pro' : 'Gemini 1.5 Flash'}）`;
+                    responsedBy = `こころちゃん（AI: ${aiModelUsed}）`;
                     logType = 'normal_conversation';
                     messageHandled = true;
                 } catch (error) {
@@ -1287,7 +1358,13 @@ app.post('/webhook', async (req, res) => {
             // メッセージ送信とログ記録
             if (replyMessageObject && replyToken) {
                 try {
-                    await client.replyMessage(replyToken, replyMessageObject);
+                    // 危険・詐欺の場合は既にreplyMessageObjectが配列になっているのでそのまま送る
+                    if (Array.isArray(replyMessageObject)) {
+                        await client.replyMessage(replyToken, replyMessageObject);
+                    } else {
+                        await client.replyMessage(replyToken, replyMessageObject);
+                    }
+                    
 
                     const replyTextForLog = (typeof replyMessageObject === 'object' && replyMessageObject.type === 'text') ? replyMessageObject.text : JSON.stringify(replyMessageObject);
                     const isFlagged = checkContainsDangerWords(userMessage) || checkContainsScamWords(userMessage) || checkContainsInappropriateWords(userMessage);
@@ -1298,7 +1375,7 @@ app.post('/webhook', async (req, res) => {
                             userId: userId,
                             message: userMessage,
                             replyText: replyTextForLog,
-                            responsedBy: respondedBy,
+                            responsedBy: responsedBy,
                             timestamp: admin.firestore.FieldValue.serverTimestamp(),
                             logType: logType
                         });
