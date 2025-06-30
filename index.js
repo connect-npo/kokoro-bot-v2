@@ -183,7 +183,7 @@ function isBotAdmin(userId) { return BOT_ADMIN_IDS.includes(userId); }
 
 
 // --- 7. メインロジック ---
-app.use(express.json()); // JSONボディをパースするために必要
+// ⭐修正: app.postの前にapp.useを定義
 app.use('/webhook', lineClient.middleware({ channelSecret: CHANNEL_SECRET }));
 
 app.post('/webhook', async (req, res) => {
