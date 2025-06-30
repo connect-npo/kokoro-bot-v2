@@ -36,8 +36,9 @@ if (process.env.FIREBASE_CREDENTIALS_BASE64) {
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
-const db = admin.firestore(); // Firestoreのインスタンスを取得
+const db = admin.firestore();
 
+// 各種クライアントの初期化
 const app = express();
 const lineClient = new Client({
     channelAccessToken: CHANNEL_ACCESS_TOKEN,
@@ -157,7 +158,7 @@ async function callGpt4oMini(userMessage) {
 async function callGeminiFlash(userMessage) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest", safetySettings: [{ category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE }, { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE }, { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE }, { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }] });
-        const result = await model.generateContent([ { "role": "user", "parts": [{ "text": getSystemPrompt() }] }, { "role": "model", "parts": [{ "text": "はい、わたしは皆守こころです。どのようなご用件でしょうか？" }] }, { "role": "user", "parts": [{ "text": userMessage }] } ]);
+        const result = await model.generateContent([ { "role": "system", "parts": [{ "text": getSystemPrompt() }] }, { "role": "model", "parts": [{ "text": "はい、わたしは皆守こころです。どのようなご用件でしょうか？" }] }, { "role": "user", "parts": [{ "text": userMessage }] } ]);
         return result.response.text();
     } catch (error) { console.error("Gemini Flash API Error:", error); return "ごめんね、今ちょっと考えごとで頭がいっぱいかも…！"; }
 }
