@@ -214,7 +214,6 @@ function isBotAdmin(userId) {
     return BOT_ADMIN_IDS.includes(userId);
 }
 // --- 7. メインロジック ---
-app.use(express.json());
 app.use('/webhook', middleware(config));
 
 app.post('/webhook', async (req, res) => {
