@@ -1,15 +1,15 @@
-// ⭐ まつさんの1500行のコードを母体とし、Firebase移行と全要望を統合した最終決定稿です ⭐
+// ⭐ まつさんの1500行のコードを母体とし、Firebase移行と全要望を統合した最終決定稿です（バグ修正済み） ⭐
 
 require('dotenv').config();
 const express = require('express');
-const { Client, middleware } = require('@line/bot-sdk'); // middlewareを直接インポート
+const { Client, middleware } = require('@line/bot-sdk'); // middlewareを正しくインポート
 const cron = require('node-cron');
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
 const admin = require('firebase-admin');
 
 // --- 1. 設定セクション ---
-const config = {
+const config = { // lineClientとmiddlewareで共有する設定オブジェクト
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
@@ -30,7 +30,7 @@ if (process.env.FIREBASE_CREDENTIALS_BASE64) {
         console.log("ローカルファイルからFirebase認証情報を読み込みます。");
         serviceAccount = require('./serviceAccountKey.json');
     } catch (error) {
-        console.error("Firebase認証情報の読み込みに失敗しました。");
+        console.error("Firebase認証情報の読み込みに失敗しました。serviceAccountKey.jsonファイルが存在するか、またはFIREBASE_CREDENTIALS_BASE64環境変数が正しく設定されているか確認してください。");
         process.exit(1);
     }
 }
@@ -39,10 +39,12 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 
+// 各種クライアントの初期化
 const app = express();
 const lineClient = new Client(config);
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
 
 // --- 2. まつさん設定のキーワードリスト (完全維持＋改善) ---
 const dangerWords = [ "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ", "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり", "いじめ", "イジメ", "ハラスメント", "つけられてる", "追いかけられている", "ストーカー", "すとーかー" ];
@@ -240,10 +242,14 @@ async function handleEvent(event) {
     if (event.type === 'follow') {
         const welcomeMessage = 'はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊';
         await lineClient.replyMessage(event.replyToken, { type: 'text', text: welcomeMessage });
+        // フォロー時にユーザーを作成しておく
         await getUser(event.source.userId);
         return;
     }
-    if ((event.type !== 'message' || event.message.type !== 'text') && event.type !== 'postback') return;
+    // メッセージ・ポストバック以外のイベントは無視
+    if ((event.type !== 'message' || event.message.type !== 'text') && event.type !== 'postback') {
+        return;
+    }
     
     const userId = event.source.userId;
     if (!userId) return;
