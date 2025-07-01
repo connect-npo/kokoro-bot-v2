@@ -702,8 +702,8 @@ function shouldLogMessage(message, isFlagged, handledByWatchService, isAdminComm
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
+    // ⭐修正: Mapのキーが正規表現の場合と文字列の場合を区別して処理
     for (const [key, value] of specialRepliesMap) {
-        // ⭐修正: Mapのキーが正規表現の場合と文字列の場合を区別して処理
         if (key instanceof RegExp) {
             if (key.test(lowerText)) {
                 return value;
@@ -974,11 +974,12 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
     }
     // ⭐追加: 登録フローをキャンセルするコマンド
     if (lowerUserMessage === '登録やめる' || lowerUserMessage === 'キャンセル') {
-        await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
-        await client.pushMessage(userId, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
-        return true; // 処理済み
+        if (user && user.registrationStep) { // 登録フロー進行中の場合のみ
+            await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
+            await client.pushMessage(userId, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+            return true; // 処理済み
+        }
     }
-
     return handled;
 }
 
@@ -1579,7 +1580,6 @@ app.post('/webhook', async (req, res) => {
 
                 // ⭐修正: 「怪しい」系統の言葉に対する特殊返答を、詐欺・危険ワードの前に配置し、最優先で処理
                 if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
-                    // ⭐修正: specialRepliesMapの正規表現キーではなく、文字列キーとして処理するように変更
                     const suspiciousWords = ["あやしい", "胡散臭い", "反社", "詐欺かも", "詐欺かもしれない", "詐欺だろ", "詐欺だよ"];
                     const matchedSuspiciousWord = suspiciousWords.find(word => lowerUserMessage.includes(word));
                     
@@ -1706,12 +1706,13 @@ app.post('/webhook', async (req, res) => {
                             logType: logType
                         });
                     } catch (firestoreError) {
-                        console.error("❌ Firestoreへのメッセージログ書き込みエラー:", firestoreError.message);
+                            console.error("❌ Firestoreへのメッセージログ書き込みエラー:", firestoreError.message);
+                        }
                     }
+                } catch (error) {
+                    console.error("❌ Webhook内部処理でエラーが発生しました:", error.message);
+                    await logErrorToDb(userId, "Webhook内部処理エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
                 }
-            } catch (error) {
-                console.error("❌ Webhook内部処理でエラーが発生しました:", error.message);
-                await logErrorToDb(userId, "Webhook内部処理エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
             }
         }
     }
