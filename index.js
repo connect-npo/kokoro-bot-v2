@@ -581,14 +581,14 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
             model.generateContent({
                 system_instruction: {
                     parts: [{ text: systemInstruction }]
-  　　　　　　　　　　　},
+                },
                 contents: [
                     {
                         role: "user",
-      　　　　　　　　　　　　　parts: [{ text: userMessage }]
+                        parts: [{ text: userMessage }]
                     }
                 ],
-                generationConfig: {
+    　　　　　　　generationConfig: {
                     maxOutputTokens: 500
                 }
             }, { requestOptions: { signal } })
@@ -957,465 +957,728 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
     return handled;
 }
 
+// ⭐handleWatchServiceRegistration関数をここに定義します⭐
+async function handleWatchServiceRegistration(event, userId, userMessage, user) { // user引数を受け取る
+    const usersCollection = db.collection("users");
+    const messagesCollection = db.collection("messages");
+
+    const lowerUserMessage = userMessage.toLowerCase();
+    let handled = false;
+
+    // ⭐追加: 見守りサービスの対象ユーザー判定 (handleWatchServiceRegistration内のロジック)
+    if (user && user.category && (user.category === '小学生' || (user.category === '中学生～大学生' && !lowerUserMessage.includes('一人暮らし')))) { // 仮で一人暮らしをトリガーに
+        const replyText = `ごめんね、見守りサービスは主に30代以上の一人暮らしの方を対象としているんだ💦\n高校生や大学生で一人暮らしをしていて不安な場合は、特別な相談もできるから教えてね。もし、いじめや詐欺のことで困っていたら、いつでも話を聞くよ🌸`;
+        await client.pushMessage(userId, { type: 'text', text: replyText });
+        await messagesCollection.add({
+            userId: userId,
+            message: userMessage,
+            replyText: replyText,
+            responsedBy: 'こころちゃん（見守り対象外）',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            logType: 'watch_service_category_denied'
+        });
+        return true; // 処理済みとして終了
+    }
+
+
+    if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
+        try {
+            await client.replyMessage(event.replyToken, {
+                type: 'flex',
+                altText: '💖見守りサービス案内💖',
+                contents: watchServiceGuideFlexTemplate
+            });
+            await messagesCollection.add({
+                userId: userId,
+                message: userMessage,
+                replyText: '（見守りサービス案内Flex表示）',
+                responsedBy: 'こころちゃん（見守り案内）',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                logType: 'watch_service_interaction'
+            });
+            handled = true;
+        } catch (error) {
+            console.error("❌ 見守りサービス案内Flex送信エラー:", error.message);
+            await logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
+        }
+    }
+    else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
+        if (user && user.wantsWatchCheck) {
+            try {
+                await usersCollection.doc(userId).update(
+                    { lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false }
+                );
+                await client.pushMessage(userId, {
+                    type: 'text',
+                    text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
+                });
+                await messagesCollection.add({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: 'ありがとう🌸 元気そうで安心したよ💖 またね！',
+                    responsedBy: 'こころちゃん（見守り応答）',
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    logType: 'watch_service_ok_response'
+                });
+                handled = true;
+            } catch (error) {
+                console.error("❌ 見守りサービスOK応答処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービスOK応答処理エラー", { error: error.message, userId: userId });
+            }
+        }
+    }
+    else if (lowerUserMessage.includes("まあまあかな")) {
+        if (user && user.wantsWatchCheck) {
+            try {
+                await messagesCollection.add({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖',
+                    responsedBy: 'こころちゃん（見守り応答）',
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    logType: 'watch_service_status_somewhat'
+                });
+                await client.pushMessage(userId, {
+                    type: 'text',
+                    text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
+                });
+                handled = true;
+            } catch (error) {
+                console.error("❌ 見守りサービス「まあまあ」応答処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービス「まあまあ」応答処理エラー", { error: error.message, userId: userId });
+            }
+        }
+    }
+    else if (lowerUserMessage.includes("少し疲れた…")) {
+        if (user && user.wantsWatchCheck) {
+            try {
+                await messagesCollection.add({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖',
+                    responsedBy: 'こころちゃん（見守り応答）',
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    logType: 'watch_service_status_tired'
+                });
+                await client.pushMessage(userId, {
+                    type: 'text',
+                    text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
+                });
+                handled = true;
+            } catch (error) {
+                console.error("❌ 見守りサービス「疲れた」応答処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービス「疲れた」応答処理エラー", { error: error.message, userId: userId });
+            }
+        }
+    }
+    else if (lowerUserMessage.includes("話を聞いて")) {
+        if (user && user.wantsWatchCheck) {
+            try {
+                await messagesCollection.add({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖',
+                    responsedBy: 'こころちゃん（見守り応答）',
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    logType: 'watch_service_status_talk'
+                });
+                await client.pushMessage(userId, {
+                    type: 'text',
+                    text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
+                });
+                handled = true;
+            } catch (error) {
+                console.error("❌ 見守りサービス「話を聞いて」応答処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービス「話を聞いて」応答処理エラー", { error: error.message, userId: userId });
+            }
+        }
+    }
+    else if (userMessage.includes("見守り登録します") || (event.type === 'postback' && event.postback.data === 'action=watch_register')) {
+        try {
+            if (user && user.wantsWatchCheck) {
+                await client.pushMessage(userId, {
+                    type: 'text',
+                    text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖'
+                });
+                handled = true;
+            } else if (user && user.registrationStep === 'awaiting_contact') {
+                await client.pushMessage(userId, {
+                    type: 'text',
+                    text: 'まだ緊急連絡先を待ってるよ🌸 電話番号を送ってくれるかな？💖 (例: 09012345678)'
+                });
+                handled = true;
+            } else {
+                await usersCollection.doc(userId).set(
+                    { registrationStep: 'awaiting_contact' },
+                    { merge: true }
+                );
+                await client.pushMessage(userId, {
+                    type: 'text',
+                    text: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸 (例: 09012345678)'
+                });
+                await messagesCollection.add({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸',
+                    responsedBy: 'こころちゃん（見守り登録開始）',
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    logType: 'watch_service_registration_start'
+                });
+                handled = true;
+            }
+        } catch (error) {
+            console.error("❌ 見守りサービス登録開始処理エラー:", error.message);
+            await logErrorToDb(userId, "見守りサービス登録開始処理エラー", { error: error.message, userId: userId });
+        }
+    }
+    else if (user && user.registrationStep === 'awaiting_contact' && userMessage.match(/^0\d{9,10}$/)) {
+        try {
+            await usersCollection.doc(userId).update(
+                { emergencyContact: userMessage, wantsWatchCheck: true, registrationStep: null, lastOkResponse: admin.firestore.FieldValue.serverTimestamp() }
+            );
+            await client.pushMessage(userId, {
+                type: 'text',
+                text: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖`
+            });
+            await messagesCollection.add({
+                userId: userId,
+                message: userMessage,
+                replyText: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖`,
+                responsedBy: 'こころちゃん（見守り登録完了）',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                logType: 'watch_service_registration_complete'
+            });
+            handled = true;
+        } catch (error) {
+            console.error("❌ 見守りサービス登録完了処理エラー:", error.message);
+            await logErrorToDb(userId, "見守りサービス登録完了処理エラー", { error: error.message, userId: userId });
+        }
+    }
+    return handled;
+}
+
 async function sendScheduledWatchMessage() {
-    console.log('--- 定期見守りメッセージ送信処理を開始します ---');
-    try {
-        const usersCollection = db.collection("users");
-        const messagesCollection = db.collection("messages");
+    console.log('--- 定期見守りメッセージ送信処理を開始します ---');
+    try {
+        const usersCollection = db.collection("users");
+        const messagesCollection = db.collection("messages");
 
-        const snapshot = await usersCollection.where('wantsWatchCheck', '==', true).get();
-        const watchUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const snapshot = await usersCollection.where('wantsWatchCheck', '==', true).get();
+        const watchUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        for (const user of watchUsers) {
-            const userId = user.userId;
-            const lastOkResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : null; 
-            const emergencyContact = user.emergencyContact;
+        for (const user of watchUsers) {
+            const userId = user.userId;
+            const lastOkResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : null;
+            const emergencyContact = user.emergencyContact;
 
-            const now = new Date();
-            if (!lastOkResponse) {
-                continue;
-            }
+            const now = new Date();
+            if (!lastOkResponse) {
+                continue;
+            }
 
-            const timeSinceLastOkHours = (now.getTime() - lastOkResponse.getTime()) / (1000 * 60 * 60);
+            const timeSinceLastOkHours = (now.getTime() - lastOkResponse.getTime()) / (1000 * 60 * 60);
 
-            if (timeSinceLastOkHours >= 24 && !user.scheduledMessageSent) {
-                try {
-                    await client.pushMessage(userId, watchConfirmationFlexTemplate);
-                    await usersCollection.doc(userId).update(
-                        { scheduledMessageSent: true }
-                    );
-                    await messagesCollection.add({
-                        userId: userId,
-                        message: `（定期見守りメッセージ - Flex）`,
-                        replyText: '（見守り状況確認Flex送信）',
-                        responsedBy: 'こころちゃん（定期見守り）',
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                        logType: 'watch_service_scheduled_message'
-                    });
-                } catch (error) {
-                    console.error(`❌ ユーザー ${userId} への定期見守りメッセージ（Flex）送信エラー:`, error.message);
-                    await logErrorToDb(userId, "定期見守りメッセージ（Flex）送信エラー", { error: error.message, userId: userId });
-                }
-            }    
-            else if (timeSinceLastOkHours >= 29 && !user.thirdReminderSent) {
-                if (emergencyContact && OFFICER_GROUP_ID) {
-                    const userName = await getUserDisplayName(userId);
-                    const officerMessage = `【⚠緊急通知⚠】\n見守り対象ユーザー（LINE表示名: ${userName}）から、29時間以上応答がありません。\n登録されている緊急連絡先: ${emergencyContact}\n至急、状況確認をお願いいたします。`;
+            if (timeSinceLastOkHours >= 24 && !user.scheduledMessageSent) {
+                try {
+                    await client.pushMessage(userId, watchConfirmationFlexTemplate);
+                    await usersCollection.doc(userId).update(
+                        { scheduledMessageSent: true }
+                    );
+                    await messagesCollection.add({
+                        userId: userId,
+                        message: `（定期見守りメッセージ - Flex）`,
+                        replyText: '（見守り状況確認Flex送信）',
+                        responsedBy: 'こころちゃん（定期見守り）',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        logType: 'watch_service_scheduled_message'
+                    });
+                } catch (error) {
+                    console.error(`❌ ユーザー ${userId} への定期見守りメッセージ（Flex）送信エラー:`, error.message);
+                    await logErrorToDb(userId, "定期見守りメッセージ（Flex）送信エラー", { error: error.message, userId: userId });
+                }
+            }
+            else if (timeSinceLastOkHours >= 29 && !user.thirdReminderSent) {
+                if (emergencyContact && OFFICER_GROUP_ID) {
+                    const userName = await getUserDisplayName(userId);
+                    const officerMessage = `【⚠緊急通知⚠】\n見守り対象ユーザー（LINE表示名: ${userName}）から、29時間以上応答がありません。\n登録されている緊急連絡先: ${emergencyContact}\n至急、状況確認をお願いいたします。`;
 
-                    try {
-                        await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: officerMessage });
-                        await usersCollection.doc(userId).update(
-                            { thirdReminderSent: true }
-                        );
-                        await messagesCollection.add({
-                            userId: userId,
-                            message: `（見守り事務局通知）`,
-                            replyText: `事務局へ緊急通知を送信しました: ${officerMessage}`,
-                            responsedBy: 'システム（見守り事務局通知）',
-                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            logType: 'watch_service_emergency_notification'
-                        });
-                    } catch (error) {
-                        console.error(`❌ 事務局への緊急通知送信エラー（ユーザー ${userId}）:`, error.message);
-                        await logErrorToDb(userId, "事務局緊急通知送信エラー", { error: error.message, userId: userId });
-                    }
-                } else {
-                    console.warn(`ユーザー ${userId}: 緊急連絡先または事務局グループIDが未設定のため、29時間経過しても通知できませんでした。`);
-                    await logErrorToDb(userId, "緊急通知設定不足", { userId: userId, emergencyContact: emergencyContact, OFFICER_GROUP_ID: OFFICER_GROUP_ID });
-                }
-            }
-        }
-    } catch (error) {
-        console.error("❌ 定期見守りメッセージ送信処理全体でエラー:", error.message);
-        await logErrorToDb(null, "定期見守りメッセージ処理全体エラー", { error: error.message, stack: error.stack });
-    }
-    console.log('--- 定期見守りメッセージ送信処理を終了します ---');
+                    try {
+                        await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: officerMessage });
+                        await usersCollection.doc(userId).update(
+                            { thirdReminderSent: true }
+                        );
+                        await messagesCollection.add({
+                            userId: userId,
+                            message: `（見守り事務局通知）`,
+                            replyText: `事務局へ緊急通知を送信しました: ${officerMessage}`,
+                            responsedBy: 'システム（見守り事務局通知）',
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                            logType: 'watch_service_emergency_notification'
+                        });
+                    } catch (error) {
+                        console.error(`❌ 事務局への緊急通知送信エラー（ユーザー ${userId}）:`, error.message);
+                        await logErrorToDb(userId, "事務局緊急通知送信エラー", { error: error.message, userId: userId });
+                    }
+                } else {
+                    console.warn(`ユーザー ${userId}: 緊急連絡先または事務局グループIDが未設定のため、29時間経過しても通知できませんでした。`);
+                    await logErrorToDb(userId, "緊急通知設定不足", { userId: userId, emergencyContact: emergencyContact, OFFICER_GROUP_ID: OFFICER_GROUP_ID });
+                }
+            }
+        }
+    } catch (error) {
+        console.error("❌ 定期見守りメッセージ送信処理全体でエラー:", error.message);
+        await logErrorToDb(null, "定期見守りメッセージ処理全体エラー", { error: error.message, stack: error.stack });
+    }
+    console.log('--- 定期見守りメッセージ送信処理を終了します ---');
 }
 
 
 // 毎日午前9時に実行
 cron.schedule('0 9 * * *', () => {
-    console.log('cron: 定期見守りメッセージ送信処理をトリガーします。');
-    sendScheduledWatchMessage();
+    console.log('cron: 定期見守りメッセージ送信処理をトリガーします。');
+    sendScheduledWatchMessage();
 }, {
-    timezone: "Asia/Tokyo"
+    timezone: "Asia/Tokyo"
 });
 
 async function sendRichMenu(replyToken) {
-    const richMenu = {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "メニュー",
-                    "weight": "bold",
-                    "color": "#FF69B4",
-                    "size": "lg"
-                },
-                {
-                    "type": "button",
-                    "action": {
-                        "type": "message",
-                        "label": "見守りサービスについて",
-    　　　　　　　　　　　　"text": "見守り"
-                    },
-                    "style": "primary",
-                    "height": "sm",
-                    "margin": "md",
-                    "color": "#FFC0CB"
-                },
-                {
-                    "type": "button",
-                    "action": {
-                        "type": "message",
-                        "label": "相談する",
-                        "text": "相談したい"
-                    },
-                    "style": "primary",
-                    "height": "sm",
-                    "margin": "md",
-      　　　　　　　　　"color": "#FFC0CB"
-                },
-                {
-                    "type": "button",
-                    "action": {
-                        "type": "message",
-          　　　　　　　　"label": "こころちゃんとは？",
-                        "text": "こころちゃんとは？"
-                    },
-                    "style": "primary",
-                    "height": "sm",
-                    "margin": "md",
-                    "color": "#FFC0CB"
-                }
-            ]
-        }
-    };
-
-
-app.post('/webhook', async (req, res) => {
-    const events = req.body.events;
-    if (!events || events.length === 0) {
-        return res.status(200).send('OK');
-    }
-
-    const usersCollection = db.collection("users");
-    const messagesCollection = db.collection("messages");
-
-    for (const event of events) {
-        if (!event.source || !event.source.userId) {
-            continue;
-        }
-        const userId = event.source.userId;
-
-        if (event.type === 'unfollow') {
-            await usersCollection.doc(userId).update(
-                { isBlocked: true }
-            );
-            continue;
-        }
-
-        if (event.type === 'follow') {
-            await usersCollection.doc(userId).set(
-                { 
-                    userId: userId, 
-                    displayName: await getUserDisplayName(userId), 
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(), 
-                    lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
-                    messageCount: 0,
-                    isBlocked: false,
-                    wantsWatchCheck: false,
-                    registrationStep: null, 
-                    tempRegistrationData: {},
-                    // ⭐追加: category, phoneNumber, address.city なども初期値を入れておく
-                    category: null, 
-                    phoneNumber: null,
-                    address: {city: null}, 
-                    guardianName: null, 
-        　　　　　　　　guardianPhoneNumber: null,
-                    consentObtained: false,
-                    studentIdPhotoUrl: null,
-  　　　　　　　　　　　studentIdVerified: false,
-                    emergencyContact: null, // 見守りサービスの連絡先も初期化
-                    lastOkResponse: null, // 見守りサービスの最終応答も初期化
-                    scheduledMessageSent: false,
-                    firstReminderSent: false,
-                    secondReminderSent: false,
-                    thirdReminderSent: false,
-                },
-                { merge: true } 
-            );
-            try {
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: 'はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊\n\nまずは会員登録から始めてみようかな？「会員登録」と話しかけてみてね！' 
-                });
-                await messagesCollection.add({
-                    userId: userId,
-                    message: `（新規フォロー）`,
-                    replyText: `はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊\n\nまずは会員登録から始めてみようかな？「会員登録」と話しかけてみてね！`,
-                    responsedBy: 'こころちゃん（新規フォロー）',
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    logType: 'system_follow'
-                });
-            } catch (error) {
-                    console.error("❌ フォロー応答メッセージ送信エラー:", error.message);
-    　　　　　　　　await logErrorToDb(userId, "フォロー応答メッセージ送信エラー", { error: error.message, userId: userId });
-            }
-            continue;
-        }
-
-        let userDoc = await usersCollection.doc(userId).get();
-        let user = userDoc.exists ? userDoc.data() : null;
-
-        if (!user) { // followイベント以外で新規ユーザーがメッセージを送ってきた場合
-            const displayName = await getUserDisplayName(userId);
-            user = {
-                userId: userId,
-                displayName: displayName,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
-                messageCount: 0,
-                isBlocked: false,
-                wantsWatchCheck: false,
-                registrationStep: null, 
-                tempRegistrationData: {},
-                // ⭐追加: category, phoneNumber, address.city なども初期値を入れておく
-                category: null, 
-                phoneNumber: null,
-                address: {city: null}, 
-                guardianName: null, 
-                guardianPhoneNumber: null,
-                consentObtained: false,
-                studentIdPhotoUrl: null,
-                studentIdVerified: false,
-                emergencyContact: null,
-                lastOkResponse: null,
-                scheduledMessageSent: false,
-                firstReminderSent: false,
-                secondReminderSent: false,
-                thirdReminderSent: false,
-            };
-            await usersCollection.doc(userId).set(user);
-        } else {
-            await usersCollection.doc(userId).update(
-                {
-                    lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
-                    isBlocked: false,
-                    messageCount: admin.firestore.FieldValue.increment(1)
-                }
-            );
-        }
-
-
-        if ((event.type === 'message' && event.message.type === 'text') || event.type === 'postback') {
-            const replyToken = event.replyToken;
-            let userMessage = event.type === 'message' ? event.message.text : event.postback.data;
-            let lowerUserMessage = userMessage.toLowerCase();
-
-            let responsedBy = 'こころちゃん';
-            let logType = 'normal_conversation';
-            let messageHandled = false;
-            let watchServiceHandled = false;
-
-            // ⭐修正: isAdminCommand はここで定義
-            let isAdminCommand = event.type === 'message' && userMessage.startsWith('!');
-
-            // LINEに即座に200 OKを返す (Webhookタイムアウト対策)
-            res.status(200).send('OK'); 
-
-            try {
-               // 会員登録開始トリガー
-if (!user.registrationStep && event.type === 'message' && 
-    (lowerUserMessage === '会員登録' || lowerUserMessage === '登録' || lowerUserMessage === 'かいいん' || lowerUserMessage === 'とうろく')) {
-    await usersCollection.doc(userId).update({
-        registrationStep: 'askingCategory',
-        tempRegistrationData: {},
-        // ⭐追加: 会員登録開始時にこれらのフィールドをリセット (再登録時用)
-        name: null, kana: null, age: null, category: null, phoneNumber: null, address: {city: null},
-        guardianName: null, guardianPhoneNumber: null, consentObtained: false,
-        studentIdPhotoUrl: null, studentIdVerified: false
-    });
-    await client.pushMessage(userId, { type: 'text', text: 'こんにちは！会員登録を始めるね。まず、あなたの**区分**を教えてくれるかな？（「小学生」「中学生～大学生」「成人」のいずれか）' }); 
-    messageHandled = true;
-    responsedBy = 'こころちゃん（登録フロー開始）';
-    logType = 'registration_start';
+    const richMenu = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "メニュー",
+                    "weight": "bold",
+                    "color": "#FF69B4",
+                    "size": "lg"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "見守りサービスについて",
+                        "text": "見守り"
+                    },
+                    "style": "primary",
+                    "height": "sm",
+                    "margin": "md",
+                    "color": "#FFC0CB"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "相談する",
+                        "text": "相談したい"
+                    },
+                    "style": "primary",
+                    "height": "sm",
+                    "margin": "md",
+                    "color": "#FFC0CB"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "こころちゃんとは？",
+                        "text": "こころちゃんとは？"
+                    },
+                    "style": "primary",
+                    "height": "sm",
+                    "margin": "md",
+                    "color": "#FFC0CB"
+                }
+            ]
+        }
+    };
+    await client.replyMessage(replyToken, {
+        type: 'flex',
+        altText: 'こころちゃんのメニュー',
+        contents: richMenu
+    });
 }
 
-                // 会員登録フローが進行中の場合、最優先で処理
-                if (user.registrationStep && !messageHandled) { 
-                    messageHandled = await handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection, messagesCollection);
-                }
+app.post('/webhook', async (req, res) => {
+    const events = req.body.events;
+    if (!events || events.length === 0) {
+        return res.status(200).send('OK');
+    }
 
-                // 以降のロジックは messageHandled が true の場合は実行されない
-                if (messageHandled) {
-                    const replyTextForLog = '（会員登録フローで処理されました）';
-                     if (shouldLogMessage(userMessage, false, watchServiceHandled, isAdminCommand, userMessage.startsWith('!reset'))) { 
-                        try {
-                            await messagesCollection.add({
-                                userId: userId,
-                                message: userMessage,
-                                replyText: replyTextForLog, 
-                                responsedBy: responsedBy,
-                                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                                logType: logType
-      　　　　　　　　　　　　});
-                        } catch (firestoreError) {
-                            console.error("❌ Firestoreへのメッセージログ書き込みエラー（会員登録フロー）:", firestoreError.message);
-                        }
-                    }
-                    return; 
-                }
+    const usersCollection = db.collection("users");
+    const messagesCollection = db.collection("messages");
 
-                if (isAdminCommand) {
-                     if (!isBotAdmin(userId)) {
-                        await client.pushMessage(userId, { type: 'text', text: 'ごめんなさい、このコマンドは管理者専用です。' });
-          　　　　　　　　responsedBy = 'システム（拒否）';
-                        logType = 'admin_command_denied';
-                    } else if (lowerUserMessage.startsWith('!reset')) { 
-                         try {
-                            const batch = db.batch();
-                            const querySnapshot = await messagesCollection.where('userId', '==', userId).get();
-                            querySnapshot.docs.forEach(doc => {
-                                batch.delete(doc.ref);
-                            });
-                            await batch.commit();
+    for (const event of events) {
+        if (!event.source || !event.source.userId) {
+            continue;
+        }
+        const userId = event.source.userId;
 
-                            await client.pushMessage(userId, { type: 'text', text: 'あなたのチャット履歴をすべて削除しました。' });
-                            responsedBy = 'システム（管理者）';
-                            logType = 'admin_reset';
-                        } catch (error) {
-                            console.error("❌ 履歴削除エラー:", error.message);
-                            await client.pushMessage(userId, { type: 'text', text: '履歴削除中にエラーが発生しました。' });
-                            responsedBy = 'システム（管理者エラー）';
-                            logType = 'admin_error';
-                        }
-                    } else if (lowerUserMessage === '!メニュー' || lowerUserMessage === 'メニュー') { 
-                        await sendRichMenu(replyToken); 
-                        responsedBy = 'こころちゃん（メニュー）';
-                        logType = 'system_menu';
-                    } else if (lowerUserMessage === '!history') { 
-                        try {
-                            const querySnapshot = await messagesCollection.where('userId', '==', userId)
-                                                                        .orderBy('timestamp', 'desc')
-                                                                        .limit(10)
-                                                                        .get();
-          　　　　　　　　const userMessages = querySnapshot.docs.map(doc => doc.data());
-                            let historyText = "あなたの最新の会話履歴だよ🌸\n\n";
-                            userMessages.reverse().forEach(msg => {
-                                const timestamp = msg.timestamp ? msg.timestamp.toDate() : new Date();
-                                historyText += `【${msg.responsedBy === 'ユーザー' ? 'あなた' : msg.responsedBy}】${msg.message || msg.replyText} (${timestamp.toLocaleString()})\n`;
-                            });
-                            await client.pushMessage(userId, { type: 'text', text: historyText });
-                            responsedBy = 'システム（管理者）';
-                            logType = 'admin_history';
-                        } catch (error) {
-                            console.error("❌ 履歴取得エラー:", error.message);
-                            await client.pushMessage(userId, { type: 'text', text: '履歴取得中にエラーが発生しました。' });
-      　　　　　　　　　　　responsedBy = 'システム（管理者エラー）';
-                            logType = 'admin_error';
-                        }
-                    } else {
-                        await client.pushMessage(userId, { type: 'text', text: '不明な管理者コマンドです。' });
-                        responsedBy = 'システム（拒否）';
-                        logType = 'admin_command_unknown';
-                    }
-                    messageHandled = true; 
-                }
+        if (event.type === 'unfollow') {
+            await usersCollection.doc(userId).update(
+                { isBlocked: true }
+            );
+            continue;
+        }
 
-                if (!messageHandled) {
-                    // ⭐修正: handleWatchServiceRegistration に user オブジェクトを渡す
-                    watchServiceHandled = await handleWatchServiceRegistration(event, userId, userMessage, user);
-                    if (watchServiceHandled) {
-                        messageHandled = true;
-                    }
-                }
-                
-                // 最優先: 団体に関する問い合わせを固定応答で処理
-                if (event.type === 'message' && event.message.type === 'text' && !messageHandled && isOrganizationInquiry(userMessage)) {
-                    await client.pushMessage(userId, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
-                    responsedBy = 'こころちゃん（団体固定応答）';
-                    logType = 'organization_inquiry_fixed';
-                    messageHandled = true;
-                }
+        if (event.type === 'follow') {
+            await usersCollection.doc(userId).set(
+                {
+                    userId: userId,
+                    displayName: await getUserDisplayName(userId),
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+                    messageCount: 0,
+                    isBlocked: false,
+                    wantsWatchCheck: false,
+                    registrationStep: null,
+                    tempRegistrationData: {},
+                    category: null,
+                    phoneNumber: null,
+                    address: { city: null },
+                    guardianName: null,
+                    guardianPhoneNumber: null,
+                    consentObtained: false,
+                    studentIdPhotoUrl: null,
+                    studentIdVerified: false,
+                    emergencyContact: null, // 見守りサービスの連絡先も初期化
+                    lastOkResponse: null, // 見守りサービスの最終応答も初期化
+                    scheduledMessageSent: false,
+                    firstReminderSent: false,
+                    secondReminderSent: false,
+                    thirdReminderSent: false,
+                },
+                { merge: true }
+            );
+            try {
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: 'はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊\n\nまずは会員登録から始めてみようかな？「会員登録」と話しかけてみてね！'
+                });
+                await messagesCollection.add({
+                    userId: userId,
+                    message: `（新規フォロー）`,
+                    replyText: `はじめまして！わたしは皆守こころです🌸 あなたのお話、聞かせてね💖\n\n「見守りサービス」も提供しているから、興味があったら「見守り」って話しかけてみてね😊\n\nまずは会員登録から始めてみようかな？「会員登録」と話しかけてみてね！`,
+                    responsedBy: 'こころちゃん（新規フォロー）',
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    logType: 'system_follow'
+                });
+            } catch (error) {
+                console.error("❌ フォロー応答メッセージ送信エラー:", error.message);
+                await logErrorToDb(userId, "フォロー応答メッセージ送信エラー", { error: error.message, userId: userId });
+            }
+            continue;
+        }
 
-                // ⭐修正: 「怪しい」系統の言葉に対する特殊返答を、詐欺・危険ワードの前に配置し、最優先で処理
-                if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
-                    const suspiciousReply = specialRepliesMap.get(/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i);
-                    if (suspiciousReply && (/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i).test(lowerUserMessage)) {
-                        await client.pushMessage(userId, { type: 'text', text: suspiciousReply });
-                        responsedBy = 'こころちゃん（怪しい対応）';
-      　　　　　　　　　　logType = 'suspicious_word_triggered';
-                        messageHandled = true;
-                    }
-                }
+        let userDoc = await usersCollection.doc(userId).get();
+        let user = userDoc.exists ? userDoc.data() : null;
 
-                // 危険・詐欺・不適切ワードのチェックと、GPT-4oでの応答を統合
-                if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
-          　　　　　const isDangerWord = checkContainsDangerWords(userMessage);
-                    const isScam = checkContainsScamWords(userMessage); 
-                    const isInappropriate = checkContainsInappropriateWords(userMessage);
+        if (!user) { // followイベント以外で新規ユーザーがメッセージを送ってきた場合
+            const displayName = await getUserDisplayName(userId);
+            user = {
+                userId: userId,
+                displayName: displayName,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+                messageCount: 0,
+                isBlocked: false,
+                wantsWatchCheck: false,
+                registrationStep: null,
+                tempRegistrationData: {},
+                category: null,
+                phoneNumber: null,
+                address: { city: null },
+                guardianName: null,
+                guardianPhoneNumber: null,
+                consentObtained: false,
+                studentIdPhotoUrl: null,
+                studentIdVerified: false,
+                emergencyContact: null,
+                lastOkResponse: null,
+                scheduledMessageSent: false,
+                firstReminderSent: false,
+                secondReminderSent: false,
+                thirdReminderSent: false,
+            };
+            await usersCollection.doc(userId).set(user);
+        } else {
+            await usersCollection.doc(userId).update(
+                {
+                    lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+                    isBlocked: false,
+                    messageCount: admin.firestore.FieldValue.increment(1)
+                }
+            );
+        }
 
-                    if (isDangerWord) {
-                        const emergencyReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); 
-                        await client.pushMessage(userId, [
-                            { type: 'text', text: emergencyReplyText },
-                            { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate } 
-                        ]);
-                        responsedBy = `こころちゃん（緊急対応: ${modelConfig.emergencyModel}）`;
-                        logType = 'danger_word_triggered';
-                        messageHandled = true;
-                    } else if (isScam) { 
-                        const scamReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); 
-                        await client.pushMessage(userId, [
-                            { type: 'text', text: scamReplyText },
-                            { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate } 
-    　　　　　　　　　　　]);
-                        responsedBy = `こころちゃん（詐欺対応: ${modelConfig.emergencyModel}）`;
-                        logType = 'scam_word_triggered';
-                        messageHandled = true;
-                    } else if (isInappropriate) {
-                        await client.pushMessage(userId, { type: 'text', text: 'ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖' });
-                        responsedBy = 'こころちゃん（不適切対応）';
-                        logType = 'inappropriate_word_triggered';
-                        messageHandled = true;
-                    }
-                }
+        if ((event.type === 'message' && event.message.type === 'text') || event.type === 'postback') {
+            const replyToken = event.replyToken;
+            let userMessage = event.type === 'message' ? event.message.text : event.postback.data;
+            let lowerUserMessage = userMessage.toLowerCase();
+
+            let responsedBy = 'こころちゃん';
+            let logType = 'normal_conversation';
+            let messageHandled = false;
+            let watchServiceHandled = false;
+
+            // ⭐修正: isAdminCommand はここで定義
+            let isAdminCommand = event.type === 'message' && userMessage.startsWith('!');
+
+            // LINEに即座に200 OKを返す (Webhookタイムアウト対策)
+            res.status(200).send('OK');
+
+            try {
+                // 会員登録開始トリガー
+                if (!user.registrationStep && event.type === 'message' &&
+                    (lowerUserMessage === '会員登録' || lowerUserMessage === '登録' || lowerUserMessage === 'かいいん' || lowerUserMessage === 'とうろく')) {
+                    await usersCollection.doc(userId).update({
+                        registrationStep: 'askingCategory',
+                        tempRegistrationData: {},
+                        // ⭐追加: 会員登録開始時にこれらのフィールドをリセット (再登録時用)
+                        name: null, kana: null, age: null, category: null, phoneNumber: null, address: { city: null },
+                        guardianName: null, guardianPhoneNumber: null, consentObtained: false,
+                        studentIdPhotoUrl: null, studentIdVerified: false
+                    });
+                    await client.pushMessage(userId, { type: 'text', text: 'こんにちは！会員登録を始めるね。まず、あなたの**区分**を教えてくれるかな？（「小学生」「中学生～大学生」「成人」のいずれか）' });
+                    messageHandled = true;
+                    responsedBy = 'こころちゃん（登録フロー開始）';
+                    logType = 'registration_start';
+                }
+
+                // 会員登録フローが進行中の場合、最優先で処理
+                if (user.registrationStep && !messageHandled) {
+                    messageHandled = await handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection, messagesCollection);
+                }
+
+                // 以降のロジックは messageHandled が true の場合は実行されない
+                if (messageHandled) {
+                    const replyTextForLog = '（会員登録フローで処理されました）';
+                    if (shouldLogMessage(userMessage, false, watchServiceHandled, isAdminCommand, userMessage.startsWith('!reset'))) {
+                        try {
+                            await messagesCollection.add({
+                                userId: userId,
+                                message: userMessage,
+                                replyText: replyTextForLog,
+                                responsedBy: responsedBy,
+                                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                                logType: logType
+                            });
+                        } catch (firestoreError) {
+                            console.error("❌ Firestoreへのメッセージログ書き込みエラー（会員登録フロー）:", firestoreError.message);
+                        }
+                    }
+                    return;
+                }
+
+                if (isAdminCommand) {
+                    if (!isBotAdmin(userId)) {
+                        await client.pushMessage(userId, { type: 'text', text: 'ごめんなさい、このコマンドは管理者専用です。' });
+                        responsedBy = 'システム（拒否）';
+                        logType = 'admin_command_denied';
+                    } else if (lowerUserMessage.startsWith('!reset')) {
+                        try {
+                            const batch = db.batch();
+                            const querySnapshot = await messagesCollection.where('userId', '==', userId).get();
+                            querySnapshot.docs.forEach(doc => {
+                                batch.delete(doc.ref);
+                            });
+                            await batch.commit();
+
+                            await client.pushMessage(userId, { type: 'text', text: 'あなたのチャット履歴をすべて削除しました。' });
+                            responsedBy = 'システム（管理者）';
+                            logType = 'admin_reset';
+                        } catch (error) {
+                            console.error("❌ 履歴削除エラー:", error.message);
+                            await client.pushMessage(userId, { type: 'text', text: '履歴削除中にエラーが発生しました。' });
+                            responsedBy = 'システム（管理者エラー）';
+                            logType = 'admin_error';
+                        }
+                    } else if (lowerUserMessage === '!メニュー' || lowerUserMessage === 'メニュー') {
+                        await sendRichMenu(replyToken);
+                        responsedBy = 'こころちゃん（メニュー）';
+                        logType = 'system_menu';
+                    } else if (lowerUserMessage === '!history') {
+                        try {
+                            const querySnapshot = await messagesCollection.where('userId', '==', userId)
+                                .orderBy('timestamp', 'desc')
+                                .limit(10)
+                                .get();
+                            const userMessages = querySnapshot.docs.map(doc => doc.data());
+                            let historyText = "あなたの最新の会話履歴だよ🌸\n\n";
+                            userMessages.reverse().forEach(msg => {
+                                const timestamp = msg.timestamp ? msg.timestamp.toDate() : new Date();
+                                historyText += `【${msg.responsedBy === 'ユーザー' ? 'あなた' : msg.responsedBy}】${msg.message || msg.replyText} (${timestamp.toLocaleString()})\n`;
+                            });
+                            await client.pushMessage(userId, { type: 'text', text: historyText });
+                            responsedBy = 'システム（管理者）';
+                            logType = 'admin_history';
+                        } catch (error) {
+                            console.error("❌ 履歴取得エラー:", error.message);
+                            await client.pushMessage(userId, { type: 'text', text: '履歴取得中にエラーが発生しました。' });
+                            responsedBy = 'システム（管理者エラー）';
+                            logType = 'admin_error';
+                        }
+                    } else {
+                        await client.pushMessage(userId, { type: 'text', text: '不明な管理者コマンドです。' });
+                        responsedBy = 'システム（拒否）';
+                        logType = 'admin_command_unknown';
+                    }
+                    messageHandled = true;
+                }
+
+                if (!messageHandled) {
+                    // ⭐修正: handleWatchServiceRegistration に user オブジェクトを渡す
+                    watchServiceHandled = await handleWatchServiceRegistration(event, userId, userMessage, user);
+                    if (watchServiceHandled) {
+                        messageHandled = true;
+                    }
+                }
+
+                // 最優先: 団体に関する問い合わせを固定応答で処理
+                if (event.type === 'message' && event.message.type === 'text' && !messageHandled && isOrganizationInquiry(userMessage)) {
+                    await client.pushMessage(userId, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
+                    responsedBy = 'こころちゃん（団体固定応答）';
+                    logType = 'organization_inquiry_fixed';
+                    messageHandled = true;
+                }
+
+                // ⭐修正: 「怪しい」系統の言葉に対する特殊返答を、詐欺・危険ワードの前に配置し、最優先で処理
+                if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
+                    const suspiciousReply = specialRepliesMap.get(/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i);
+                    if (suspiciousReply && (/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i).test(lowerUserMessage)) {
+                        await client.pushMessage(userId, { type: 'text', text: suspiciousReply });
+                        responsedBy = 'こころちゃん（怪しい対応）';
+                        logType = 'suspicious_word_triggered';
+                        messageHandled = true;
+                    }
+                }
+
+                // 危険・詐欺・不適切ワードのチェックと、GPT-4oでの応答を統合
+                if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
+                    const isDangerWord = checkContainsDangerWords(userMessage);
+                    const isScam = checkContainsScamWords(userMessage);
+                    const isInappropriate = checkContainsInappropriateWords(userMessage);
+
+                    if (isDangerWord) {
+                        const emergencyReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel);
+                        await client.pushMessage(userId, [
+                            { type: 'text', text: emergencyReplyText },
+                            { type: 'flex', altText: '緊急時', contents: emergencyFlexTemplate }
+                        ]);
+                        responsedBy = `こころちゃん（緊急対応: ${modelConfig.emergencyModel}）`;
+                        logType = 'danger_word_triggered';
+                        messageHandled = true;
+                    } else if (isScam) {
+                        const scamReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel);
+                        await client.pushMessage(userId, [
+                            { type: 'text', text: scamReplyText },
+                            { type: 'flex', altText: '詐欺注意', contents: scamFlexTemplate }
+                        ]);
+                        responsedBy = `こころちゃん（詐欺対応: ${modelConfig.emergencyModel}）`;
+                        logType = 'scam_word_triggered';
+                        messageHandled = true;
+                    } else if (isInappropriate) {
+                        await client.pushMessage(userId, { type: 'text', text: 'ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖' });
+                        responsedBy = 'こころちゃん（不適切対応）';
+                        logType = 'inappropriate_word_triggered';
+                        messageHandled = true;
+                    }
+                }
 
 
-                // 特殊返答のチェック (上記危険・詐欺・不適切ワードの処理、および「怪しい」系統の処理より後に実行)
-                if (!messageHandled) {
-                    const specialReply = checkSpecialReply(userMessage);
-                    if (specialReply) {
-                        await client.pushMessage(userId, { type: 'text', text: specialReply });
-                        responsedBy = 'こころちゃん（特殊返答）';
-                        logType = 'special_reply';
-                        messageHandled = true;
-                    }
-                }
+                // 特殊返答のチェック (上記危険・詐欺・不適切ワードの処理、および「怪しい」系統の処理より後に実行)
+                if (!messageHandled) {
+                    const specialReply = checkSpecialReply(userMessage);
+                    if (specialReply) {
+                        await client.pushMessage(userId, { type: 'text', text: specialReply });
+                        responsedBy = 'こころちゃん（特殊返答）';
+                        logType = 'special_reply';
+                        messageHandled = true;
+                    }
+                }
 
-                // 宿題・勉強に関する質問のチェック (特殊返答より後に実行)
-                if (containsHomeworkTrigger(userMessage) && !messageHandled) {
-                    const homeworkReply = await generateGeminiReply(userMessage, modelConfig.defaultModel); 
-                    await client.pushMessage(userId, { type: 'text', text: homeworkReply });
-                    responsedBy = 'こころちゃん（宿題対応: Gemini Flash）';
-                    logType = 'homework_query';
-                    messageHandled = true;
-                }
-                
-                // 相談モードの切り替えロジック
-                if (!messageHandled && (lowerUserMessage === 'そうだん' || lowerUserMessage === '相談')) { 
-                    try {
-                        await usersCollection.doc(userId).update(
-                            { useProForNextConsultation: true }
-                        );
-      　　　　　　　　　　await client.pushMessage(userId, { type: 'text', text: '🌸 相談モードに入ったよ！なんでも相談してね😊' });
-                        responsedBy = 'こころちゃん（Gemini 1.5 Pro - 相談モード開始）';
-                        logType = 'consultation_mode_start';
-                        messageHandled = true;
-                    } catch (error) {
-                        console.error("❌ 「相談」モード開始エラー:", error.message);
-                        await
+                // 宿題・勉強に関する質問のチェック (特殊返答より後に実行)
+                if (containsHomeworkTrigger(userMessage) && !messageHandled) {
+                    const homeworkReply = await generateGeminiReply(userMessage, modelConfig.defaultModel);
+                    await client.pushMessage(userId, { type: 'text', text: homeworkReply });
+                    responsedBy = 'こころちゃん（宿題対応: Gemini Flash）';
+                    logType = 'homework_query';
+                    messageHandled = true;
+                }
+
+                // 相談モードの切り替えロジック
+                if (!messageHandled && (lowerUserMessage === 'そうだん' || lowerUserMessage === '相談')) {
+                    try {
+                        await usersCollection.doc(userId).update(
+                            { useProForNextConsultation: true }
+                        );
+                        await client.pushMessage(userId, { type: 'text', text: '🌸 相談モードに入ったよ！なんでも相談してね😊' });
+                        responsedBy = 'こころちゃん（Gemini 1.5 Pro - 相談モード開始）';
+                        logType = 'consultation_mode_start';
+                        messageHandled = true;
+                    } catch (error) {
+                        console.error("❌ 「相談」モード開始エラー:", error.message);
+                        await logErrorToDb(userId, "相談モード開始エラー", { error: error.message, userId: userId });
+                        await client.pushMessage(userId, { type: 'text', text: `❌ 「相談」モード開始中にエラーが発生しました: ${error.message}` });
+                        messageHandled = true;
+                    }
+                }
+
+                // 通常のAI応答 (フォールバック) - 共感が必要な場合はGPT-4o mini、それ以外はGemini Flash
+                if (!messageHandled) {
+                    let aiReply;
+                    let aiModelUsed;
+
+                    if (user && user.useProForNextConsultation) {
+                        aiReply = await generateGeminiReply(userMessage, modelConfig.consultationModel);
+                        aiModelUsed = modelConfig.consultationModel;
+                        await usersCollection.doc(userId).update({ useProForNextConsultation: false });
+                    } else if (isEmpatheticMessage(userMessage)) {
+                        aiReply = await generateGPTReply(userMessage, modelConfig.empatheticModel);
+                        aiModelUsed = modelConfig.empatheticModel;
+                    } else {
+                        aiReply = await generateGeminiReply(userMessage, modelConfig.defaultModel);
+                        aiModelUsed = modelConfig.defaultModel;
+                    }
+
+                    await client.pushMessage(userId, { type: 'text', text: aiReply });
+                    responsedBy = `こころちゃん（AI: ${aiModelUsed}）`;
+                    logType = 'normal_conversation';
+                    messageHandled = true;
+                }
+
+                // メッセージ送信とログ記録
+                const replyTextForLog = '（メッセージがpushMessage/replyMessageで送信されました）';
+                const isFlagged = checkContainsDangerWords(userMessage) || checkContainsScamWords(userMessage) || checkContainsInappropriateWords(userMessage);
+                const isResetCommand = userMessage.startsWith('!reset');
+
+                // shouldLogMessage関数にisAdminCommandが正しく渡るように修正
+                if (shouldLogMessage(userMessage, isFlagged, watchServiceHandled, isAdminCommand, isResetCommand)) {
+                    try {
+                        await messagesCollection.add({
+                            userId: userId,
+                            message: userMessage,
+                            replyText: replyTextForLog,
+                            responsedBy: responsedBy,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                            logType: logType
+                        });
+                    } catch (firestoreError) {
+                        console.error("❌ Firestoreへのメッセージログ書き込みエラー:", firestoreError.message);
+                    }
+                }
+            } catch (error) {
+                console.error("❌ Webhook内部処理でエラーが発生しました:", error.message);
+                await logErrorToDb(userId, "Webhook内部処理エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
+            }
+        }
+    }
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, async () => {
+    console.log(`🚀 サーバーがポート ${PORT} で起動しました...`);
+    console.log("✅ FirestoreはFirebase Admin SDKによって初期化済みです。");
+});
