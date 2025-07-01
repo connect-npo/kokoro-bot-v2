@@ -50,10 +50,8 @@ const dangerWords = [
     "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
 ];
 const scamWords = [
-    // ⭐修正: 「お金」と「無料」を削除 (まつさんの指示)
-   "さぎ", "詐欺", "騙す", "騙される", "特殊詐欺", "オレオレ詐欺", "架空請求", "未払い", "電子マネー", "換金", "返金", "税金", "還付金"
-    // ⭐修正: 「かも」は specialRepliesMap で処理を優先するため削除
-    // ⭐修正: 「怪しい」は specialRepliesMap で処理を優先するため削除
+    // ⭐修正: 「お金」「無料」「怪しい」「かも」を削除 (まつさんの指示)
+    "詐欺", "騙す", "騙される", "特殊詐欺", "オレオレ詐欺", "架空請求", "未払い", "電子マネー", "換金", "返金", "税金", "還付金"
 ];
 const inappropriateWords = [
     "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
@@ -435,6 +433,7 @@ const specialRepliesMap = new Map([
     
     // ⭐修正: 「怪しい」系統の言葉はAIに判断させず、specialRepliesMapで直接固定応答を返す
     // かつ、より簡潔でやさしい表現に変更。詐欺ワード検知の誤爆を防ぐ
+    // これらのパターンは、`checkContainsScamWords`よりも先に処理されるように調整されます。
     [/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"], 
     
     // ネガティブワード・人物名への優先処理
@@ -667,7 +666,6 @@ function checkContainsDangerWords(message) {
 
 function checkContainsScamWords(message) {
     const lowerMessage = message.toLowerCase();
-    // ⭐修正: specialRepliesMap で処理される「怪しい」系統の言葉はここではチェックしない
     return scamWords.some(word => lowerMessage.includes(word));
 }
 
@@ -1176,7 +1174,8 @@ app.post('/webhook', async (req, res) => {
 
         if ((event.type === 'message' && event.message.type === 'text') || event.type === 'postback') {
             const replyToken = event.replyToken;
-            let userMessage = (event.type === 'message') ? event.message.text : event.postback.data;
+            let userMessage = event.type === 'message' ? event.message.text : event.postback.data;
+            let lowerUserMessage = userMessage.toLowerCase(); // 小文字化を一度だけ行う
 
             let responsedBy = 'こころちゃん';
             let logType = 'normal_conversation';
@@ -1187,13 +1186,14 @@ app.post('/webhook', async (req, res) => {
             res.status(200).send('OK'); 
 
             try {
+                // ⭐修正: 管理者コマンドの判定に lowerUserMessage を使用
                 const isAdminCommand = event.type === 'message' && userMessage.startsWith('!');
                 if (isAdminCommand) {
                      if (!isBotAdmin(userId)) {
                         await client.pushMessage(userId, { type: 'text', text: 'ごめんなさい、このコマンドは管理者専用です。' });
                         responsedBy = 'システム（拒否）';
                         logType = 'admin_command_denied';
-                    } else if (userMessage.startsWith('!reset')) {
+                    } else if (lowerUserMessage.startsWith('!reset')) { // ⭐修正: 小文字化されたメッセージで判定
                          try {
                             const batch = db.batch();
                             const querySnapshot = await messagesCollection.where('userId', '==', userId).get();
@@ -1211,11 +1211,11 @@ app.post('/webhook', async (req, res) => {
                             responsedBy = 'システム（管理者エラー）';
                             logType = 'admin_error';
                         }
-                    } else if (userMessage.startsWith('!メニュー') || userMessage.toLowerCase() === 'メニュー') {
+                    } else if (lowerUserMessage === '!メニュー' || lowerUserMessage === 'メニュー') { // ⭐修正: 小文字化されたメッセージで判定
                         await sendRichMenu(replyToken); 
                         responsedBy = 'こころちゃん（メニュー）';
                         logType = 'system_menu';
-                    } else if (userMessage.toLowerCase() === '!history') {
+                    } else if (lowerUserMessage === '!history') { // ⭐修正: 小文字化されたメッセージで判定
                         try {
                             const querySnapshot = await messagesCollection.where('userId', '==', userId)
                                                                         .orderBy('timestamp', 'desc')
@@ -1259,11 +1259,22 @@ app.post('/webhook', async (req, res) => {
                     messageHandled = true;
                 }
 
+                // ⭐修正: 「怪しい」系統の言葉に対する特殊返答を、詐欺・危険ワードの前に配置し、最優先で処理
+                if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
+                    const suspiciousReply = specialRepliesMap.get(/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i);
+                    if (suspiciousReply && (/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i).test(lowerUserMessage)) {
+                        await client.pushMessage(userId, { type: 'text', text: suspiciousReply });
+                        responsedBy = 'こころちゃん（怪しい対応）';
+                        logType = 'suspicious_word_triggered';
+                        messageHandled = true;
+                    }
+                }
+
                 // 危険・詐欺・不適切ワードのチェックと、GPT-4oでの応答を統合
                 if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
                     const isDangerWord = checkContainsDangerWords(userMessage);
-                    // ⭐修正: isScam は specialRepliesMap で先に処理される「怪しい」系統の言葉を含まず、純粋な詐欺ワードのみをチェック
-                    const isScam = scamWords.some(word => userMessage.toLowerCase().includes(word)); 
+                    // ⭐修正: isScam は `scamWords`に「怪しい」や「かも」を含まないようにしたため、ここでチェックでOK
+                    const isScam = checkContainsScamWords(userMessage); 
                     const isInappropriate = checkContainsInappropriateWords(userMessage);
 
                     if (isDangerWord) {
@@ -1275,7 +1286,7 @@ app.post('/webhook', async (req, res) => {
                         responsedBy = `こころちゃん（緊急対応: ${modelConfig.emergencyModel}）`;
                         logType = 'danger_word_triggered';
                         messageHandled = true;
-                    } else if (isScam) { // isScam は純粋な詐欺ワードのみをチェックするように変更
+                    } else if (isScam) { 
                         const scamReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); 
                         await client.pushMessage(userId, [
                             { type: 'text', text: scamReplyText },
@@ -1288,20 +1299,6 @@ app.post('/webhook', async (req, res) => {
                         await client.pushMessage(userId, { type: 'text', text: 'ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖' });
                         responsedBy = 'こころちゃん（不適切対応）';
                         logType = 'inappropriate_word_triggered';
-                        messageHandled = true;
-                    }
-                }
-
-                // ⭐修正: 「怪しい」系統の言葉に対する特殊返答をここに移す
-                // このブロックは危険・詐欺ワード検出の直後、他の特殊返答の前に配置される
-                if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
-                    const lowerUserMessage = userMessage.toLowerCase();
-                    // specialRepliesMap にて、これらの単語を正規表現でチェックし、優先して固定応答を返す
-                    const suspiciousReply = specialRepliesMap.get(/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i);
-                    if (suspiciousReply && (/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i).test(lowerUserMessage)) {
-                        await client.pushMessage(userId, { type: 'text', text: suspiciousReply });
-                        responsedBy = 'こころちゃん（怪しい対応）';
-                        logType = 'suspicious_word_triggered';
                         messageHandled = true;
                     }
                 }
@@ -1328,7 +1325,7 @@ app.post('/webhook', async (req, res) => {
                 }
                 
                 // 相談モードの切り替えロジック
-                if (!messageHandled && (userMessage === 'そうだん' || userMessage === '相談')) {
+                if (!messageHandled && (lowerUserMessage === 'そうだん' || lowerUserMessage === '相談')) { // ⭐修正: 小文字化されたメッセージで判定
                     try {
                         await usersCollection.doc(userId).update(
                             { useProForNextConsultation: true }
