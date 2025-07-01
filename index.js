@@ -1234,21 +1234,22 @@ app.post('/webhook', async (req, res) => {
             res.status(200).send('OK'); 
 
             try {
-                // 会員登録開始トリガー
-                if (!user.registrationStep && lowerUserMessage === '会員登録' && event.type === 'message') {
-                    await usersCollection.doc(userId).update({
-                        registrationStep: 'askingCategory',
-                        tempRegistrationData: {},
-                        // ⭐追加: 会員登録開始時にこれらのフィールドをリセット (再登録時用)
-                        name: null, kana: null, age: null, category: null, phoneNumber: null, address: {city: null},
-                        guardianName: null, guardianPhoneNumber: null, consentObtained: false,
-                        studentIdPhotoUrl: null, studentIdVerified: false
-                    });
-                    await client.pushMessage(userId, { type: 'text', text: 'こんにちは！会員登録を始めるね。まず、あなたの**区分**を教えてくれるかな？（「小学生」「中学生～大学生」「成人」のいずれか）' }); 
-                    messageHandled = true;
-                    responsedBy = 'こころちゃん（登録フロー開始）';
-                    logType = 'registration_start';
-                }
+               // 会員登録開始トリガー
+if (!user.registrationStep && event.type === 'message' && 
+    (lowerUserMessage === '会員登録' || lowerUserMessage === '登録' || lowerUserMessage === 'かいいん' || lowerUserMessage === 'とうろく')) {
+    await usersCollection.doc(userId).update({
+        registrationStep: 'askingCategory',
+        tempRegistrationData: {},
+        // ⭐追加: 会員登録開始時にこれらのフィールドをリセット (再登録時用)
+        name: null, kana: null, age: null, category: null, phoneNumber: null, address: {city: null},
+        guardianName: null, guardianPhoneNumber: null, consentObtained: false,
+        studentIdPhotoUrl: null, studentIdVerified: false
+    });
+    await client.pushMessage(userId, { type: 'text', text: 'こんにちは！会員登録を始めるね。まず、あなたの**区分**を教えてくれるかな？（「小学生」「中学生～大学生」「成人」のいずれか）' }); 
+    messageHandled = true;
+    responsedBy = 'こころちゃん（登録フロー開始）';
+    logType = 'registration_start';
+}
 
                 // 会員登録フローが進行中の場合、最優先で処理
                 if (user.registrationStep && !messageHandled) { 
