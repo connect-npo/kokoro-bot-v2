@@ -50,11 +50,10 @@ const dangerWords = [
     "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
 ];
 const scamWords = [
-    "お金", "もうかる", "儲かる", "絶対", "安心", "副業", "簡単", "投資", "情報", "秘密",
-    "限定", "無料", "高収入", "クリック", "今すぐ", "チャンス", "当選", "プレゼント", "怪しい", "連絡",
-    "支援", "融資", "貸付", "貸します", "振り込み", "口座", "パスワード", "暗証番号", "詐欺", "騙す",
-    "騙される", "特殊詐欺", "オレオレ詐欺", "架空請求", "未払い", "電子マネー", "換金", "返金", "税金", "還付金",
-    "かも" 
+    // ⭐修正: 「お金」と「無料」を削除 (まつさんの指示)
+   "さぎ", "詐欺", "騙す", "騙される", "特殊詐欺", "オレオレ詐欺", "架空請求", "未払い", "電子マネー", "換金", "返金", "税金", "還付金"
+    // ⭐修正: 「かも」は specialRepliesMap で処理を優先するため削除
+    // ⭐修正: 「怪しい」は specialRepliesMap で処理を優先するため削除
 ];
 const inappropriateWords = [
     "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
@@ -434,8 +433,10 @@ const specialRepliesMap = new Map([
 
     // 団体に関する応答は isOrganizationInquiry で最優先で処理されるため、ここからは削除
     
-    // 怪しい・胡散臭い・反社に対する応答は isScam で処理されるため、ここからは削除
-
+    // ⭐修正: 「怪しい」系統の言葉はAIに判断させず、specialRepliesMapで直接固定応答を返す
+    // かつ、より簡潔でやさしい表現に変更。詐欺ワード検知の誤爆を防ぐ
+    [/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"], 
+    
     // ネガティブワード・人物名への優先処理
     ["税金泥棒", "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     ["松本博文", "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
@@ -556,7 +557,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 - 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
 **ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。**
 
-医療や健康に関する話題（病気、薬、検査、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないでください**。
+医療や健康に関する話題（病気、薬、検査、治療など）では、**自分が体験した・していないという発言は絶対にしないでください**。
 代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
 **医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
 
@@ -666,6 +667,7 @@ function checkContainsDangerWords(message) {
 
 function checkContainsScamWords(message) {
     const lowerMessage = message.toLowerCase();
+    // ⭐修正: specialRepliesMap で処理される「怪しい」系統の言葉はここではチェックしない
     return scamWords.some(word => lowerMessage.includes(word));
 }
 
@@ -707,7 +709,7 @@ function checkSpecialReply(text) {
 const isOrganizationInquiry = (text) => {
     const lower = text.toLowerCase();
     const orgKeywords = ["コネクト", "connect", "団体", "だんたい", "npo", "運営", "組織"];
-    // 質問の意図を示すキーワードをより多く追加
+    // 質問の意図を示すキーワードをより多く追加。「いえない」のような否定形もキャッチ
     const questionKeywords = ["どこ", "何", "どんな", "教えて", "いえない", "は？", "なの？", "ですか？", "ですか", "の？", "かい？", "かい", "言えないの", "について"]; 
     
     const hasOrgKeyword = orgKeywords.some(word => lower.includes(word));
@@ -717,8 +719,8 @@ const isOrganizationInquiry = (text) => {
     return hasOrgKeyword && hasQuestionKeyword;
 };
 
-// 固定の団体応答メッセージを詳細な内容に更新
-const ORGANIZATION_REPLY_MESSAGE = "うん、NPO法人コネクトのこと、もっと知りたいんだね🌸　コネクトは、子どもたちや高齢者の方々、そしてみんなが安心して相談できる場所を目指している団体なんだよ😊　困っている人が安心して相談できたり、助け合えるような社会をつくりたいって願って、活動しているんだ。\n\n具体的には、地域の子育て支援や高齢者の見守り活動、そして様々な相談事業を行っているよ。みんなが笑顔で暮らせるように、一つ一つ丁寧に活動しているんだ💖　もっと知りたいことがあったら、いつでも聞いてね！ホームページにも詳しく載っているから、見てみてね🌸 → https://connect-npo.org";
+// 固定の団体応答メッセージを短縮
+const ORGANIZATION_REPLY_MESSAGE = "うん、NPO法人コネクトのこと、もっと知りたいんだね🌸　コネクトは、子どもたちや高齢者の方々、そしてみんなが安心して相談できる場所を目指している団体なんだよ😊　困っている人が安心して相談できたり、助け合えるような社会をつくりたいって願って、活動しているんだ。";
 
 
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
@@ -1181,10 +1183,9 @@ app.post('/webhook', async (req, res) => {
             let messageHandled = false;
             let watchServiceHandled = false;
 
-            // ⭐重要: LINEに即座に200 OKを返す (Webhookタイムアウト対策)
+            // LINEに即座に200 OKを返す (Webhookタイムアウト対策)
             res.status(200).send('OK'); 
 
-            // ここから非同期処理としてAI応答やメッセージ送信を行う
             try {
                 const isAdminCommand = event.type === 'message' && userMessage.startsWith('!');
                 if (isAdminCommand) {
@@ -1211,7 +1212,7 @@ app.post('/webhook', async (req, res) => {
                             logType = 'admin_error';
                         }
                     } else if (userMessage.startsWith('!メニュー') || userMessage.toLowerCase() === 'メニュー') {
-                        await sendRichMenu(replyToken); // replyTokenで即座に返せるFlexメッセージ
+                        await sendRichMenu(replyToken); 
                         responsedBy = 'こころちゃん（メニュー）';
                         logType = 'system_menu';
                     } else if (userMessage.toLowerCase() === '!history') {
@@ -1244,7 +1245,6 @@ app.post('/webhook', async (req, res) => {
                 }
 
                 if (!messageHandled) {
-                    // 見守りサービス関連の処理。一部はreplyTokenで即座に返すものもある
                     watchServiceHandled = await handleWatchServiceRegistration(event, userId, userMessage);
                     if (watchServiceHandled) {
                         messageHandled = true;
@@ -1262,7 +1262,8 @@ app.post('/webhook', async (req, res) => {
                 // 危険・詐欺・不適切ワードのチェックと、GPT-4oでの応答を統合
                 if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
                     const isDangerWord = checkContainsDangerWords(userMessage);
-                    const isScam = checkContainsScamWords(userMessage);
+                    // ⭐修正: isScam は specialRepliesMap で先に処理される「怪しい」系統の言葉を含まず、純粋な詐欺ワードのみをチェック
+                    const isScam = scamWords.some(word => userMessage.toLowerCase().includes(word)); 
                     const isInappropriate = checkContainsInappropriateWords(userMessage);
 
                     if (isDangerWord) {
@@ -1274,7 +1275,7 @@ app.post('/webhook', async (req, res) => {
                         responsedBy = `こころちゃん（緊急対応: ${modelConfig.emergencyModel}）`;
                         logType = 'danger_word_triggered';
                         messageHandled = true;
-                    } else if (isScam) {
+                    } else if (isScam) { // isScam は純粋な詐欺ワードのみをチェックするように変更
                         const scamReplyText = await generateGPTReply(userMessage, modelConfig.emergencyModel); 
                         await client.pushMessage(userId, [
                             { type: 'text', text: scamReplyText },
@@ -1291,7 +1292,22 @@ app.post('/webhook', async (req, res) => {
                     }
                 }
 
-                // 特殊返答のチェック (危険ワードなど、および団体情報より後に実行)
+                // ⭐修正: 「怪しい」系統の言葉に対する特殊返答をここに移す
+                // このブロックは危険・詐欺ワード検出の直後、他の特殊返答の前に配置される
+                if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
+                    const lowerUserMessage = userMessage.toLowerCase();
+                    // specialRepliesMap にて、これらの単語を正規表現でチェックし、優先して固定応答を返す
+                    const suspiciousReply = specialRepliesMap.get(/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i);
+                    if (suspiciousReply && (/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i).test(lowerUserMessage)) {
+                        await client.pushMessage(userId, { type: 'text', text: suspiciousReply });
+                        responsedBy = 'こころちゃん（怪しい対応）';
+                        logType = 'suspicious_word_triggered';
+                        messageHandled = true;
+                    }
+                }
+
+
+                // 特殊返答のチェック (上記危険・詐欺・不適切ワードの処理、および「怪しい」系統の処理より後に実行)
                 if (!messageHandled) {
                     const specialReply = checkSpecialReply(userMessage);
                     if (specialReply) {
@@ -1352,20 +1368,24 @@ app.post('/webhook', async (req, res) => {
                     messageHandled = true;
                 }
 
-                // メッセージ送信とログ記録（各処理ブロックでpushMessage/replyMessageで送ったもののログを記録）
+                // メッセージ送信とログ記録
                 const replyTextForLog = '（メッセージがpushMessage/replyMessageで送信されました）'; 
                 const isFlagged = checkContainsDangerWords(userMessage) || checkContainsScamWords(userMessage) || checkContainsInappropriateWords(userMessage);
                 const isResetCommand = userMessage.startsWith('!reset');
 
                 if (shouldLogMessage(userMessage, isFlagged, watchServiceHandled, isAdminCommand, isResetCommand)) {
-                    await messagesCollection.add({
-                        userId: userId,
-                        message: userMessage,
-                        replyText: replyTextForLog, 
-                        responsedBy: responsedBy,
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                        logType: logType
-                    });
+                    try { 
+                        await messagesCollection.add({
+                            userId: userId,
+                            message: userMessage,
+                            replyText: replyTextForLog, 
+                            responsedBy: responsedBy,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                            logType: logType
+                        });
+                    } catch (firestoreError) {
+                        console.error("❌ Firestoreへのメッセージログ書き込みエラー:", firestoreError.message);
+                    }
                 }
             } catch (error) {
                 console.error("❌ Webhook内部処理でエラーが発生しました:", error.message);
