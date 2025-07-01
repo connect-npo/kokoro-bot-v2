@@ -14,8 +14,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-// ⭐修正: まつさんのIDを管理者リストに追加
-const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : ["Udada4206b73648833b844cfbf1562a87"]; // まつさんのIDを追加
+// ⭐修正: まつさんのIDを管理者リストに追加 (環境変数で設定されていない場合のみ適用)
+const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : ["Udada4206b73648833b844cfbf1562a87"]; 
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
@@ -50,7 +50,7 @@ const dangerWords = [
     "いじめ", "イジメ", "ハラスメント",
     "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
 ];
-// ⭐修正: 「さぎかも」などの直接的な表現をscamWordsから削除し、specialRepliesMapで処理する
+// ⭐修正: 「詐欺かも」など、specialRepliesMapで固定応答したいワードはscamWordsから削除
 const scamWords = [
     "詐欺", "騙す", "騙される", "特殊詐欺", "オレオレ詐欺", "架空請求", "未払い", "電子マネー", "換金", "返金", "税金", "還付金"
 ];
@@ -778,6 +778,13 @@ const watchMessages = [
 async function handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection, messagesCollection) {
     let handled = false;
 
+    // ⭐追加: 登録フローからの離脱 (ユーザーが「登録やめる」などを入力した場合)
+    if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep) {
+        await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
+        await client.pushMessage(userId, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        return true; // 処理済み
+    }
+
     // 登録ステップに応じた処理
     switch (user.registrationStep) {
         case 'askingCategory':
@@ -865,7 +872,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             } else {
                 // ⭐修正: 電話番号入力でエラーの場合のユーザーフレンドリーなメッセージ
-                await client.pushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやめる場合は「登録やめる」と入力してね。' });
+                await client.pushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
                 handled = true;
             }
             break;
@@ -880,7 +887,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             } else {
                 // ⭐修正: 電話番号入力でエラーの場合のユーザーフレンドリーなメッセージ
-                await client.pushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやめる場合は「登録やめる」と入力してね。' });
+                await client.pushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
                 handled = true;
             }
             break;
@@ -971,14 +978,6 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
         default:
             handled = false; // 未知のステップは処理しない
             break;
-    }
-    // ⭐追加: 登録フローをキャンセルするコマンド
-    if (lowerUserMessage === '登録やめる' || lowerUserMessage === 'キャンセル') {
-        if (user && user.registrationStep) { // 登録フロー進行中の場合のみ
-            await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
-            await client.pushMessage(userId, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
-            return true; // 処理済み
-        }
     }
     return handled;
 }
@@ -1706,13 +1705,12 @@ app.post('/webhook', async (req, res) => {
                             logType: logType
                         });
                     } catch (firestoreError) {
-                            console.error("❌ Firestoreへのメッセージログ書き込みエラー:", firestoreError.message);
-                        }
+                        console.error("❌ Firestoreへのメッセージログ書き込みエラー:", firestoreError.message);
                     }
-                } catch (error) {
-                    console.error("❌ Webhook内部処理でエラーが発生しました:", error.message);
-                    await logErrorToDb(userId, "Webhook内部処理エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
                 }
+            } catch (error) {
+                console.error("❌ Webhook内部処理でエラーが発生しました:", error.message);
+                await logErrorToDb(userId, "Webhook内部処理エラー", { error: error.message, stack: error.stack, userMessage: userMessage });
             }
         }
     }
