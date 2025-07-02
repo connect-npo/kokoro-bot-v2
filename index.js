@@ -15,7 +15,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 // ⭐修正: まつさんのIDを管理者リストに追加 (環境変数で設定されていない場合のみ適用)
-const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : ["Udada4206b73648833b844cfbf1562a87"]; 
+const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : ["Udada4206b73648833b844cfbf1562a87"];
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
@@ -394,7 +394,6 @@ const watchConfirmationFlexTemplate = {
     }
 };
 
-
 const modelConfig = {
     "defaultModel": "gemini-1.5-flash-latest",
     "empatheticModel": "gpt-4o-mini",
@@ -543,7 +542,7 @@ A: そっか…。もしまた気が向いたら、いつでも話しかけて�
 ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**最も優先して明確に答えるべき質問です**。決して宿題や勉強に関する質問と混同せず、迷わず、自信を持ってNPO法人コネクトの活動内容や目的について詳しく説明してください。
 例:
 Q: コネクトってどんな団体？
-A: うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org
+A: うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　困っている人が安心して相談できたり、助け合えるような社会をつくりたいって願って、活動しているんだ。
 
 **【ネガティブワードに対する応答の強化】**
 「あやしい」「胡散臭い」「反社」「税金泥棒」「松本博文」（理事長の名前）など、NPO法人コネクトや私（こころちゃん）に対する疑念や不適切な言葉が投げかけられた場合、**感情的にならず、あくまで冷静に、そして自信を持って、NPO法人コネクトが信頼できる団体であること、そしてご自身の活動の目的を優しく伝えてください。**
@@ -579,156 +578,156 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 **特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
 「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
-    `;
-    try {
-        const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings });
+    `;
+    try {
+        const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings });
 
-        const generateContentPromise = new Promise((resolve, reject) => {
-            let timeoutId;
-            const controller = new AbortController();
-            const signal = controller.signal;
+        const generateContentPromise = new Promise((resolve, reject) => {
+            let timeoutId;
+            const controller = new AbortController();
+            const signal = controller.signal;
 
-            timeoutId = setTimeout(() => {
-                controller.abort();
-                reject(new Error("API応答がタイムアウトしました。"));
-            }, 10000);
+            timeoutId = setTimeout(() => {
+                controller.abort();
+                reject(new Error("API応答がタイムアウトしました。"));
+            }, 10000);
 
-            model.generateContent({
-                system_instruction: {
-                    parts: [{ text: systemInstruction }]
-                },
-                contents: [
-                    {
-                        role: "user",
-                        parts: [{ text: userMessage }]
-                    }
-                ],
-                generationConfig: {
-                    maxOutputTokens: 500
-                }
-            }, { requestOptions: { signal } })
-            .then(result => {
-                clearTimeout(timeoutId);
-                resolve(result);
-            })
-            .catch(error => {
-                clearTimeout(timeoutId);
-                reject(error);
-            });
-        });
+            model.generateContent({
+                system_instruction: {
+                    parts: [{ text: systemInstruction }]
+                },
+                contents: [
+                    {
+                        role: "user",
+                        parts: [{ text: userMessage }]
+                    }
+                ],
+                generationConfig: {
+                    maxOutputTokens: 500
+                }
+            }, { requestOptions: { signal } })
+            .then(result => {
+                clearTimeout(timeoutId);
+                resolve(result);
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                reject(error);
+            });
+        });
 
-        const result = await generateContentPromise;
+        const result = await generateContentPromise;
 
-        if (result.response && result.response.candidates && result.response.candidates.length > 0) {
-            return result.response.candidates[0].content.parts[0].text;
-        } else {
-            console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
-            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
-        }
-    } catch (error) {
-        console.error("Gemini APIエラー:", error.response?.data || error.message);
-        await logErrorToDb(null, "Gemini APIエラー", { error: error.message, stack: error.stack, userMessage: userMessage });
-        if (error.message === "API応答がタイムアウトしました。") {
-            return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
-        }
-        if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
-            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
-        }
-        return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
-    }
+        if (result.response && result.response.candidates && result.response.candidates.length > 0) {
+            return result.response.candidates[0].content.parts[0].text;
+        } else {
+            console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
+            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
+        }
+    } catch (error) {
+        console.error("Gemini APIエラー:", error.response?.data || error.message);
+        await logErrorToDb(null, "Gemini APIエラー", { error: error.message, stack: error.stack, userMessage: userMessage });
+        if (error.message === "API応答がタイムアウトしました。") {
+            return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
+        }
+        if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
+            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
+        }
+        return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
+    }
 }
 
 async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'system_error') {
-    try {
-        const logsCollection = db.collection("error_logs");
+    try {
+        const logsCollection = db.collection("error_logs");
 
-        await logsCollection.add({
-            userId: userId || 'N/A',
-            message: `ERROR: ${errorMessage}`,
-            replyText: `システムエラー: ${errorMessage}`,
-            responsedBy: 'システム（エラー）',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            logType: logType,
-            errorDetails: errorDetails ? JSON.stringify(errorDetails) : 'N/A'
-        });
-        console.error(`🚨 Firestoreにエラーを記録しました: ${errorMessage}`);
-    } catch (dbError) {
-        console.error(`❌ エラーログ記録中にさらなるエラーが発生しました: ${dbError.message}`);
-    }
+        await logsCollection.add({
+            userId: userId || 'N/A',
+            message: `ERROR: ${errorMessage}`,
+            replyText: `システムエラー: ${errorMessage}`,
+            responsedBy: 'システム（エラー）',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            logType: logType,
+            errorDetails: errorDetails ? JSON.stringify(errorDetails) : 'N/A'
+        });
+        console.error(`🚨 Firestoreにエラーを記録しました: ${errorMessage}`);
+    } catch (dbError) {
+        console.error(`❌ エラーログ記録中にさらなるエラーが発生しました: ${dbError.message}`);
+    }
 }
 
 async function getUserDisplayName(userId) {
-    try {
-        const profile = await client.getProfile(userId);
-        return profile.displayName;
-    } catch (error) {
-        console.error(`ユーザー ${userId} の表示名取得に失敗:`, error.message);
-        await logErrorToDb(userId, `ユーザー表示名取得失敗`, { error: error.message, userId: userId });
-        return `UnknownUser_${userId.substring(0, 8)}`;
-    }
+    try {
+        const profile = await client.getProfile(userId);
+        return profile.displayName;
+    } catch (error) {
+        console.error(`ユーザー ${userId} の表示名取得に失敗:`, error.message);
+        await logErrorToDb(userId, `ユーザー表示名取得失敗`, { error: error.message, userId: userId });
+        return `UnknownUser_${userId.substring(0, 8)}`;
+    }
 }
 
 function isBotAdmin(userId) {
-    return BOT_ADMIN_IDS.includes(userId);
+    return BOT_ADMIN_IDS.includes(userId);
 }
 
 function checkContainsDangerWords(message) {
-    const lowerMessage = message.toLowerCase();
-    return dangerWords.some(word => lowerMessage.includes(word));
+    const lowerMessage = message.toLowerCase();
+    return dangerWords.some(word => lowerMessage.includes(word));
 }
 
 function checkContainsScamWords(message) {
-    const lowerMessage = message.toLowerCase();
-    return scamWords.some(word => lowerMessage.includes(word));
+    const lowerMessage = message.toLowerCase();
+    return scamWords.some(word => lowerMessage.includes(word));
 }
 
 function checkContainsInappropriateWords(message) {
-    const lowerMessage = message.toLowerCase();
-    return inappropriateWords.some(word => lowerMessage.includes(word));
+    const lowerMessage = message.toLowerCase();
+    return inappropriateWords.some(word => lowerMessage.includes(word));
 }
 
 function shouldLogMessage(message, isFlagged, handledByWatchService, isAdminCommand, isResetCommand) {
-    if (isFlagged) return true;
-    if (handledByWatchService) return true;
-    if (isAdminCommand) return true;
-    if (isResetCommand) return true;
+    if (isFlagged) return true;
+    if (handledByWatchService) return true;
+    if (isAdminCommand) return true;
+    if (isResetCommand) return true;
 
-    const lowerMessage = message.toLowerCase();
-    if (lowerMessage.includes("相談") || lowerMessage.includes("そうだん")) {
-        return true;
-    }
-    return false;
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes("相談") || lowerMessage.includes("そうだん")) {
+        return true;
+    }
+    return false;
 }
 
 function checkSpecialReply(text) {
-    const lowerText = text.toLowerCase();
-    // ⭐修正: Mapのキーが正規表現の場合と文字列の場合を区別して処理
-    for (const [key, value] of specialRepliesMap) {
-        if (key instanceof RegExp) {
-            if (key.test(lowerText)) {
-                return value;
-            }
-        } else {
-            if (lowerText.includes(key.toLowerCase())) { // 文字列キーの場合はincludesでチェック
-                return value;
-            }
-        }
-    }
-    return null;
+    const lowerText = text.toLowerCase();
+    // ⭐修正: Mapのキーが正規表現の場合と文字列の場合を区別して処理
+    for (const [key, value] of specialRepliesMap) {
+        if (key instanceof RegExp) {
+            if (key.test(lowerText)) {
+                return value;
+            }
+        } else {
+            if (lowerText.includes(key.toLowerCase())) { // 文字列キーの場合はincludesでチェック
+                return value;
+            }
+        }
+    }
+    return null;
 }
 
 // 団体に関する質問を判定する関数を強化
 const isOrganizationInquiry = (text) => {
-    const lower = text.toLowerCase();
-    const orgKeywords = ["コネクト", "connect", "団体", "だんたい", "npo", "運営", "組織"];
-    // 質問の意図を示すキーワードをより多く追加。「いえない」のような否定形もキャッチ
-    const questionKeywords = ["どこ", "何", "どんな", "教えて", "いえない", "は？", "なの？", "ですか？", "ですか", "の？", "かい？", "かい", "言えないの", "について"]; 
-    
-    const hasOrgKeyword = orgKeywords.some(word => lower.includes(word));
-    const hasQuestionKeyword = questionKeywords.some(word => lower.includes(word));
+    const lower = text.toLowerCase();
+    const orgKeywords = ["コネクト", "connect", "団体", "だんたい", "npo", "運営", "組織"];
+    // 質問の意図を示すキーワードをより多く追加。「いえない」のような否定形もキャッチ
+    const questionKeywords = ["どこ", "何", "どんな", "教えて", "いえない", "は？", "なの？", "ですか？", "ですか", "の？", "かい？", "かい", "言えないの", "について"];
 
-    // 組織関連キーワードと質問キーワードの両方が含まれる場合にtrue
-    return hasOrgKeyword && hasQuestionKeyword;
+    const hasOrgKeyword = orgKeywords.some(word => lower.includes(word));
+    const hasQuestionKeyword = questionKeywords.some(word => lower.includes(word));
+
+    // 組織関連キーワードと質問キーワードの両方が含まれる場合にtrue
+    return hasOrgKeyword && hasQuestionKeyword;
 };
 
 // 固定の団体応答メッセージを短縮
@@ -737,41 +736,41 @@ const ORGANIZATION_REPLY_MESSAGE = "うん、NPO法人コネクトのこと、�
 
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
 function containsHomeworkTrigger(text) {
-    const lowerText = text.toLowerCase();
-    return homeworkTriggers.some(word => lowerText.includes(word));
+    const lowerText = text.toLowerCase();
+    return homeworkTriggers.some(word => lowerText.includes(word));
 }
 
 const watchMessages = [
-    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
-    "やっほー！ こころだよ😊 いつも応援してるね！",
-    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
-    "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
-    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
-    "こんにちは😊 困ったことはないかな？いつでも相談してね！",
-    "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
-    "元気出してね！こころちゃん、あなたの味方だよ😊",
-    "こころちゃんだよ🌸 今日も一日お疲れ様💖",
-    "こんにちは😊 笑顔で過ごせてるかな？",
-    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
-    "元気かな？💖 こころはいつでもあなたのそばにいるよ！",
-    "ねぇねぇ、こころだよ😊 どんな小さなことでも話してね！",
-    "いつも応援してるよ🌸 こころちゃんだよ💖",
-    "こんにちは😊 今日も一日、お互いがんばろうね！",
-    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
-    "元気にしてる？✨ 季節の変わり目だから、体調に気をつけてね！",
-    "こころちゃんだよ🌸 嬉しいことがあったら、教えてね💖",
-    "こんにちは😊 ちょっと一息入れようね！",
-    "やっほー！ こころだよ🌸 あなたのことが心配だよ！",
-    "元気かな？💖 どんな時でも、こころはそばにいるよ！",
-    "ねぇねぇ、こころだよ😊 辛い時は、無理しないでね！",
-    "いつも見守ってるよ🌸 こころちゃんだよ💖",
-    "こんにちは😊 今日も一日、穏やかに過ごせたかな？",
-    "やっほー！ こころだよ🌸 困った時は、いつでも呼んでね！",
-    "元気にしてる？✨ こころはいつでも、あなたのことを考えてるよ💖",
-    "こころちゃんだよ🌸 小さなことでも、お話しようね！",
-    "こんにちは😊 あなたの笑顔が見たいな！",
-    "やっほー！ こころだよ🌸 頑張り屋さんだね！",
-    "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
+    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
+    "やっほー！ こころだよ😊 いつも応援してるね！",
+    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
+    "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
+    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+    "こんにちは😊 困ったことはないかな？いつでも相談してね！",
+    "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
+    "元気出してね！こころちゃん、あなたの味方だよ😊",
+    "こころちゃんだよ🌸 今日も一日お疲れ様💖",
+    "こんにちは😊 笑顔で過ごせてるかな？",
+    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
+    "元気かな？💖 こころはいつでもあなたのそばにいるよ！",
+    "ねぇねぇ、こころだよ😊 どんな小さなことでも話してね！",
+    "いつも応援してるよ🌸 こころちゃんだよ💖",
+    "こんにちは😊 今日も一日、お互いがんばろうね！",
+    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
+    "元気にしてる？✨ 季節の変わり目だから、体調に気をつけてね！",
+    "こころちゃんだよ🌸 嬉しいことがあったら、教えてね💖",
+    "こんにちは😊 ちょっと一息入れようね！",
+    "やっほー！ こころだよ🌸 あなたのことが心配だよ！",
+    "元気かな？💖 どんな時でも、こころはそばにいるよ！",
+    "ねぇねぇ、こころだよ😊 辛い時は、無理しないでね！",
+    "いつも見守ってるよ🌸 こころちゃんだよ💖",
+    "こんにちは😊 今日も一日、穏やかに過ごせたかな？",
+    "やっほー！ こころだよ🌸 困った時は、いつでも呼んでね！",
+    "元気にしてる？✨ こころはいつでも、あなたのことを考えてるよ💖",
+    "こころちゃんだよ🌸 小さなことでも、お話しようね！",
+    "こんにちは😊 あなたの笑顔が見たいな！",
+    "やっほー！ こころだよ🌸 頑張り屋さんだね！",
+    "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
 ];
 
 // ⭐handleRegistrationFlow関数をここに定義します⭐
@@ -990,31 +989,76 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     const lowerUserMessage = userMessage.toLowerCase();
     let handled = false;
 
-    // ⭐追加: 見守りサービスの対象ユーザー判定 (handleWatchServiceRegistration内のロジック)
-    if (user && user.category && (user.category === '小学生' || (user.category === '中学生～大学生' && !lowerUserMessage.includes('一人暮らし')))) { // 仮で一人暮らしをトリガーに
-        const replyText = `ごめんね、見守りサービスは主に30代以上の一人暮らしの方を対象としているんだ💦\n高校生や大学生で一人暮らしをしていて不安な場合は、特別な相談もできるから教えてね。もし、いじめや詐欺のことで困っていたら、いつでも話を聞くよ🌸`;
-        await client.pushMessage(userId, { type: 'text', text: replyText });
-        await messagesCollection.add({
-            userId: userId,
-            message: userMessage,
-            replyText: replyText,
-            responsedBy: 'こころちゃん（見守り対象外）',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            logType: 'watch_service_category_denied'
-        });
-        return true; // 処理済みとして終了
+    // ⭐追加: 登録フローからの離脱 (ユーザーが「登録やめる」などを入力した場合)
+    if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep) {
+        await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
+        await client.pushMessage(userId, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        return true; // 処理済み
     }
 
-
-    if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
+    // ⭐修正: 「見守り」と入力されたら、フォームへのリンク付きFlexメッセージを表示
+    if (["見守り", "みまもり"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
         try {
+            // LINEユーザーIDを自動で埋め込むためのGoogleフォームの公開URL
+            const googleFormBaseUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url'; // ここが修正後の値
+            // Googleフォームの「あなたのLINEユーザーID」質問の内部ID（エントリーID）
+            const lineUserIdFormEntryId = 'entry.312175830'; // ここが修正後の値
+
+            // LINEユーザーIDを埋め込んだプリフィルURLを生成
+            const userIdFromEvent = event.source.userId; // eventオブジェクトからuserIdを取得
+            const prefilledFormUrl = `${googleFormBaseUrl}&${lineUserIdFormEntryId}=${userIdFromEvent}`; // URLの結合部分を修正
+
             await client.replyMessage(event.replyToken, {
                 type: 'flex',
                 altText: '💖見守りサービス案内💖',
-                contents: watchServiceGuideFlexTemplate
+                contents: {
+                    type: 'bubble',
+                    body: {
+                        type: 'box', // ⭐修正: `box`の後の`"`が抜けていたので追加
+                        layout: "vertical",
+                        contents: [
+                            {
+                                type: "text",
+                                text: "💖見守りサービスのご案内💖",
+                                weight: "bold",
+                                color: "#FF69B4",
+                                size: "md",
+                                align: "center"
+                            },
+                            {
+                                type: "text",
+                                text: "大切な方を見守るサービスです。ご登録はこちらからどうぞ。ご登録後はLINEで定期的に安否確認メッセージをお送りします。",
+                                wrap: true,
+                                margin: "md"
+                            },
+                            {
+                                type: "button",
+                                style: "primary",
+                                height: "sm",
+                                action: {
+                                    type: "uri",
+                                    label: "見守りサービスに登録する",
+                                    uri: prefilledFormUrl // プリフィルURLを使用
+                                },
+                                margin: "md"
+                            },
+                            {
+                                type: "button", // ⭐追加: 解除ボタン
+                                style: "secondary",
+                                height: "sm",
+                                action: {
+                                    type: "postback",
+                                    label: "見守りサービスを解除する",
+                                    data: "action=watch_unregister_command" // 解除用コマンド
+                                },
+                                margin: "md"
+                            }
+                        ]
+                    }
+                }
             });
             await messagesCollection.add({
-                userId: userId,
+                userId: userIdFromEvent, // ここもuserIdFromEventを使用
                 message: userMessage,
                 replyText: '（見守りサービス案内Flex表示）',
                 responsedBy: 'こころちゃん（見守り案内）',
@@ -1026,6 +1070,33 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             console.error("❌ 見守りサービス案内Flex送信エラー:", error.message);
             await logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
         }
+    }
+    // ⭐追加: 「解除」postbackコマンドの処理
+    else if (event.type === 'postback' && event.postback.data === 'action=watch_unregister_command') {
+        try {
+            // ここに解除ロジックを記述
+            // 例: ユーザーの wantsWatchCheck を false に更新
+            await usersCollection.doc(userId).update({ wantsWatchCheck: false, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false });
+            await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスを解除しました🌸 またのご利用をお待ちしております💖' });
+            await messagesCollection.add({
+                userId: userId,
+                message: '（見守り解除コマンド）',
+                replyText: '見守りサービスを解除しました。',
+                responsedBy: 'こころちゃん（見守り解除）',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                logType: 'watch_service_unregistered'
+            });
+            handled = true;
+        } catch (error) {
+            console.error("❌ 見守りサービス解除処理エラー:", error.message);
+            await logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId: userId });
+        }
+    }
+    // ⭐追加: 「解除」テキストコマンドの処理
+    else if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ') {
+        // 解除ボタンと同じ処理を呼び出すか、直接メッセージを出す
+        await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスの解除ですね。見守りメニューから「見守りサービスを解除する」ボタンをタップしてください🌸' });
+        handled = true;
     }
     else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.wantsWatchCheck) {
@@ -1553,7 +1624,12 @@ app.post('/webhook', async (req, res) => {
                             responsedBy = 'システム（管理者エラー）';
                             logType = 'admin_error';
                         }
-                    } else {
+                    } else if (lowerUserMessage === '!myid') { // ⭐⭐ここを新しく追加⭐⭐
+                        await client.pushMessage(userId, { type: 'text', text: `あなたのLINEユーザーIDはこれだよ🌸\n\n${userId}` });
+                        responsedBy = 'システム（管理者）';
+                        logType = 'admin_show_id';
+                    }
+                    else {
                         await client.pushMessage(userId, { type: 'text', text: '不明な管理者コマンドです。' });
                         responsedBy = 'システム（拒否）';
                         logType = 'admin_command_unknown';
@@ -1581,7 +1657,7 @@ app.post('/webhook', async (req, res) => {
                 if (event.type === 'message' && event.message.type === 'text' && !messageHandled) {
                     const suspiciousWords = ["あやしい", "胡散臭い", "反社", "詐欺かも", "詐欺かもしれない", "詐欺だろ", "詐欺だよ"];
                     const matchedSuspiciousWord = suspiciousWords.find(word => lowerUserMessage.includes(word));
-                    
+
                     if (matchedSuspiciousWord) { // 該当する単語が見つかった場合
                         const suspiciousReply = specialRepliesMap.get(matchedSuspiciousWord); // Mapから直接応答を取得
                         if (suspiciousReply) {
@@ -1705,7 +1781,7 @@ app.post('/webhook', async (req, res) => {
                             logType: logType
                         });
                     } catch (firestoreError) {
-                        console.error("❌ Firestoreへのメッセージログ書き込みエラー:", firestoreError.message);
+                        console.error("❌ Firestoreへのメッセージログ書き込みエラー（会員登録フロー）:", firestoreError.message);
                     }
                 }
             } catch (error) {
