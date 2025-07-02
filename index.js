@@ -7,7 +7,7 @@ const { Client } = require('@line/bot-sdk');
 const admin = require('firebase-admin'); // Firebase Admin SDK
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai'); // Google Generative AI SDK
-const { OpenAI } = require('openai'); // OpenAI SDK
+const { OpenAI } = require('openai'); // OpenAIクライアント
 
 const app = express();
 app.use(express.json());
@@ -20,17 +20,29 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 // BOT_ADMIN_IDSはJSON形式で設定されている可能性を考慮
-const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADMIN_IDS) : ["Udada4206b73648833b844cfbf1562a87"];
+// JSON.parseは文字列がJSON形式でないとエラーになるため、try-catchで安全に
+let BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"]; // デフォルト値
+if (process.env.BOT_ADMIN_IDS) {
+    try {
+        BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS);
+    } catch (e) {
+        console.error("❌ BOT_ADMIN_IDS 環境変数のパースに失敗しました。JSON形式で設定してください。", e);
+        // パース失敗時はデフォルト値か、手動でカンマ区切りをsplitするなどの対応が必要
+        // 今回はそのまま文字列として扱うことで、既存のBOT_ADMIN_IDS.includes(userId) が機能するようにします。
+        BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS.split(','); 
+    }
+}
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
 // --- GoogleフォームのURL ---
-// 環境変数から取得するように変更（.envファイルに STUDENT_ELEMENTARY_FORM_URL などで設定）
-const STUDENT_ELEMENTARY_FORM_URL = process.env.STUDENT_ELEMENTARY_FORM_URL || "https://forms.gle/mgRJfAznoSun9gWA6";
-const STUDENT_MIDDLE_HIGH_UNI_FORM_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_URL || "https://forms.gle/EGYWXBVSUzX7wvgE8";
-const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/P9uuW9aEZDaCoWAN9";
+// 環境変数から取得。もし環境変数が設定されていなければ、フォールバックURLを使用
+const STUDENT_ELEMENTARY_FORM_URL = process.env.STUDENT_ELEMENTARY_FORM_URL || "https://forms.gle/EwskTCCjj8KyV6368";
+const STUDENT_MIDDLE_HIGH_UNI_FORM_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_URL || "https://forms.gle/1b5sNtc6AtJvpF8D7";
+const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r12jBDuiBn6";
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url';
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
+
 
 // --- Firebase Admin SDKの初期化 ---
 try {
@@ -267,9 +279,10 @@ const REGISTRATION_BUTTONS_FLEX = {
         "layout": "vertical",
         "contents": [
             { "type": "text", "text": "どの会員になるか選んでね🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+            // 環境変数からURLを取得するように修正
             { "type": "button", "action": { "type": "uri", "label": "小学生の方はこちら", "uri": STUDENT_ELEMENTARY_FORM_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
             { "type": "button", "action": { "type": "uri", "label": "中学生～大学生の方はこちら", "uri": STUDENT_MIDDLE_HIGH_UNI_FORM_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFB6C1" },
-            { "type": "button", "action": { "type": "uri", "label": "成人の方はこちら", "uri": ADULT_FORM_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" }
+            { "type": "button", "style": "primary", "height": "sm", "margin": "md", "action": { "type": "uri", "label": "成人の方はこちら", "uri": ADULT_FORM_URL }, "color": "#9370DB" }
         ]
     }
 };
@@ -737,14 +750,41 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
 
         case 'askingConsent':
             if (lowerUserMessage === '同意する' || lowerUserMessage === '同意') {
-                await usersCollection.doc(userId).update({
-                    consentObtained: true,
-                    // 学生証のフェーズは不要になったので、直接 membershipType を free に設定
-                    registrationStep: null, // 登録完了
-                    completedRegistration: true,
-                    membershipType: "free" // 登録完了でfree会員に
-                });
-                await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                // 学生証のフェーズは不要になったため、直接 free 会員に設定
+                // ただし、中学生～大学生の場合は、学生証フォームのURLを案内
+                if (user.category === '中学生～大学生') {
+                    await usersCollection.doc(userId).update({
+                        consentObtained: true,
+                        registrationStep: null, // 登録完了
+                        completedRegistration: true,
+                        membershipType: "free" // 同意でfree会員に
+                    });
+                    const prefilledFormUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_URL}&entry.LINE_USER_ID_ENTRY_ID=${userId}`; // LINE IDをフォームに渡す
+                    await client.replyMessage(event.replyToken, { 
+                        type: 'flex',
+                        altText: '学生証提出のお願い',
+                        contents: {
+                            type: 'bubble',
+                            body: {
+                                type: 'box',
+                                layout: 'vertical',
+                                contents: [
+                                    { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
+                                    { type: 'text', text: '学生証の提出にご協力ください💖', wrap: true, margin: 'md' },
+                                    { type: 'button', style: 'primary', height: 'sm', action: { type: 'uri', label: '学生証提出フォームへ', uri: prefilledFormUrl }, margin: 'md', color: '#FFB6C1' }
+                                ]
+                            }
+                        }
+                    });
+                } else { // 小学生、成人の場合
+                    await usersCollection.doc(userId).update({
+                        consentObtained: true,
+                        registrationStep: null, // 登録完了
+                        completedRegistration: true,
+                        membershipType: "free" // 同意でfree会員に
+                    });
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                }
                 handled = true;
             } else if (lowerUserMessage.includes('同意しない') || lowerUserMessage.includes('しない')) {
                 await usersCollection.doc(userId).update({
@@ -759,7 +799,8 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             }
             break;
-        // askingStudentIdPhoto ステップは削除しました。学生証の確認はフォームで処理されるため。
+        
+        // StudentIdPhotoの受付はフォームに任せるため、Node.js側では直接処理しない
 
         default:
             handled = false;
@@ -1193,12 +1234,14 @@ app.post('/webhook', async (req, res) => {
                         replyText = '使用法: admin:set_membership [ユーザーID] [membershipType]';
                     }
                 } else if (command === '!メニュー' || command === 'メニュー') {
+                    // client.replyMessage は handleEvent の中で一度だけ呼び出すべき
                     await sendRichMenu(replyToken); // メニューはreplyTokenを使うのでここで直接呼び出す
                     replyText = 'メニューを表示したよ！'; // この返信はログ用なので実際にはLINE側には表示されない
                     logType = 'system_menu';
                     logFlagged = true;
-                    await logToDb(userId, userMessage, replyText, 'こころちゃん（管理者コマンド）', logType, logFlagged); // 先にログ
-                    return; // メニュー表示後はここで終了
+                    // ログ記録を非同期で実行し、return; で即座に終了
+                    logToDb(userId, userMessage, replyText, 'こころちゃん（管理者コマンド）', logType, logFlagged);
+                    return; 
                 } else if (command === '!history') {
                     try {
                         const querySnapshot = await db.collection('logs').where('userId', '==', userId)
@@ -1215,8 +1258,9 @@ app.post('/webhook', async (req, res) => {
                         logType = 'admin_history';
                         logFlagged = true;
                         await client.replyMessage(replyToken, { type: 'text', text: replyText });
-                        await logToDb(userId, userMessage, replyText, 'こころちゃん（管理者コマンド）', logType, logFlagged);
-                        return; // 履歴表示後はここで終了
+                        // ログ記録を非同期で実行し、return; で即座に終了
+                        logToDb(userId, userMessage, replyText, 'こころちゃん（管理者コマンド）', logType, logFlagged);
+                        return; 
                     } catch (error) {
                         console.error("❌ 履歴取得エラー:", error.message);
                         logErrorToDb(userId, "履歴取得エラー", { error: error.message, userId: userId });
@@ -1232,8 +1276,9 @@ app.post('/webhook', async (req, res) => {
                 }
                 logFlagged = true; // 管理者コマンドは常にフラグを立てる
                 await client.replyMessage(replyToken, { type: 'text', text: replyText });
-                await logToDb(userId, userMessage, replyText, 'こころちゃん（管理者コマンド）', logType, logFlagged);
-                return; // 処理が完了したらここで終了
+                // ログ記録を非同期で実行し、return; で即座に終了
+                logToDb(userId, userMessage, replyText, 'こころちゃん（管理者コマンド）', logType, logFlagged);
+                return;
             }
 
             // 2. 会員登録フローの継続 (登録途中のユーザー向け)
@@ -1282,7 +1327,8 @@ app.post('/webhook', async (req, res) => {
             // 6. 不適切ワードのチェック
             const isInappropriate = checkContainsInappropriateWords(userMessage);
             if (isInappropriate) {
-                await usersCollection.doc(userId).update({
+                // await は付けず非同期で実行
+                usersCollection.doc(userId).update({
                     inappropriateWordCount: admin.firestore.FieldValue.increment(1)
                 });
                 user.inappropriateWordCount = (user.inappropriateWordCount || 0) + 1; // userオブジェクトも更新
@@ -1293,13 +1339,13 @@ app.post('/webhook', async (req, res) => {
 
                 if (user.inappropriateWordCount >= 2 && OWNER_USER_ID) { // 2回以上で通知
                     const ownerNotification = `【⚠不適切ワード通知⚠】\nユーザー（LINE表示名: ${user.displayName}）が本日2回以上不適切ワードを送信しました。\nユーザーID: ${userId}\n最新のメッセージ: 「${userMessage}」`;
-                    try {
-                        await client.pushMessage(OWNER_USER_ID, { type: 'text', text: ownerNotification });
-                        console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に不適切ワード通知を送信しました。`);
-                    } catch (notifyError) {
-                        console.error(`❌ OWNER_USER_IDへの不適切ワード通知送信エラー:`, notifyError.message);
-                        logErrorToDb(OWNER_USER_ID, "不適切ワード通知送信エラー", { error: notifyError.message, userId: userId, originalMessage: userMessage });
-                    }
+                    // await は付けず非同期で実行
+                    client.pushMessage(OWNER_USER_ID, { type: 'text', text: ownerNotification })
+                        .then(() => console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に不適切ワード通知を送信しました。`))
+                        .catch(notifyError => {
+                            console.error(`❌ OWNER_USER_IDへの不適切ワード通知送信エラー:`, notifyError.message);
+                            logErrorToDb(OWNER_USER_ID, "不適切ワード通知送信エラー", { error: notifyError.message, userId: userId, originalMessage: userMessage });
+                        });
                 }
                 return;
             }
@@ -1326,12 +1372,20 @@ app.post('/webhook', async (req, res) => {
 
                 let aiResponse = "";
                 if (isDanger) {
-                    aiResponse = await generateGPTReply(userMessage, "gpt-4o", userId, user); // 緊急時AI応答
-                    await client.replyMessage(replyToken, [{ type: 'text', text: aiResponse }, { type: 'flex', altText: "緊急連絡先一覧", contents: EMERGENCY_FLEX_MESSAGE }]);
+                    // AI応答は非同期で実行し、返信は迅速に行う
+                    await client.replyMessage(replyToken, [{ type: 'text', text: 'ごめんね、それはわたしにはお話しできない内容です🌸 緊急の時は、専門の人に相談してね💖' }, { type: 'flex', altText: "緊急連絡先一覧", contents: EMERGENCY_FLEX_MESSAGE }]);
+                    // 本来のAI応答は別途プッシュメッセージで送るか、ログのみに
+                    generateGPTReply(userMessage, "gpt-4o", userId, user).then(response => {
+                         client.pushMessage(userId, { type: 'text', text: response }).catch(e => console.error("GPT応答プッシュ失敗", e));
+                    });
                     logToDb(userId, userMessage, `（緊急連絡先Flex表示 + GPT-4o応答）`, 'こころちゃん（危険検知）', 'danger_word_detected', true);
                 } else if (isScam) {
-                    aiResponse = await generateGPTReply(userMessage, "gpt-4o", userId, user); // 詐欺対応AI応答
-                    await client.replyMessage(replyToken, [{ type: 'text', text: aiResponse }, { type: 'flex', altText: "詐欺の可能性があります", contents: SCAM_FLEX_MESSAGE }]);
+                     // AI応答は非同期で実行し、返信は迅速に行う
+                    await client.replyMessage(replyToken, [{ type: 'text', text: '怪しい話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にしてみてね💖' }, { type: 'flex', altText: "詐欺の可能性があります", contents: SCAM_FLEX_MESSAGE }]);
+                    // 本来のAI応答は別途プッシュメッセージで送るか、ログのみに
+                    generateGPTReply(userMessage, "gpt-4o", userId, user).then(response => {
+                         client.pushMessage(userId, { type: 'text', text: response }).catch(e => console.error("GPT応答プッシュ失敗", e));
+                    });
                     logToDb(userId, userMessage, `（詐欺注意Flex表示 + GPT-4o応答）`, 'こころちゃん（詐欺検知）', 'scam_word_detected', true);
                 }
                 return;
@@ -1363,6 +1417,7 @@ app.post('/webhook', async (req, res) => {
                 if (user.membershipType === "subscriber" && userConfig.fallbackModel) {
                     // サブスク会員でProモデルの制限を超過した場合のフォールバック
                     // Fallbackモデルを決定 (寄付会員なら強化版Flash, そうでなければ通常Flash)
+                    // user.categoryやuser.completedRegistrationはuserオブジェクトから取得
                     const fallbackMembershipType = (user.category === '成人' && user.completedRegistration) ? "donor" : "free";
                     finalModelToUse = MEMBERSHIP_CONFIG[fallbackMembershipType].model;
                     
@@ -1383,39 +1438,57 @@ app.post('/webhook', async (req, res) => {
             // 11. 相談モード中の応答（1回限り）
             // 月間回数制限チェックの後に配置
             if (user.isConsultationMode) {
-                // AI応答を生成し、返信する
-                const aiReply = await generateGeminiReply(userMessage, "gemini-1.5-pro-latest", userId, user); // 相談モードは常にPro
-                await client.replyMessage(replyToken, { type: 'text', text: aiReply });
-                // 1回応答したらモード解除（非同期）
-                usersCollection.doc(userId).update({ isConsultationMode: false });
-                logToDb(userId, userMessage, aiReply, 'こころちゃん（相談モード）', 'consultation_message', true);
+                // ユーザーには「少々お待ちください」などのメッセージをまず返し、AI応答はプッシュ
+                await client.replyMessage(replyToken, { type: 'text', text: 'うん、じっくり考えるね…少々お待ちください🌸' });
+                // AI応答を生成し、プッシュメッセージで返信する
+                generateGeminiReply(userMessage, "gemini-1.5-pro-latest", userId, user).then(aiReply => {
+                    client.pushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("相談モードAI応答プッシュ失敗", e));
+                    // 1回応答したらモード解除（非同期）
+                    usersCollection.doc(userId).update({ isConsultationMode: false });
+                    logToDb(userId, userMessage, aiReply, 'こころちゃん（相談モード）', 'consultation_message', true);
+                }).catch(e => {
+                    console.error("相談モードAI応答生成エラー", e);
+                    logErrorToDb(userId, "相談モードAI応答生成エラー", { error: e.message, userId: userId, originalMessage: userMessage });
+                });
                 return;
             }
             
             // 12. NPO法人コネクトに関する質問を優先（`isOrganizationInquiry`関数に正規表現対応済み）
-            // Fixed: ORGANIZATION_REPLY_MESSAGE が未定義だったため、直接文字列を指定
+            const orgReply = "うん、NPO法人コネクトのこと、もっと知りたいんだね🌸　コネクトは、子どもたちや高齢者の方々、そしてみんなが安心して相談できる場所を目指している団体なんだよ😊　困っている人が安心して相談できたり、助け合えるような社会をつくりたいって願って、活動しているんだ。\nもっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org";
             if (isOrganizationInquiry(userMessage)) {
-                const orgReply = "うん、NPO法人コネクトのこと、もっと知りたいんだね🌸　コネクトは、子どもたちや高齢者の方々、そしてみんなが安心して相談できる場所を目指している団体なんだよ😊　困っている人が安心して相談できたり、助け合えるような社会をつくりたいって願って、活動しているんだ。\nもっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org";
                 await client.replyMessage(replyToken, { type: 'text', text: orgReply });
                 logToDb(userId, userMessage, orgReply, 'こころちゃん（団体説明）', 'organization_inquiry', true);
                 return;
             }
 
             // 13. 共感が必要なメッセージ (GPT)
-            // empatheicTriggers をチェックする関数を追加しました
+            // empatheticTriggers をチェックする関数を追加しました
             if (containsEmpatheticTrigger(userMessage)) {
-                const aiReply = await generateGPTReply(userMessage, "gpt-4o-mini", userId, user); // 共感モデル
-                await client.replyMessage(replyToken, { type: 'text', text: aiReply });
-                logToDb(userId, userMessage, aiReply, 'こころちゃん（共感）', 'empathetic_message', true);
+                 // ユーザーには「少々お待ちください」などのメッセージをまず返し、AI応答はプッシュ
+                await client.replyMessage(replyToken, { type: 'text', text: 'うん、じっくり考えるね…少々お待ちください🌸' });
+                generateGPTReply(userMessage, "gpt-4o-mini", userId, user).then(aiReply => { // 共感モデル
+                    client.pushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("共感AI応答プッシュ失敗", e));
+                    logToDb(userId, userMessage, aiReply, 'こころちゃん（共感）', 'empathetic_message', true);
+                }).catch(e => {
+                    console.error("共感AI応答生成エラー", e);
+                    logErrorToDb(userId, "共感AI応答生成エラー", { error: e.message, userId: userId, originalMessage: userMessage });
+                });
                 return;
             }
 
             // 14. 通常のAI応答（会員区分に基づくモデル） - 最終的なフォールバック
-            let aiReply = await generateGeminiReply(userMessage, userConfig.model, userId, user);
-            await client.replyMessage(replyToken, { type: 'text', text: aiReply });
-            // 通常会話はログ記録しない (logToDbのisFlagged=falseで判断) - これにより「無効な応答トークン」エラーを軽減
-            // 重要: 通常会話ログを記録したい場合は、この行のコメントを外してください。
-            // await logToDb(userId, userMessage, aiReply, `こころちゃん（AI: ${userConfig.model}）`, 'normal_conversation', false);
+            // ユーザーには「少々お待ちください」などのメッセージをまず返し、AI応答はプッシュ
+            await client.replyMessage(replyToken, { type: 'text', text: 'うん、じっくり考えるね…少々お待ちください🌸' });
+            generateGeminiReply(userMessage, userConfig.model, userId, user).then(aiReply => {
+                client.pushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("通常AI応答プッシュ失敗", e));
+                // 通常会話はログ記録しない (logToDbのisFlagged=falseで判断) - これにより「無効な応答トークン」エラーを軽減
+                // 重要: 通常会話ログを記録したい場合は、この行のコメントを外してください。
+                // logToDb(userId, userMessage, aiReply, `こころちゃん（AI: ${userConfig.model}）`, 'normal_conversation', false);
+            }).catch(e => {
+                console.error("通常AI応答生成エラー", e);
+                logErrorToDb(userId, "通常AI応答生成エラー", { error: e.message, userId: userId, originalMessage: userMessage });
+            });
+
 
         } else if (event.type === 'postback') {
             const { replyToken, postback } = event;
@@ -1440,7 +1513,7 @@ app.post('/webhook', async (req, res) => {
             }
         }
     }
-    res.status(200).send('OK');
+    res.status(200).send('OK'); // すべてのイベントを処理後、OKを返す
 });
 
 const PORT = process.env.PORT || 10000;
