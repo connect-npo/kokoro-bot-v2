@@ -1173,7 +1173,7 @@ cron.schedule('0 4 * * *', async () => {
 
 
 // --- 定期見守りメッセージ送信 Cronジョブ (毎日午前9時にトリガー) ---
-cron.schedule('0 9 * * *', () => {
+cron.schedule('0 15 * * *', () => {
     console.log('cron: 定期見守りメッセージ送信処理をトリガーします。');
     sendScheduledWatchMessage();
 }, {
