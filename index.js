@@ -1516,8 +1516,23 @@ app.post('/webhook', async (req, res) => {
             const isScam = checkContainsScamWords(userMessage);
 
             if (isDanger || isScam) {
-                const userName = user.displayName || `不明ユーザー`;
-                const notificationMessage = `【⚠緊急通知⚠】\nユーザー（LINE表示名: ${userName}）が${isDanger ? '危険' : '詐欺'}ワードを送信しました。\nメッセージ内容: 「${userMessage}」\nユーザーID: ${userId}`;
+                const userName = user.displayName || user.name || `不明ユーザー`;
+                // ⭐修正: 危険ワード/詐欺ワード通知に、本人の連絡先と緊急連絡先を追加 ⭐
+                let notificationMessage = `【⚠緊急通知⚠】\nユーザー（LINE表示名: ${userName}）が${isDanger ? '危険' : '詐欺'}ワードを送信しました。\nメッセージ内容: 「${userMessage}」\nユーザーID: ${userId}\n`;
+
+                if (user.phoneNumber) { // 成人ユーザーや、電話番号を登録した学生ユーザーの場合
+                    notificationMessage += `本人の連絡先: ${user.phoneNumber}\n`;
+                }
+                if (user.guardianName || user.emergencyContact) { // 学生ユーザーの保護者情報、または見守りサービス登録ユーザーの緊急連絡先
+                    notificationMessage += `登録緊急連絡先:\n`;
+                    if (user.guardianName) {
+                        notificationMessage += `氏名: ${user.guardianName}\n`;
+                    }
+                    if (user.emergencyContact) { // emergencyContactは電話番号を想定
+                        notificationMessage += `電話番号: ${user.emergencyContact}\n`;
+                    }
+                }
+                notificationMessage += `\n至急、状況確認をお願いいたします。`;
 
                 if (OFFICER_GROUP_ID) {
                     client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: notificationMessage })
