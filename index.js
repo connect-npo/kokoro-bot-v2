@@ -39,7 +39,6 @@ const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r1
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url'; 
 const STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID = 'entry.1022758253'; 
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830'; 
-// ⭐修正済み: 登録情報変更用フォームのURLとEntry ID ⭐
 const CHANGE_INFO_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform"; // まつさんが作成したフォームのURL
 const CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID = "entry.743637502"; // まつさんが特定したEntry ID
 
@@ -78,7 +77,6 @@ const dangerWords = [
     "いじめ", "イジメ", "ハラスメント",
     "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
 ];
-// ⭐修正済み: 詐欺ワードの正規表現を強化 (「詐欺かも」等も検知対象に) ⭐
 const scamWords = [
     /詐欺(かも|だ|です|ですか|かもしれない)?/i, 
     /騙(す|される|された)/i,      
@@ -106,7 +104,6 @@ const inappropriateWords = [
     "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み",
     "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
 ];
-// ⭐修正済み: いじめも共感トリガーに含める ⭐
 const empatheticTriggers = [
     "辛い", "しんどい", "悲しい", "苦しい", "助けて", "悩み", "不安", "孤独", "寂しい", "疲れた",
     "病気", "痛い", "具合悪い", "困った", "どうしよう", "辞めたい", "消えたい", "死にそう", "いじめ", "イジメ" 
@@ -908,12 +905,16 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             });
             logToDb(userId, userMessage, '（見守りサービス案内Flex表示）', 'こころちゃん（見守り案内）', 'watch_service_interaction', true);
             handled = true;
-        } else {
-            // 見守りサービスのOK応答ではない通常の会話フロー
-            // ここにAI応答ロジックなどを続ける
+        } catch (error) { // エラーハンドリングを追加
+            console.error("❌ 見守りサービス案内Flex送信エラー:", error.message);
+            logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
         }
+        return handled; // ここで必ず handled の値を返す
     }
-    else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
+    // ここから下は以前の else if ではなく、独立した if 文として処理されるように修正しました
+    // これにより、「} それ以外 {」のような構文エラーを防ぎます
+
+    if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) { 
             try {
                 await usersCollection.doc(userId).update(
@@ -930,8 +931,10 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 logErrorToDb(userId, "見守りサービスOK応答処理エラー", { error: error.message, userId: userId });
             }
         }
+        return handled; // ここで必ず handled の値を返す
     }
-    else if (lowerUserMessage.includes("まあまあかな")) {
+    
+    if (lowerUserMessage.includes("まあまあかな")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
             try {
                 await client.pushMessage(userId, { 
@@ -945,8 +948,10 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 logErrorToDb(userId, "見守りサービス「まあまあ」応答処理エラー", { error: error.message, userId: userId });
             }
         }
+        return handled; // ここで必ず handled の値を返す
     }
-    else if (lowerUserMessage.includes("少し疲れた…")) {
+    
+    if (lowerUserMessage.includes("少し疲れた…")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
             try {
                 await client.pushMessage(userId, { 
@@ -960,8 +965,10 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 logErrorToDb(userId, "見守りサービス「疲れた」応答処理エラー", { error: error.message, userId: userId });
             }
         }
+        return handled; // ここで必ず handled の値を返す
     }
-    else if (lowerUserMessage.includes("話を聞いて")) {
+    
+    if (lowerUserMessage.includes("話を聞いて")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
             try {
                 await client.pushMessage(userId, { 
@@ -975,8 +982,10 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 logErrorToDb(userId, "見守りサービス「話を聞いて」応答処理エラー", { error: error.message, userId: userId });
             }
         }
+        return handled; // ここで必ず handled の値を返す
     }
-    else if (event.type === 'postback' && event.postback.data === 'action=watch_register') {
+    
+    if (event.type === 'postback' && event.postback.data === 'action=watch_register') {
         if (user && user.wantsWatchCheck) {
             await client.replyMessage(event.replyToken, { 
                 type: 'text',
@@ -1014,8 +1023,10 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             logToDb(userId, userMessage, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
             handled = true;
         }
+        return handled; // ここで必ず handled の値を返す
     }
-    else if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ' || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
+    
+    if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ' || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
         if (user && user.wantsWatchCheck) {
             try {
                 await usersCollection.doc(userId).update({ wantsWatchCheck: false, emergencyContact: null, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false });
@@ -1030,8 +1041,9 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖' }); 
             handled = true;
         }
+        return handled; // ここで必ず handled の値を返す
     }
-    return handled;
+    return handled; // どの if にも入らない場合のデフォルト
 }
 
 
@@ -1452,8 +1464,7 @@ app.post('/webhook', async (req, res) => {
                 }
 
                 notificationMessage += `\n**内容:**\n「${userMessage}」\n`;
-                notificationMessage += `\n**種別: ${isDanger ? '危険ワード' : '詐欺ワード'}**\n`; // 種別は最後に
-                
+                notificationMessage += `**種別: ${isDanger ? '危険ワード' : '詐欺ワード'}**\n`; // 種別は最後に
                 notificationMessage += `\n**対応のお願い:**\n至急、状況確認をお願いいたします。\n`;
 
 
@@ -1506,7 +1517,7 @@ app.post('/webhook', async (req, res) => {
                 return; 
             }
 
-            // 10. 月間メッセージ回数制限のチェック (管理者以外)
+            // 10. 月間メッセージカウント制限のチェック (管理者以外)
             if (userConfig.monthlyLimit !== -1 && user.messageCount >= userConfig.monthlyLimit) {
                 if (user.membershipType === "subscriber" && userConfig.fallbackModel) {
                     const fallbackMembershipType = (user.category === '成人' && user.completedRegistration) ? "donor" : "free";
