@@ -296,7 +296,9 @@ const specialRepliesMap = new Map([
     [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"], 
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"], 
     [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"],
-    [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"] 
+    [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
+    // ⭐修正済み: ClariSとNPO法人コネクトの関係についての固定応答 ⭐
+    [/ClariSと関係あるの？/i, "ClariSの音楽は、わたしにたくさんの元気と勇気をくれるんだ🌸💖　優しくて力強い歌声に、いつも励まされているよ。NPO法人コネクトとは直接的な提携関係はないけれど、わたしの名前（クララ）はClariSのクララさんからいただいているんだよ😊「コネクト」の活動も、ClariSの音楽のように、誰かの心に寄り添えるものになればいいなって思っているんだ。"]
 ]);
 
 function checkSpecialReply(text) {
@@ -605,7 +607,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
         const generateContentPromise = new Promise((resolve, reject) => {
             let timeoutId;
             const controller = new AbortController();
-            const signal = controller.signal;
+            const signal = controller; // AbortControllerのsignalを使う
 
             timeoutId = setTimeout(() => {
                 controller.abort();
@@ -618,7 +620,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
                 generationConfig: {
                     maxOutputTokens: userConfig.isChildAI ? 200 : 700 
                 }
-            }, { requestOptions: { signal } })
+            }, { requestOptions: { signal: signal.signal } }) // signal.signalを使う
                 .then(result => {
                     clearTimeout(timeoutId);
                     resolve(result);
@@ -895,7 +897,8 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         return true; 
     }
 
-
+    // ⭐修正済み: 見守り関連のメッセージ応答ロジックの修正 ⭐
+    // 各ifブロックの後に return true; を追加し、重複応答を防ぎます。
     if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
         try {
             await client.replyMessage(event.replyToken, { 
@@ -904,16 +907,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 contents: watchServiceGuideFlexTemplate
             });
             logToDb(userId, userMessage, '（見守りサービス案内Flex表示）', 'こころちゃん（見守り案内）', 'watch_service_interaction', true);
-            handled = true;
-        } catch (error) { // エラーハンドリングを追加
+            return true; // ここで処理を終了
+        } catch (error) { 
             console.error("❌ 見守りサービス案内Flex送信エラー:", error.message);
             logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
+            return false; // エラー時は処理されなかったとみなす
         }
-        return handled; // ここで必ず handled の値を返す
     }
-    // ここから下は以前の else if ではなく、独立した if 文として処理されるように修正しました
-    // これにより、「} それ以外 {」のような構文エラーを防ぎます
-
+    
     if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) { 
             try {
@@ -925,13 +926,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
                 });
                 logToDb(userId, userMessage, 'ありがとう🌸 元気そうで安心したよ💖 またね！', 'こころちゃん（見守り応答）', 'watch_service_ok_response', true);
-                handled = true;
+                return true; // ここで処理を終了
             } catch (error) {
                 console.error("❌ 見守りサービスOK応答処理エラー:", error.message);
                 logErrorToDb(userId, "見守りサービスOK応答処理エラー", { error: error.message, userId: userId });
+                return false; 
             }
         }
-        return handled; // ここで必ず handled の値を返す
+        return false; // 該当しない場合
     }
     
     if (lowerUserMessage.includes("まあまあかな")) {
@@ -942,13 +944,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
                 });
                 logToDb(userId, userMessage, 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖', 'こころちゃん（見守り応答）', 'watch_service_status_somewhat', true);
-                handled = true;
+                return true; // ここで処理を終了
             } catch (error) {
                 console.error("❌ 見守りサービス「まあまあ」応答処理エラー:", error.message);
                 logErrorToDb(userId, "見守りサービス「まあまあ」応答処理エラー", { error: error.message, userId: userId });
+                return false;
             }
         }
-        return handled; // ここで必ず handled の値を返す
+        return false;
     }
     
     if (lowerUserMessage.includes("少し疲れた…")) {
@@ -959,13 +962,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
                 });
                 logToDb(userId, userMessage, '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖', 'こころちゃん（見守り応答）', 'watch_service_status_tired', true);
-                handled = true;
+                return true; // ここで処理を終了
             } catch (error) {
                 console.error("❌ 見守りサービス「疲れた」応答処理エラー:", error.message);
                 logErrorToDb(userId, "見守りサービス「疲れた」応答処理エラー", { error: error.message, userId: userId });
+                return false;
             }
         }
-        return handled; // ここで必ず handled の値を返す
+        return false;
     }
     
     if (lowerUserMessage.includes("話を聞いて")) {
@@ -976,13 +980,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
                 });
                 logToDb(userId, userMessage, 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖', 'こころちゃん（見守り応答）', 'watch_service_status_talk', true);
-                handled = true;
+                return true; // ここで処理を終了
             } catch (error) {
                 console.error("❌ 見守りサービス「話を聞いて」応答処理エラー:", error.message);
                 logErrorToDb(userId, "見守りサービス「話を聞いて」応答処理エラー", { error: error.message, userId: userId });
+                return false;
             }
         }
-        return handled; // ここで必ず handled の値を返す
+        return false;
     }
     
     if (event.type === 'postback' && event.postback.data === 'action=watch_register') {
@@ -992,13 +997,13 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖'
             });
             logToDb(userId, userMessage, '見守りサービス登録済み', 'こころちゃん（見守り登録）', 'watch_service_already_registered', true);
-            handled = true;
+            return true; // ここで処理を終了
         } else if (user && user.registrationStep === 'awaiting_contact_form') { 
             await client.replyMessage(event.replyToken, { 
                 type: 'text',
                 text: 'まだ緊急連絡先フォームの入力を待ってるよ🌸 フォームを完了してくれるかな？💖'
             });
-            handled = true;
+            return true; // ここで処理を終了
         } else {
             const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
             await client.replyMessage(event.replyToken, { 
@@ -1021,9 +1026,8 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 registrationStep: 'awaiting_contact_form' 
             });
             logToDb(userId, userMessage, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
-            handled = true;
+            return true; // ここで処理を終了
         }
-        return handled; // ここで必ず handled の値を返す
     }
     
     if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ' || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
@@ -1032,18 +1036,18 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 await usersCollection.doc(userId).update({ wantsWatchCheck: false, emergencyContact: null, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false });
                 await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録してね💖' }); 
                 logToDb(userId, userMessage, '見守りサービスを解除しました。', 'こころちゃん（見守り解除）', 'watch_service_unregistered', true);
-                handled = true;
+                return true; // ここで処理を終了
             } catch (error) {
                 console.error("❌ 見守りサービス解除処理エラー:", error.message);
                 logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId: userId });
+                return false;
             }
         } else {
             await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖' }); 
-            handled = true;
+            return true; // ここで処理を終了
         }
-        return handled; // ここで必ず handled の値を返す
     }
-    return handled; // どの if にも入らない場合のデフォルト
+    return handled; // どの if にも入らない場合のデフォルト (false)
 }
 
 
