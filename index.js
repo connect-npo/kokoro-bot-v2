@@ -40,9 +40,9 @@ const STUDENT_MIDDLE_HIGH_UNI_FORM_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FOR
 const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r12jBDuiBn6";
 // WATCH_SERVICE_FORM_BASE_URL は環境変数から正しく取得されることを前提
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url'; // このデフォルト値は古いものだが、環境変数で上書きされる前提
-// ⭐重要: ここをまつさんの学生証フォームの正しいEntry IDに置き換えてください⭐
-const STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID = 'entry.63665766'; 
-// 見守りサービスフォームのLINEユーザーID用Entry ID (これもGoogleフォームで確認)
+// ⭐修正済み: 学生証フォームのLINEユーザーID用Entry ID ⭐
+const STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID = 'entry.1022758253'; 
+// ⭐修正済み: 見守りサービスフォームのLINEユーザーID用Entry ID ⭐
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830'; 
 
 
@@ -250,28 +250,6 @@ const watchServiceGuideFlexTemplate = {
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "postback", "label": "見守り登録する", "data": "action=watch_register" }, "color": "#d63384" },
             { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "見守りを解除する", "data": "action=watch_unregister" }, "color": "#808080" }
         ]
-    }
-};
-
-// ⭐変更点: watchConfirmationFlexTemplate は3日に1度のメッセージとしては使わず、OK応答時のヒントとして残す
-const watchConfirmationFlexTemplate = {
-    "type": "flex",
-    "altText": "見守り確認",
-    "contents": {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "md",
-            "contents": [
-                { "type": "text", "text": "💖こころちゃんからの見守り💖", "wrap": true, "weight": "bold", "size": "lg", "color": "#d63384" },
-                { "type": "text", "text": "元気かな？ボタンを押して教えてね😊", "wrap": true, "color": "#555555", "size": "md" },
-                { "type": "button", "action": { "type": "message", "label": "🌞 元気だよ！", "text": "元気だよ！" }, "style": "primary", "height": "lg", "color": "#00C851" },
-                { "type": "button", "action": { "type": "message", "label": "😐 まあまあかな", "text": "まあまあかな" }, "style": "primary", "height": "lg", "color": "#ffbb33" },
-                { "type": "button", "action": { "type": "message", "label": "😢 少し疲れた…", "text": "少し疲れた…" }, "style": "primary", "height": "lg", "color": "#ff4500" },
-                { "type": "button", "action": { "type": "message", "label": "💬 話を聞いて", "text": "話を聞いて" }, "style": "primary", "height": "lg", "color": "#33b5e5" }
-            ]
-        }
     }
 };
 
@@ -807,7 +785,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
             if (lowerUserMessage === '同意する' || lowerUserMessage === '同意') {
                 if (user.category === '中学生～大学生') {
                     // 学生証の提出フォームへのURLを生成 (LINE IDを渡す)
-                    const prefilledFormUrl = `${STUDENT_MIDDLE_HIGH_UNI_UNI_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`; 
+                    const prefilledFormUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`; 
                     await usersCollection.doc(userId).update({
                         consentObtained: true,
                         registrationStep: null, // 登録完了
