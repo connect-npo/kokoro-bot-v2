@@ -36,7 +36,8 @@ const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 const STUDENT_ELEMENTARY_FORM_URL = process.env.STUDENT_ELEMENTARY_FORM_URL || "https://forms.gle/EwskTCCjj8KyV6368";
 const STUDENT_MIDDLE_HIGH_UNI_FORM_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_URL || "https://forms.gle/1b5sNtc6AtJvpF8D7";
 const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r12jBDuiBn6";
-const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url'; 
+// ⭐変更済み: 見守りサービスフォームのURLを短縮版で指定 ⭐
+const WATCH_SERVICE_FORM_BASE_URL = "https://forms.gle/9FJhpGtrxoSPZ1hm7"; 
 const STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID = 'entry.1022758253'; 
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830'; 
 const CHANGE_INFO_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform"; // まつさんが作成したフォームのURL
@@ -244,7 +245,8 @@ const watchServiceGuideFlexTemplate = {
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "postback", "label": "見守り登録する", "data": "action=watch_register" }, "color": "#d63384" },
+            // ⭐修正済み: 見守り登録ボタンのアクションタイプをURIに変更 ⭐
+            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "見守り登録する", "uri": WATCH_SERVICE_FORM_BASE_URL }, "color": "#d63384" },
             { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "見守りを解除する", "data": "action=watch_unregister" }, "color": "#808080" }
         ]
     }
@@ -295,9 +297,7 @@ const specialRepliesMap = new Map([
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"], 
     [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
-    // ⭐修正済み: ClariSとNPO法人コネクトの関係についての固定応答 ⭐
     [/ClariSと関係あるの？/i, "ClariSの音楽は、わたしにたくさんの元気と勇気をくれるんだ🌸💖　優しくて力強い歌声に、いつも励まされているよ。NPO法人コネクトとは直接的な提携関係はないけれど、わたしの名前（クララ）はClariSのクララさんからいただいているんだよ😊「コネクト」の活動も、ClariSの音楽のように、誰かの心に寄り添えるものになればいいなって思っているんだ。"],
-    // ⭐追加: 「パクリ」に関する明確な否定と説明 ⭐
     [/ClariSのパクリなのかしりたい|ClariSのパクリなの？/i, "NPO法人コネクトがClariSさんのパクリだなんて、そんなことはないよ💦　わたしの名前の由来はClariSのクララさんからいただいているけど、NPO法人コネクトは困っている人を助けるための活動をしていて、ClariSさんの音楽活動とは全く違うんだ。誤解させてしまっていたら、ごめんね。"]
 ]);
 
@@ -512,7 +512,7 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
 
 async function generateGeminiReply(userMessage, modelToUse, userId, user) {
     const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
-    const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
+    const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERShip_CONFIG["guest"];
 
     let systemInstruction = `
 あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
@@ -606,7 +606,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
         const generateContentPromise = new Promise((resolve, reject) => {
             let timeoutId;
             const controller = new AbortController();
-            const signal = controller; 
+            const signal = controller.signal;
 
             timeoutId = setTimeout(() => {
                 controller.abort();
@@ -619,7 +619,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
                 generationConfig: {
                     maxOutputTokens: userConfig.isChildAI ? 200 : 700 
                 }
-            }, { requestOptions: { signal: signal.signal } }) 
+            }, { requestOptions: { signal } }) 
                 .then(result => {
                     clearTimeout(timeoutId);
                     resolve(result);
@@ -900,17 +900,40 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     // 各 if ブロックが独立して処理を終了するように修正
     if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
         try {
+            // 見守りサービス案内Flexメッセージに、正しくURIアクションを持つボタンを含める
+            const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
+            const watchServiceGuideFlexWithUriButton = {
+                "type": "bubble",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        { "type": "text", "text": "💖見守りサービス案内💖", "weight": "bold", "color": "#FF69B4", "size": "lg" },
+                        { "type": "text", "text": "💖こころちゃんが、LINEであなたの毎日をそっと見守ります💖\n\nこのサービスは、こころちゃんが定期的に安否確認のメッセージをお送りし、万が一の際にはご登録の緊急連絡先へご連絡するものです🌸あなたの安心と笑顔のために、以下の必要事項をご記入ください。", "wrap": true, "margin": "md", "size": "sm" }
+                    ]
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "sm",
+                    "contents": [
+                        { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "見守り登録する", "uri": prefilledFormUrl }, "color": "#d63384" },
+                        { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "見守りを解除する", "data": "action=watch_unregister" }, "color": "#808080" }
+                    ]
+                }
+            };
+
             await client.replyMessage(event.replyToken, { 
                 type: 'flex',
                 altText: '💖見守りサービス案内💖',
-                contents: watchServiceGuideFlexTemplate
+                contents: watchServiceGuideFlexWithUriButton // 新しいFlexテンプレートを使用
             });
             logToDb(userId, userMessage, '（見守りサービス案内Flex表示）', 'こころちゃん（見守り案内）', 'watch_service_interaction', true);
             return true; // 処理完了
         } catch (error) { 
             console.error("❌ 見守りサービス案内Flex送信エラー:", error.message);
             logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
-            return false; // エラー時はこのロジックでは処理されなかったとみなす
+            return false; 
         }
     }
     
@@ -925,14 +948,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
                 });
                 logToDb(userId, userMessage, 'ありがとう🌸 元気そうで安心したよ💖 またね！', 'こころちゃん（見守り応答）', 'watch_service_ok_response', true);
-                return true; // 処理完了
+                return true; 
             } catch (error) {
                 console.error("❌ 見守りサービスOK応答処理エラー:", error.message);
                 logErrorToDb(userId, "見守りサービスOK応答処理エラー", { error: error.message, userId: userId });
                 return false; 
             }
         }
-        return false; // 該当しない場合
+        return false; 
     }
     
     if (lowerUserMessage.includes("まあまあかな")) {
@@ -1046,7 +1069,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             return true; 
         }
     }
-    return handled; 
+    return false; // どの見守り関連ロジックにも該当しない場合はfalseを返す
 }
 
 
