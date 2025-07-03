@@ -236,7 +236,7 @@ const watchServiceGuideFlexTemplate = {
         "layout": "vertical",
         "contents": [
             { "type": "text", "text": "💖見守りサービス案内💖", "weight": "bold", "color": "#FF69B4", "size": "lg" },
-            { "type": "text", "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、登録された緊急連絡先にご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
+            { "type": "text", "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、ご登録の緊急連絡先へご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
         ]
     },
     "footer": {
@@ -283,7 +283,7 @@ const specialRepliesMap = new Map([
     [/こんばんわ/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"], 
     [/おはよう/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"], 
     [/こんばんは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"], 
-    // ⭐重要: 「詐欺かも」などの固定応答はscamWordsの検知ロジックが優先されるように調整済み
+    // 「詐欺かも」などの固定応答はscamWordsの検知ロジックが優先されるように調整済み
     // ここは一般的な「あやしい」系の応答として残します
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"], 
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"], 
@@ -301,8 +301,7 @@ const specialRepliesMap = new Map([
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
-    // ⭐注意: 固定応答の「詐欺かも」系は削除し、scamWordsの正規表現検知に任せます。
-    // そのため、ここでは「あやしい」「胡散臭い」「反社」のみをspecialRepliesMapに残しています。
+    // 固定応答の「詐欺かも」系はscamWordsの正規表現検知に任せるため削除しました。
     for (const [key, value] of specialRepliesMap) {
         if (key instanceof RegExp) { 
             if (key.test(lowerText)) {
@@ -416,7 +415,7 @@ function checkContainsScamWords(message) {
     for (const pattern of scamWords) {
         if (pattern instanceof RegExp) {
             if (pattern.test(lowerMessage)) {
-                return true; // 正規表現にマッチしたら検知
+                return true; 
             }
         } else { 
             if (lowerMessage.includes(pattern.toLowerCase())) {
@@ -907,9 +906,9 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             });
             logToDb(userId, userMessage, '（見守りサービス案内Flex表示）', 'こころちゃん（見守り案内）', 'watch_service_interaction', true);
             handled = true;
-        } catch (error) {
-            console.error("❌ 見守りサービス案内Flex送信エラー:", error.message);
-            logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
+        } else {
+            // 見守りサービスのOK応答ではない通常の会話フロー
+            // ここにAI応答ロジックなどを続ける
         }
     }
     else if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
@@ -1405,23 +1404,22 @@ app.post('/webhook', async (req, res) => {
 
             if (isDanger || isScam) {
                 // ⭐修正: 通知メッセージのフォーマットを改善し、必要な情報を優先表示 ⭐
-                let notificationMessage = `【🚨緊急通知🚨】\n`;
+                let notificationMessage = `🚨【緊急通知】🚨\n`;
                 notificationMessage += `**種別: ${isDanger ? '危険ワード' : '詐欺ワード'}**\n\n`;
-                notificationMessage += `**ユーザー情報:**\n`;
-                if (user.name) {
-                    notificationMessage += `氏名(本名): ${user.name}\n`;
-                } else if (user.displayName) {
-                    notificationMessage += `LINE表示名: ${user.displayName}\n`;
-                } else {
-                    notificationMessage += `ユーザーID: ${userId}\n`; // 名前がない場合のみIDを表示
+                
+                // LINEでの名前を最初に表示
+                if (user.displayName) {
+                    notificationMessage += `**👤 LINE表示名: ${user.displayName}**\n`;
                 }
-
-                if (user.phoneNumber) { // 成人ユーザーや、電話番号を登録した学生ユーザーの場合
-                    notificationMessage += `本人の連絡先: ${user.phoneNumber}\n`;
+                if (user.name) {
+                    notificationMessage += `👤 氏名(本名): ${user.name}\n`;
+                }
+                if (user.phoneNumber) { 
+                    notificationMessage += `📱 本人の連絡先: ${user.phoneNumber}\n`;
                 }
                 
-                if (user.guardianName || user.emergencyContact) { // 学生ユーザーの保護者情報、または見守りサービス登録ユーザーの緊急連絡先
-                    notificationMessage += `\n**登録緊急連絡先:**\n`;
+                if (user.guardianName || user.emergencyContact) { 
+                    notificationMessage += `\n**👨‍👩‍👧‍👦 登録緊急連絡先:**\n`;
                     if (user.guardianName) {
                         notificationMessage += `氏名: ${user.guardianName}\n`;
                     }
@@ -1430,7 +1428,8 @@ app.post('/webhook', async (req, res) => {
                     }
                 }
                 
-                notificationMessage += `\n**検出内容:**\n「${userMessage}」\n`;
+                notificationMessage += `\n**内容:**\n「${userMessage}」\n`;
+                notificationMessage += `\n**ユーザーID:** ${userId}\n`; // ユーザーIDは最後に表示
                 notificationMessage += `\n**対応のお願い:**\n至急、状況確認をお願いいたします。\n`;
 
 
