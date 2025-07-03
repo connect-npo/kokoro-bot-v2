@@ -38,7 +38,8 @@ const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 const STUDENT_ELEMENTARY_FORM_URL = process.env.STUDENT_ELEMENTARY_FORM_URL || "https://forms.gle/EwskTCCjj8KyV6368";
 const STUDENT_MIDDLE_HIGH_UNI_FORM_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_URL || "https://forms.gle/1b5sNtc6AtJvpF8D7";
 const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r12jBDuiBn6";
-const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url';
+// WATCH_SERVICE_FORM_BASE_URL は環境変数から正しく取得されることを前提
+const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url'; // このデフォルト値は古いものだが、環境変数で上書きされる前提
 // ⭐重要: ここをまつさんの学生証フォームの正しいEntry IDに置き換えてください⭐
 const STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID = 'entry.63665766'; 
 // 見守りサービスフォームのLINEユーザーID用Entry ID (これもGoogleフォームで確認)
@@ -252,6 +253,7 @@ const watchServiceGuideFlexTemplate = {
     }
 };
 
+// ⭐変更点: watchConfirmationFlexTemplate は3日に1度のメッセージとしては使わず、OK応答時のヒントとして残す
 const watchConfirmationFlexTemplate = {
     "type": "flex",
     "altText": "見守り確認",
@@ -341,6 +343,40 @@ function checkSpecialReply(text) {
     return null;
 }
 const ORGANIZATION_REPLY_MESSAGE = "うん、NPO法人コネクトのこと、もっと知りたいんだね🌸　コネクトは、子どもたちや高齢者の方々、そしてみんなが安心して相談できる場所を目指している団体なんだよ😊　困っている人が安心して相談できたり、助け合えるような社会を社会をつくりたいって願って、活動しているんだ。\nもっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org"; // ホームページURLを追加
+
+// ⭐追加: 3日に一度のランダム見守りメッセージ一覧 ⭐
+const watchMessages = [
+    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
+    "やっほー！ こころだよ😊 いつも応援してるね！",
+    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
+    "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
+    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+    "こんにちは😊 困ったことはないかな？いつでも相談してね！",
+    "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
+    "元気出してね！こころちゃん、あなたの味方だよ😊",
+    "こころちゃんだよ🌸 今日も一日お疲れ様💖",
+    "こんにちは😊 笑顔で過ごせてるかな？",
+    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
+    "元気かな？💖 こころはいつでもあなたのそばにいるよ！",
+    "ねぇねぇ、こころだよ😊 どんな小さなことでも話してね！",
+    "いつも応援してるよ🌸 こころちゃんだよ💖",
+    "こんにちは😊 今日も一日、お互いがんばろうね！",
+    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
+    "元気にしてる？✨ 季節の変わり目だから、体調に気をつけてね！",
+    "こころちゃんだよ🌸 嬉しいことがあったら、教えてね💖",
+    "こんにちは😊 ちょっと一息入れようね！",
+    "やっほー！ こころだよ🌸 あなたのことが心配だよ！",
+    "元気かな？💖 どんな時でも、こころはそばにいるよ！",
+    "ねぇねぇ、こころだよ😊 辛い時は、無理しないでね！",
+    "いつも見守ってるよ🌸 こころちゃんだよ💖",
+    "こんにちは😊 今日も一日、穏やかに過ごせたかな？",
+    "やっほー！ こころだよ🌸 困った時は、いつでも呼んでね！",
+    "元気にしてる？✨ こころはいつでも、あなたのことを考えてるよ💖",
+    "こころちゃんだよ🌸 小さなことでも、お話しようね！",
+    "こんにちは😊 あなたの笑顔が見たいな！",
+    "やっほー！ こころだよ🌸 頑張り屋さんだね！",
+    "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
+];
 
 // --- ログ記録関数 ---
 async function logToDb(userId, message, replyText, responsedBy, logType, isFlagged = false) {
@@ -447,7 +483,7 @@ function shouldLogMessage(logType) {
         'watch_service_registration_complete', 'watch_service_emergency_notification',
         'consultation_mode_start', 'consultation_message', 'organization_inquiry_fixed',
         'special_reply', 'homework_query', 'system_follow', 'registration_buttons_display',
-        'registration_already_completed'
+        'registration_already_completed', 'watch_service_scheduled_message' // watch_service_scheduled_messageもログに残す
     ];
     // これらのタイプは常に記録
     if (defaultLogTypes.includes(logType)) {
@@ -692,7 +728,6 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             }
             break;
-
         case 'askingAge':
             const age = parseInt(userMessage, 10);
             if (!isNaN(age) && age >= 0 && age <= 120) { // 年齢の範囲チェック (修正済み)
@@ -772,7 +807,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
             if (lowerUserMessage === '同意する' || lowerUserMessage === '同意') {
                 if (user.category === '中学生～大学生') {
                     // 学生証の提出フォームへのURLを生成 (LINE IDを渡す)
-                    const prefilledFormUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`; 
+                    const prefilledFormUrl = `${STUDENT_MIDDLE_HIGH_UNI_UNI_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`; 
                     await usersCollection.doc(userId).update({
                         consentObtained: true,
                         registrationStep: null, // 登録完了
@@ -913,6 +948,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 await usersCollection.doc(userId).update(
                     { lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false }
                 );
+                // ⭐修正: OK応答時には、Flexメッセージではなく、通常のテキストメッセージで感謝を伝える
                 await client.pushMessage(userId, { // pushMessageを使用
                     type: 'text',
                     text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
@@ -1057,18 +1093,20 @@ async function sendScheduledWatchMessage() {
 
             const timeSinceLastOkHours = (now.getTime() - lastOkResponse.getTime()) / (1000 * 60 * 60);
 
-            // 3日ごと（72時間ごと）にメッセージを送信
+            // 3日ごと（72時間ごと）にメッセージを送信 ⭐修正点: ランダムテキストメッセージを送信⭐
             if (timeSinceLastOkHours >= 72 && !user.scheduledMessageSent) {
                 try {
-                    await client.pushMessage(userId, watchConfirmationFlexTemplate);
+                    const randomMessageIndex = Math.floor(Math.random() * watchMessages.length);
+                    const randomWatchMessage = watchMessages[randomMessageIndex];
+                    await client.pushMessage(userId, { type: 'text', text: randomWatchMessage });
                     await usersCollection.doc(user.id).update(
                         { scheduledMessageSent: true, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false }
                     );
-                    logToDb(userId, `（定期見守りメッセージ送信）`, `（見守り確認Flex送信）`, 'こころちゃん（定期見守り）', 'watch_service_scheduled_message', true);
-                    console.log(`✅ ユーザー ${userId} へ定期見守りメッセージ（Flex）を送信しました。`);
+                    logToDb(userId, `（定期見守りメッセージ送信）`, randomWatchMessage, 'こころちゃん（定期見守り）', 'watch_service_scheduled_message', true);
+                    console.log(`✅ ユーザー ${userId} へ定期見守りメッセージ（ランダムテキスト）を送信しました。`);
                 } catch (error) {
-                    console.error(`❌ ユーザー ${userId} への定期見守りメッセージ（Flex）送信エラー:`, error.message);
-                    logErrorToDb(userId, "定期見守りメッセージ（Flex）送信エラー", { error: error.message, userId: userId });
+                    console.error(`❌ ユーザー ${userId} への定期見守りメッセージ（ランダムテキスト）送信エラー:`, error.message);
+                    logErrorToDb(userId, "定期見守りメッセージ（ランダムテキスト）送信エラー", { error: error.message, userId: userId });
                 }
             }
             // 24時間後リマインダー（合計96時間後） - firstReminderSent を追加
@@ -1625,7 +1663,7 @@ app.post('/webhook', async (req, res) => {
 
             // 会員登録のリッチメニューからのpostbackアクション
             if (action === 'show_registration_buttons') {
-                await client.replyMessage(replyToken, { // replyMessageを使用
+                await client.replyMessage(event.replyToken, { // replyMessageを使用
                     type: 'flex',
                     altText: 'どの会員になるか選んでね🌸',
                     contents: REGISTRATION_BUTTONS_FLEX
