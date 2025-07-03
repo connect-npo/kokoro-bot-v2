@@ -77,8 +77,8 @@ const dangerWords = [
 ];
 // ⭐修正済み: 詐欺ワードの正規表現を強化 (「詐欺かも」等も検知対象に) ⭐
 const scamWords = [
-    /詐欺(かも|だ|です|ですか|かもしれない)?/i, // 「詐欺」の後に「かも」「だ」「です」「ですか」「かもしれない」などが続く場合
-    /騙(す|される|された)/i,      // 「騙す」「騙される」「騙された」など
+    /詐欺(かも|だ|です|ですか|かもしれない)?/i, 
+    /騙(す|される|された)/i,      
     /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
     /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
     /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
@@ -106,7 +106,7 @@ const inappropriateWords = [
 // ⭐修正済み: いじめも共感トリガーに含める ⭐
 const empatheticTriggers = [
     "辛い", "しんどい", "悲しい", "苦しい", "助けて", "悩み", "不安", "孤独", "寂しい", "疲れた",
-    "病気", "痛い", "具合悪い", "困った", "どうしよう", "辞めたい", "消えたい", "死にそう", "いじめ" 
+    "病気", "痛い", "具合悪い", "困った", "どうしよう", "辞めたい", "消えたい", "死にそう", "いじめ", "イジメ" 
 ];
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
 
@@ -283,11 +283,9 @@ const specialRepliesMap = new Map([
     [/こんばんわ/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"], 
     [/おはよう/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"], 
     [/こんばんは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"], 
-    // ⭐修正済み: 詐欺に関する固定応答も柔軟に ⭐
-    // 「詐欺かも」などの表現がspecialRepliesMapとscamWordsの両方で検知される場合、specialRepliesMapが優先される。
-    // そのため、scamWordsで検知したい場合は、ここで「詐欺かも」系を削除するか、scamWordsのチェックを優先させる。
-    // 今回はユーザー要望でscamWordsで検知するようcheckContainsScamWordsのロジック修正済みのため、ここはそのまま。
-    [/あやしい|胡散臭い|反社|詐欺かも|詐欺かもしれない|詐欺だろ|詐欺だよ/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"], 
+    // ⭐重要: 「詐欺かも」などの固定応答はscamWordsの検知ロジックが優先されるように調整済み
+    // ここは一般的な「あやしい」系の応答として残します
+    [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"], 
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"], 
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"], 
     [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
@@ -303,6 +301,8 @@ const specialRepliesMap = new Map([
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
+    // ⭐注意: 固定応答の「詐欺かも」系は削除し、scamWordsの正規表現検知に任せます。
+    // そのため、ここでは「あやしい」「胡散臭い」「反社」のみをspecialRepliesMapに残しています。
     for (const [key, value] of specialRepliesMap) {
         if (key instanceof RegExp) { 
             if (key.test(lowerText)) {
@@ -363,7 +363,7 @@ async function logToDb(userId, message, replyText, responsedBy, logType, isFlagg
             responsedBy: responsedBy,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             logType: logType,
-            isFlagged: isFlagged // ここも isFlagged に修正
+            isFlagged: isFlagged
         });
     } catch (dbError) {
         console.error(`❌ Firestoreへのログ書き込み中にエラーが発生しました: ${dbError.message}`);
@@ -416,9 +416,7 @@ function checkContainsScamWords(message) {
     for (const pattern of scamWords) {
         if (pattern instanceof RegExp) {
             if (pattern.test(lowerMessage)) {
-                // 以前ここに存在した、特定のフレーズを弾くロジックを削除しました。
-                // これにより、「詐欺かも」等の正規表現が正しく詐欺ワードとして検知されます。
-                return true;
+                return true; // 正規表現にマッチしたら検知
             }
         } else { 
             if (lowerMessage.includes(pattern.toLowerCase())) {
@@ -502,8 +500,7 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
                 { role: "system", content: systemInstruction },
                 { role: "user", content: userMessage }
             ],
-            // ⭐修正済み: 緊急時GPT-4oは長めに、その他も調整 ⭐
-            // GPT-4oの場合、文章が途切れないように1000トークンまで許可
+            // ⭐修正済み: 緊急時GPT-4oは最大1000トークンまで許可、その他も調整 ⭐
             max_tokens: modelToUse === "gpt-4o" ? 1000 : (userConfig.isChildAI ? 200 : 600) 
         });
         return completion.choices[0].message.content.trim();
@@ -642,8 +639,8 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
     } catch (error) {
-        console.error("Gemini APIエラー:", error.response?.data || error.message);
-        await logErrorToDb(userId, "Gemini APIエラー", { error: error.message, stack: error.stack, userMessage: userMessage });
+        console.error(`Gemini APIエラー:`, error.response?.data || error.message);
+        await logErrorToDb(userId, `Gemini APIエラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
         if (error.message === "API応答がタイムアウトしました。") {
             return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
         }
@@ -1005,7 +1002,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                         contents: [
                             { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: '#FF69B4', align: 'center' },
                             { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
-                            { type: 'button', style: 'primary', height: 'sm', action: { type: 'uri', label: '緊急連絡先を登録する', uri: prefilledFormUrl }, margin: 'md', color: '#d63384' }
+                            { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
                         ]
                     }
                 }
@@ -1407,14 +1404,24 @@ app.post('/webhook', async (req, res) => {
             const isScam = checkContainsScamWords(userMessage);
 
             if (isDanger || isScam) {
-                const userName = user.displayName || user.name || `不明ユーザー`;
-                let notificationMessage = `【⚠緊急通知⚠】\nユーザー（LINE表示名: ${userName}）が${isDanger ? '危険' : '詐欺'}ワードを送信しました。\nメッセージ内容: 「${userMessage}」\nユーザーID: ${userId}\n`;
+                // ⭐修正: 通知メッセージのフォーマットを改善し、必要な情報を優先表示 ⭐
+                let notificationMessage = `【🚨緊急通知🚨】\n`;
+                notificationMessage += `**種別: ${isDanger ? '危険ワード' : '詐欺ワード'}**\n\n`;
+                notificationMessage += `**ユーザー情報:**\n`;
+                if (user.name) {
+                    notificationMessage += `氏名(本名): ${user.name}\n`;
+                } else if (user.displayName) {
+                    notificationMessage += `LINE表示名: ${user.displayName}\n`;
+                } else {
+                    notificationMessage += `ユーザーID: ${userId}\n`; // 名前がない場合のみIDを表示
+                }
 
-                if (user.phoneNumber) { 
+                if (user.phoneNumber) { // 成人ユーザーや、電話番号を登録した学生ユーザーの場合
                     notificationMessage += `本人の連絡先: ${user.phoneNumber}\n`;
                 }
-                if (user.guardianName || user.emergencyContact) { 
-                    notificationMessage += `登録緊急連絡先:\n`;
+                
+                if (user.guardianName || user.emergencyContact) { // 学生ユーザーの保護者情報、または見守りサービス登録ユーザーの緊急連絡先
+                    notificationMessage += `\n**登録緊急連絡先:**\n`;
                     if (user.guardianName) {
                         notificationMessage += `氏名: ${user.guardianName}\n`;
                     }
@@ -1422,7 +1429,10 @@ app.post('/webhook', async (req, res) => {
                         notificationMessage += `電話番号: ${user.emergencyContact}\n`;
                     }
                 }
-                notificationMessage += `\n至急、状況確認をお願いいたします。`;
+                
+                notificationMessage += `\n**検出内容:**\n「${userMessage}」\n`;
+                notificationMessage += `\n**対応のお願い:**\n至急、状況確認をお願いいたします。\n`;
+
 
                 if (OFFICER_GROUP_ID) {
                     client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: notificationMessage })
@@ -1435,7 +1445,7 @@ app.post('/webhook', async (req, res) => {
                     console.warn(`OFFICER_GROUP_IDが設定されていないため、危険ワード通知は送信されませんでした。`);
                 }
 
-                // ⭐修正済み: 緊急時はFlexメッセージとGPT-4o応答のみに絞り、その他のメッセージは送信しない ⭐
+                // 緊急時はFlexメッセージとGPT-4o応答のみに絞り、その他のメッセージは送信しない
                 let userMessagesToSend = [];
                 if (isDanger) {
                     userMessagesToSend.push({ type: 'text', text: 'ごめんね、それはわたしにはお話しできない内容です🌸 緊急の時は、専門の人に相談してね💖' });
@@ -1447,7 +1457,6 @@ app.post('/webhook', async (req, res) => {
                 
                 await client.pushMessage(userId, userMessagesToSend);
 
-                // GPT応答はFlexメッセージの後に送信 (非同期で実行されるため、後から届く可能性がある)
                 generateGPTReply(userMessage, "gpt-4o", userId, user).then(response => {
                     client.pushMessage(userId, { type: 'text', text: response }).catch(e => console.error("GPT応答プッシュ失敗", e));
                 }).catch(e => {
@@ -1469,11 +1478,10 @@ app.post('/webhook', async (req, res) => {
 
             // 9. 「相談」モードの開始（`useProForNextConsultation`がfalseの場合のみ）
             if (['そうだん', '相談'].includes(lowerUserMessage) && !user.useProForNextConsultation) { 
-                // ⭐修正済み: 相談モード開始時のメッセージを、Gemini 1.5 Proでの回答に先立って送信 ⭐
                 await client.pushMessage(userId, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' }); 
                 usersCollection.doc(userId).update({ useProForNextConsultation: true }); 
                 logToDb(userId, userMessage, '（相談モード開始）', 'こころちゃん（モード切替）', 'consultation_mode_start', true);
-                return; // ここで処理を終了し、このターンでは追加のAI応答は発生させない
+                return; 
             }
 
             // 10. 月間メッセージ回数制限のチェック (管理者以外)
@@ -1499,7 +1507,6 @@ app.post('/webhook', async (req, res) => {
             }
 
             // 11. 相談モード中の応答（1回限り）
-            // 「相談」メッセージの次のメッセージがここに来る
             if (user.useProForNextConsultation) {
                 generateGeminiReply(userMessage, "gemini-1.5-pro-latest", userId, user).then(aiReply => {
                     client.pushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("相談モードAI応答プッシュ失敗", e));
@@ -1520,15 +1527,12 @@ app.post('/webhook', async (req, res) => {
             }
 
             // 13. 共感が必要なメッセージ (GPT)
-            // ⭐修正済み: いじめに関する応答もここに統合し、直接的な共感と相談を促すメッセージを返す ⭐
             if (containsEmpatheticTrigger(userMessage)) {
-                // 「いじめ」という単語が含まれているか、より具体的にチェック
                 if (userMessage.toLowerCase().includes("いじめ") || userMessage.toLowerCase().includes("イジメ")) {
                     const bullyingReply = `いじめは決して許してはいけないことだし、とても悲しいことだと思うよ。誰もが安心して過ごせる場所が必要だし、みんなが尊重されるべきだよね。もしも辛いことがあったら、一人で抱え込まないで、誰かに相談してみてね。いつでも私がそばにいるよ。緊急の時は、専門の人に相談することもできるから安心してね。`;
                     await client.pushMessage(userId, [{ type: 'text', text: bullyingReply }, { type: 'flex', altText: "緊急連絡先一覧", contents: EMERGENCY_FLEX_MESSAGE }]);
                     logToDb(userId, userMessage, `（いじめに関する共感応答 + 緊急連絡先Flex表示）`, 'こころちゃん（いじめ検知）', 'empathetic_message', true);
                 } else {
-                    // その他の共感トリガーの場合は通常のGPT応答
                     generateGPTReply(userMessage, "gpt-4o-mini", userId, user).then(aiReply => { 
                         client.pushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("共感AI応答プッシュ失敗", e));
                         logToDb(userId, userMessage, aiReply, 'こころちゃん（共感）', 'empathetic_message', true);
