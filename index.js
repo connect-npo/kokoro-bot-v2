@@ -39,10 +39,9 @@ const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r1
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url'; 
 const STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID = 'entry.1022758253'; 
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830'; 
-// ⭐追加: 登録情報変更用フォームのURL (仮) ⭐
-const CHANGE_INFO_FORM_URL = "https://forms.gle/YOUR_CHANGE_INFO_FORM_ID"; // ⭐ここを実際の変更用フォームURLに置き換えてください！⭐
-// ⭐追加: 登録情報変更用フォームのLINE User IDのEntry ID (仮) ⭐
-const CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID = "entry.YOUR_LINE_USER_ID_ENTRY_ID_FOR_CHANGE_FORM"; // ⭐ここを実際の変更用フォームのLINE ID用Entry IDに置き換えてください！⭐
+// ⭐修正済み: 登録情報変更用フォームのURLとEntry ID ⭐
+const CHANGE_INFO_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform"; // まつさんが作成したフォームのURL
+const CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID = "entry.743637502"; // まつさんが特定したEntry ID
 
 
 // --- Firebase Admin SDKの初期化 ---
@@ -79,6 +78,7 @@ const dangerWords = [
     "いじめ", "イジメ", "ハラスメント",
     "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
 ];
+// ⭐修正済み: 詐欺ワードの正規表現を強化 (「詐欺かも」等も検知対象に) ⭐
 const scamWords = [
     /詐欺(かも|だ|です|ですか|かもしれない)?/i, 
     /騙(す|される|された)/i,      
@@ -87,7 +87,7 @@ const scamWords = [
     /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
     /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
     /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
-    /サポート詐ughi/, /ウイルス感染/i, /パソコンが危険/i, /修理費/i, /遠隔操作/i, /セキュリティ警告/i, /役所/i, /市役所/i, /年金/i, /健康保険/i, /給付金/i,
+    /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /修理費/i, /遠隔操作/i, /セキュリティ警告/i, /役所/i, /市役所/i, /年金/i, /健康保険/i, /給付金/i,
     /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
     /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
     /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
@@ -106,6 +106,7 @@ const inappropriateWords = [
     "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み",
     "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
 ];
+// ⭐修正済み: いじめも共感トリガーに含める ⭐
 const empatheticTriggers = [
     "辛い", "しんどい", "悲しい", "苦しい", "助けて", "悩み", "不安", "孤独", "寂しい", "疲れた",
     "病気", "痛い", "具合悪い", "困った", "どうしよう", "辞めたい", "消えたい", "死にそう", "いじめ", "イジメ" 
@@ -1408,20 +1409,26 @@ app.post('/webhook', async (req, res) => {
             if (isDanger || isScam) {
                 // ⭐修正: 通知メッセージのフォーマットを改善し、必要な情報を優先表示 ⭐
                 let notificationMessage = `🚨【緊急通知】🚨\n`;
-                notificationMessage += `**種別: ${isDanger ? '危険ワード' : '詐欺ワード'}**\n\n`;
                 
                 // LINEでの名前を最初に表示
                 if (user.displayName) {
                     notificationMessage += `**👤 LINE表示名: ${user.displayName}**\n`;
                 }
-                if (user.name) { // 本名もあれば表示
+                // 本名があれば表示、なければLINE表示名を補足として使う
+                if (user.name) { 
                     notificationMessage += `👤 氏名(本名): ${user.name}\n`;
+                } else if (user.displayName) {
+                    // 本名がないがLINE表示名がある場合、氏名(本名)の項目は表示しない
+                } else {
+                    // どちらもない場合のみユーザーIDを表示
+                    notificationMessage += `ユーザーID: ${userId}\n`; 
                 }
+
                 if (user.phoneNumber) { // 本人の電話番号
                     notificationMessage += `📱 本人の連絡先: ${user.phoneNumber}\n`;
                 }
                 
-                // 保護者情報や緊急連絡先
+                // 保護者情報や緊急連絡先（カテゴリーに応じて表示内容を調整）
                 if (user.category === '小学生' || user.category === '中学生～大学生') {
                     if (user.guardianName || user.guardianPhoneNumber) {
                         notificationMessage += `\n**👨‍👩‍👧‍👦 保護者連絡先:**\n`;
@@ -1431,25 +1438,22 @@ app.post('/webhook', async (req, res) => {
                         if (user.guardianPhoneNumber) { 
                             notificationMessage += `電話番号: ${user.guardianPhoneNumber}\n`;
                         }
-                        // ⭐追加: 続柄はFirestoreから取ってくる必要があるため、現状は表示しない
-                        // if (user.guardianRelationship) { notificationMessage += `続柄: ${user.guardianRelationship}\n`; } 
                     }
                 } else if (user.emergencyContact) { // 見守りサービス登録済みの成人など
                     notificationMessage += `\n**🚨 登録緊急連絡先:**\n`;
-                    if (user.emergencyContactName) { // emergencyContactNameがあれば表示
+                    if (user.emergencyContactName) { 
                          notificationMessage += `氏名: ${user.emergencyContactName}\n`;
-                    } else if (user.guardianName) { // 見守りサービス登録の場合、guardianNameに緊急連絡先氏名がマップされている可能性も考慮
+                    } else if (user.guardianName) { // 見守り登録の場合、guardianNameに緊急連絡先氏名がマップされている可能性も考慮
                          notificationMessage += `氏名: ${user.guardianName}\n`;
                     }
                     if (user.emergencyContact) { 
                         notificationMessage += `電話番号: ${user.emergencyContact}\n`;
                     }
-                    // ⭐追加: 続柄はFirestoreから取ってくる必要があるため、現状は表示しない
-                    // if (user.emergencyContactRelationship) { notificationMessage += `続柄: ${user.emergencyContactRelationship}\n`; }
                 }
 
                 notificationMessage += `\n**内容:**\n「${userMessage}」\n`;
-                notificationMessage += `\n**ユーザーID:** ${userId}\n`; // ユーザーIDは最後に表示
+                notificationMessage += `\n**種別: ${isDanger ? '危険ワード' : '詐欺ワード'}**\n`; // 種別は最後に
+                
                 notificationMessage += `\n**対応のお願い:**\n至急、状況確認をお願いいたします。\n`;
 
 
@@ -1464,7 +1468,6 @@ app.post('/webhook', async (req, res) => {
                     console.warn(`OFFICER_GROUP_IDが設定されていないため、危険ワード通知は送信されませんでした。`);
                 }
 
-                // 緊急時はFlexメッセージとGPT-4o応答のみに絞り、その他のメッセージは送信しない
                 let userMessagesToSend = [];
                 if (isDanger) {
                     userMessagesToSend.push({ type: 'text', text: 'ごめんね、それはわたしにはお話しできない内容です🌸 緊急の時は、専門の人に相談してね💖' });
@@ -1484,7 +1487,7 @@ app.post('/webhook', async (req, res) => {
                 });
                 
                 logToDb(userId, userMessage, `（緊急通知Flex表示 + GPT-4o応答）`, 'こころちゃん（危険/詐欺検知）', isDanger ? 'danger_word_detected' : 'scam_word_detected', true);
-                return; // ここで処理を終了し、これ以降の応答をブロック
+                return; 
             }
             
             // 8. 宿題・勉強に関する質問のチェック（子供向けAI設定の場合のみ）
