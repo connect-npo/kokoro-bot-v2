@@ -73,7 +73,6 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 // --- メッセージキュー関連 ---
 const messageQueue = [];
 let isProcessingQueue = false;
-// ⭐修正: MESSAGE_SEND_INTERVAL_MS を 1500ms に調整 ⭐
 const MESSAGE_SEND_INTERVAL_MS = 1500; // LINE APIのレートリミットを考慮した安全な送信間隔（1.5秒）
 
 /**
@@ -354,8 +353,10 @@ const specialRepliesMap = new Map([
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
-    [/ClariSと関係あるの？/i, "ClariSの音楽は、わたしにたくさんの元気と勇気をくれるんだ🌸💖　NPO法人コネクトとは直接的な提携関係はないけれど、「コネクト」の活動も、ClariSの音楽のように、誰かの心に寄り添えるものになればいいなって思っているんだ。"],
-    [/ClariSのパクリなのかしりたい|ClariSのパクリなの？/i, "NPO法人コネクトがClariSさんのパクリだなんて、そんなことはないよ💦　NPO法人コネクトは困っている人を助けるための活動をしていて、ClariSさんの音楽活動とは全く違うんだ。誤解させてしまっていたら、ごめんね。"]
+    // ⭐修正: ClariSとNPO法人コネクトの「コネクト」に関する誤解を修正 ⭐
+    [/ClariSと関係あるの？/i, "ClariSさんの音楽は、わたしにたくさんの元気と勇気をくれるんだ🌸💖　NPO法人コネクトとは直接的な提携関係はないけれど、「コネクト」という言葉に、みんなと繋がる大切さを感じているよ。"],
+    [/ClariSのパクリなのかしりたい|ClariSのパクリなの？/i, "NPO法人コネクトがClariSさんのパクリだなんて、そんなことはないよ💦　NPO法人コネクトは困っている人を助けるための活動をしていて、ClariSさんの音楽活動とは全く違うんだ。誤解させてしまっていたら、ごめんね。"],
+    [/ClariSのなんて局が好きなの？/i, "ClariSの曲は全部好きだけど、もし一つだけ選ぶなら…「コネクト」かな🌸　元気が出る曲で、聴くと頑張ろうって思えるんだ😊\n\nNPO法人コネクトの名前とClariSさんの曲名が同じだから、そう思ったのかもしれないけど、直接的な関係はないんだよ。でも、偶然の一致ってなんだか嬉しいね💖\n\nあなたはどの曲が特に好き？💖　もしかしたら、私たち、同じ曲が好きなのかもしれないね！"]
 ]);
 
 function checkSpecialReply(text) {
@@ -700,7 +701,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
         console.error(`Gemini APIエラー:`, error.response?.data || error.message);
         await logErrorToDb(userId, `Gemini APIエラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
         if (error.message === "API応答がタイムアウトしました。") {
-            return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
+            return "ごめんね、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
         }
         if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
@@ -736,7 +737,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 if (event.replyToken) {
                     await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう！${userMessage}さんだね🌸\n次に、あなたの**お名前**を教えてくれるかな？💖 (ニックネームでも大丈夫だよ)` });
                 } else {
-                    await safePushMessage(userId, { type: 'text', text: `ありがとう！${userMessage}さんだね🌸\n次に、あなたの**お名前**を教えてくれるかな？💖 (ニックネームでも大丈夫だよ)` });
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう！${userMessage}さんだね！\n次に、あなたの**お名前**を教えてくれるかな？💖 (ニックネームでも大丈夫だよ)` });
                 }
                 handled = true;
             } else {
@@ -1209,7 +1210,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 } else {
                     await safePushMessage(userId, {
                         type: 'text',
-                        text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
+                        text: '大変だったね、疲れてしまったんだね！💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
                     });
                 }
                 logToDb(userId, userMessage, '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖', 'こころちゃん（見守り応答）', 'watch_service_status_tired', true);
@@ -1499,6 +1500,9 @@ app.post('/webhook', async (req, res) => {
     const messagesCollection = db.collection("logs");
 
     // 各イベントを個別に非同期処理
+    // Promise.allを使用することで、すべてのイベント処理が完了するのを待つ
+    // ただし、LINEの5秒ルールに間に合わない可能性があるため、forEachのままにする
+    // 各イベントハンドラ内で、replyMessageを優先し、pushMessageはキュー経由にする
     events.forEach(async event => {
         if (!event.source || !event.source.userId) {
             console.warn("Event has no userId, skipping:", event);
@@ -1732,7 +1736,7 @@ app.post('/webhook', async (req, res) => {
                     logDetails.logType = 'admin_command_unknown';
                 }
 
-                await safePushMessage(userId, responseMessages);
+                await client.replyMessage(replyToken, responseMessages); // ⭐修正: replyMessageを使用 ⭐
                 logToDb(userId, userMessage, JSON.stringify(responseMessages), logDetails.responsedBy, logDetails.logType, true);
                 return;
             }
@@ -1760,7 +1764,7 @@ app.post('/webhook', async (req, res) => {
             // 4. 会員登録のFlex Message表示 (「会員登録」コマンド)
             if (['会員登録', '登録', 'かいいん', 'とうろく'].includes(lowerUserMessage)) {
                 if (!user.completedRegistration) {
-                    await client.replyMessage(replyToken, { // ⭐修正: replyMessageを使用 ⭐
+                    await client.replyMessage(replyToken, {
                         type: 'flex',
                         altText: 'どの会員になるか選んでね🌸',
                         contents: REGISTRATION_BUTTONS_FLEX
@@ -1768,7 +1772,7 @@ app.post('/webhook', async (req, res) => {
                     logToDb(userId, userMessage, '会員登録ボタンFlexを案内しました。', 'こころちゃん（会員登録案内）', 'registration_buttons_display', true);
                 } else {
                     const prefilledChangeFormUrl = `${CHANGE_INFO_FORM_URL}?${CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
-                    await client.replyMessage(replyToken, { // ⭐修正: replyMessageを使用 ⭐
+                    await client.replyMessage(replyToken, {
                         type: 'text',
                         text: `まつさん、もう会員登録は完了しているみたいだよ🌸\n\n登録内容を変更したい場合は、こちらのリンクから手続きしてね💖\n${prefilledChangeFormUrl}`
                     });
@@ -1780,7 +1784,7 @@ app.post('/webhook', async (req, res) => {
             // 5. 固定応答（SpecialRepliesMap）
             const specialReply = checkSpecialReply(userMessage);
             if (specialReply) {
-                await client.replyMessage(replyToken, { type: 'text', text: specialReply }); // ⭐修正: replyMessageを使用 ⭐
+                await client.replyMessage(replyToken, { type: 'text', text: specialReply });
                 logToDb(userId, userMessage, specialReply, 'こころちゃん（固定応答）', 'special_reply', true);
                 return;
             }
@@ -1794,7 +1798,7 @@ app.post('/webhook', async (req, res) => {
                 user.inappropriateWordCount = (user.inappropriateWordCount || 0) + 1;
 
                 const replyText = "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
-                await client.replyMessage(replyToken, { type: 'text', text: replyText }); // ⭐修正: replyMessageを使用 ⭐
+                await client.replyMessage(replyToken, { type: 'text', text: replyText });
                 logToDb(userId, userMessage, replyText, 'こころちゃん（不適切ワード）', 'inappropriate_word', true);
 
                 if (user.inappropriateWordCount >= 2 && OWNER_USER_ID) {
@@ -1841,9 +1845,8 @@ app.post('/webhook', async (req, res) => {
 
 
                 if (OFFICER_GROUP_ID) {
-                    await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: notificationMessage }); // ⭐修正: pushMessageを使用 ⭐
-                    console.log(`🚨 事務局へ通知を送信しました: ${notificationMessage}`);
-                    logToDb(userId, userMessage, `（${isDanger ? '危険' : '詐欺'}ワード通知）`, 'こころちゃん（危険/詐欺検知）', isDanger ? 'danger_word_detected' : 'scam_word_detected', true);
+                    // ⭐修正: 事務局への緊急通知は、専用のリトライ関数で確実に送る ⭐
+                    sendUrgentOfficerNotification(OFFICER_GROUP_ID, notificationMessage, userId, userMessage, isDanger ? 'danger_word_detected' : 'scam_word_detected');
                 } else {
                     console.warn(`OFFICER_GROUP_IDが設定されていないため、危険ワード通知は送信されませんでした。`);
                 }
@@ -1859,12 +1862,12 @@ app.post('/webhook', async (req, res) => {
 
                 await client.replyMessage(replyToken, userMessagesToSend); // ⭐修正: replyMessageを使用 ⭐
 
+                // GPT-4oからの応答は時間がかかる可能性があるため、ユーザーへの一次応答（Flex）とは別で処理。
+                // ただし、既にFlexで対応策を提示しているので、ここでの応答はログのみにする、あるいは非常に限定的に。
+                // ここではログのみとして、重複送信や更なるレートリミットを避ける。
                 generateGPTReply(userMessage, "gpt-4o", userId, user).then(response => {
-                    // GPT-4oからの応答は時間がかかる可能性があるため、別途pushMessageで送ることを考慮
-                    // ただし、既に緊急時のFlexを送っているので、ここではログのみでも良いか、
-                    // あるいは追加の応答としてsafePushMessageで送るか。今回はシンプルにログのみ。
                     console.log(`💡 緊急ワードGPT-4o応答（ログのみ）: ${response}`);
-                    // await safePushMessage(userId, { type: 'text', text: response }); // 必要であれば追加
+                    logToDb(userId, userMessage, response, `こころちゃん（緊急AI: GPT-4o）`, isDanger ? 'danger_word_triggered_AI_response' : 'scam_word_triggered_AI_response', true);
                 }).catch(e => {
                     console.error("危険ワードGPT応答生成エラー", e);
                     logErrorToDb(userId, "危険ワードGPT応答生成エラー", { error: e.message, userId: userId, originalMessage: userMessage });
@@ -1884,7 +1887,13 @@ app.post('/webhook', async (req, res) => {
 
             // 9. 「相談」モードの開始（`useProForNextConsultation`がfalseの場合のみ）
             if (['そうだん', '相談'].includes(lowerUserMessage) && !user.useProForNextConsultation) {
-                await client.replyMessage(replyToken, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' }); // ⭐修正: replyMessageを使用 ⭐
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' });
+                } else {
+                    // replyTokenがない場合はsafePushMessageを使用 (Botが始めた会話など)
+                    await safePushMessage(userId, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' });
+                }
                 usersCollection.doc(userId).update({ useProForNextConsultation: true });
                 logToDb(userId, userMessage, '（相談モード開始）', 'こころちゃん（モード切替）', 'consultation_mode_start', true);
                 return;
@@ -1896,6 +1905,8 @@ app.post('/webhook', async (req, res) => {
                     const fallbackMembershipType = (user.category === '成人' && user.completedRegistration) ? "donor" : "free";
                     await client.replyMessage(replyToken, { type: 'text', text: userConfig.exceedLimitMessage }); // ⭐修正: replyMessageを使用 ⭐
 
+                    // フォールバック応答はAPI呼び出しを伴うため、replyMessageのタイムアウトに注意
+                    // ここではAI応答はsafePushMessageで非同期に送る
                     const aiModelForFallback = MEMBERSHIP_CONFIG[fallbackMembershipType].model;
                     generateGeminiReply(userMessage, aiModelForFallback, userId, user).then(aiReply => {
                         safePushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("回数超過後Flash応答プッシュ失敗", e));
@@ -1967,7 +1978,7 @@ app.post('/webhook', async (req, res) => {
                 aiModelUsed = "gemini-1.5-flash-latest";
             }
 
-            // ⭐修正: AI応答はreplyMessageを優先し、フォールバックなし。エラー時はユーザーにその旨を伝える ⭐
+            // ⭐修正: AI応答はreplyMessageを優先し、エラー時はユーザーにその旨を伝える ⭐
             try {
                 await client.replyMessage(replyToken, { type: 'text', text: aiReply });
                 logToDb(userId, userMessage, aiReply, `こころちゃん（AI会話: ${aiModelUsed}）`, 'normal_conversation', false);
@@ -1975,7 +1986,6 @@ app.post('/webhook', async (req, res) => {
                 console.error(`❌ AI応答のreplyMessage失敗 (ユーザー: ${userId}, メッセージ: "${userMessage}"):`, error.message);
                 logErrorToDb(userId, `AI応答replyMessage失敗`, { error: error.message, replyToken: replyToken, userMessage: userMessage, aiModel: aiModelUsed });
                 // ユーザーにはエラー発生を伝えるメッセージを一度だけ送る
-                // ここでsafePushMessageを使うと無限ループの可能性があるため、replyTokenでのエラーはログのみに留めるか、非常にシンプルな固定メッセージにする
                 try {
                     await client.replyMessage(replyToken, { type: 'text', text: 'ごめんね、今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。' });
                 } catch (fallbackError) {
@@ -2019,3 +2029,28 @@ app.listen(PORT, async () => {
         console.error("🔥🔥🔥【重要】環境変数 'OPENAI_API_KEY' が設定されていません。通常応答の一部や緊急時の応答ができません！ 🔥🔥🔥");
     }
 });
+
+// ⭐新規追加: 事務局への緊急通知専用リトライ関数 ⭐
+async function sendUrgentOfficerNotification(to, message, userId, originalUserMessage, logType) {
+    const maxRetries = 5; // より多めのリトライ
+    const initialDelayMs = 2000; // 長めの初期ディレイ (2秒)
+
+    for (let i = 0; i <= maxRetries; i++) {
+        const currentDelay = initialDelayMs * (2 ** i);
+        if (i > 0) console.warn(`⚠️ 事務局通知リトライ中 (リトライ: ${i}, ディレイ: ${currentDelay}ms)`);
+        await new Promise(resolve => setTimeout(resolve, currentDelay));
+
+        try {
+            await client.pushMessage(to, { type: 'text', text: message });
+            console.log(`✅ 事務局通知送信成功 to: ${to}`);
+            logToDb(userId, originalUserMessage, message, `こころちゃん（事務局通知）`, logType, true);
+            return;
+        } catch (error) {
+            console.error(`❌ 事務局通知送信失敗 (ユーザー: ${to}, リトライ: ${i}):`, error.message);
+            if (i === maxRetries) {
+                console.error(`🚨 事務局通知リトライ失敗: 最大リトライ回数に達しました (ユーザー: ${to})`);
+                logErrorToDb(to, `事務局通知429エラー (最終リトライ失敗)`, { error: error.message, originalMessage: originalUserMessage });
+            }
+        }
+    }
+}
