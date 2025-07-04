@@ -73,7 +73,8 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 // --- メッセージキュー関連 ---
 const messageQueue = [];
 let isProcessingQueue = false;
-const MESSAGE_SEND_INTERVAL_MS = 1000; // LINE APIのレートリミットを考慮した安全な送信間隔（1秒）
+// ⭐修正: MESSAGE_SEND_INTERVAL_MS を 1500ms に調整 ⭐
+const MESSAGE_SEND_INTERVAL_MS = 1500; // LINE APIのレートリミットを考慮した安全な送信間隔（1.5秒）
 
 /**
  * LINEメッセージを送信キューに追加する関数。
@@ -714,7 +715,12 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
 
     if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep) {
         await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
-        await safePushMessage(userId, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+        if (event.replyToken) {
+            await client.replyMessage(event.replyToken, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        } else {
+            await safePushMessage(userId, { type: 'text', text: '会員登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        }
         logToDb(userId, userMessage, '会員登録フローキャンセル', 'こころちゃん（登録フロー）', 'registration_cancel', true);
         return true;
     }
@@ -726,10 +732,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     category: userMessage,
                     registrationStep: 'askingName'
                 });
-                await safePushMessage(userId, { type: 'text', text: `ありがとう！${userMessage}さんだね🌸\n次に、あなたの**お名前**を教えてくれるかな？💖 (ニックネームでも大丈夫だよ)` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう！${userMessage}さんだね🌸\n次に、あなたの**お名前**を教えてくれるかな？💖 (ニックネームでも大丈夫だよ)` });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう！${userMessage}さんだね🌸\n次に、あなたの**お名前**を教えてくれるかな？💖 (ニックネームでも大丈夫だよ)` });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生～大学生」「成人」のいずれかで教えてくれるかな？💦' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生～大学生」「成人」のいずれかで教えてくれるかな？💦' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生～大学生」「成人」のいずれかで教えてくれるかな？💦' });
+                }
                 handled = true;
             }
             break;
@@ -740,10 +756,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     name: userMessage,
                     registrationStep: 'askingKana'
                 });
-                await safePushMessage(userId, { type: 'text', text: `ありがとう、${userMessage}さんだね！\n次に、あなたの**お名前のフリガナ（カタカナ）**を教えてくれるかな？🌸` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう、${userMessage}さんだね！\n次に、あなたの**お名前のフリガナ（カタカナ）**を教えてくれるかな？🌸` });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう、${userMessage}さんだね！\n次に、あなたの**お名前のフリガナ（カタカナ）**を教えてくれるかな？🌸` });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、お名前は20文字以内で教えてくれるかな？💖' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、お名前は20文字以内で教えてくれるかな？💖' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、お名前は20文字以内で教えてくれるかな？💖' });
+                }
                 handled = true;
             }
             break;
@@ -754,10 +780,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     kana: userMessage,
                     registrationStep: 'askingAge'
                 });
-                await safePushMessage(userId, { type: 'text', text: `ありがとう！フリガナもわかったよ🌸\n次に、あなたの**年齢**を教えてくれるかな？💖 (例: 15歳)` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう！フリガナもわかったよ🌸\n次に、あなたの**年齢**を教えてくれるかな？💖 (例: 15歳)` });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう！フリガナもわかったよ🌸\n次に、あなたの**年齢**を教えてくれるかな？💖 (例: 15歳)` });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、フリガナはカタカナで教えてくれるかな？💦' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、フリガナはカタカナで教えてくれるかな？💦' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、フリガナはカタカナで教えてくれるかな？💦' });
+                }
                 handled = true;
             }
             break;
@@ -768,14 +804,28 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     age: age,
                     registrationStep: (user.category === '小学生' || user.category === '中学生～大学生') ? 'askingGuardianName' : 'askingPhoneNumber'
                 });
-                if (user.category === '小学生' || user.category === '中学生～大学生') {
-                    await safePushMessage(userId, { type: 'text', text: `ありがとう、${age}歳だね！\n次に、**保護者の方のお名前**を教えてくれるかな？🌸 (フルネームでお願いします)` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    if (user.category === '小学生' || user.category === '中学生～大学生') {
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう、${age}歳だね！\n次に、**保護者の方のお名前**を教えてくれるかな？🌸 (フルネームでお願いします)` });
+                    } else {
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう、${age}歳だね！\n次に、あなたの**電話番号**を教えてくれるかな？💖 (例: 09012345678)` });
+                    }
                 } else {
-                    await safePushMessage(userId, { type: 'text', text: `ありがとう、${age}歳だね！\n次に、あなたの**電話番号**を教えてくれるかな？💖 (例: 09012345678)` });
+                    if (user.category === '小学生' || user.category === '中学生～大学生') {
+                        await safePushMessage(userId, { type: 'text', text: `ありがとう、${age}歳だね！\n次に、**保護者の方のお名前**を教えてくれるかな？🌸 (フルネームでお願いします)` });
+                    } else {
+                        await safePushMessage(userId, { type: 'text', text: `ありがとう、${age}歳だね！\n次に、あなたの**電話番号**を教えてくれるかな？💖 (例: 09012345678)` });
+                    }
                 }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、年齢は数字で教えてくれるかな？💦 (例: 15)' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、年齢は数字で教えてくれるかな？💦 (例: 15)' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、年齢は数字で教えてくれるかな？💦 (例: 15)' });
+                }
                 handled = true;
             }
             break;
@@ -786,10 +836,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     guardianName: userMessage,
                     registrationStep: 'askingGuardianPhoneNumber'
                 });
-                await safePushMessage(userId, { type: 'text', text: `ありがとう、${userMessage}さんだね！\n次に、**保護者の方の電話番号**を教えてくれるかな？🌸 (例: 09012345678)` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう、${userMessage}さんだね！\n次に、**保護者の方の電話番号**を教えてくれるかな？🌸 (例: 09012345678)` });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう、${userMessage}さんだね！\n次に、**保護者の方の電話番号**を教えてくれるかな？🌸 (例: 09012345678)` });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、保護者の方のお名前は30文字以内で教えてくれるかな？💖' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、保護者の方のお名前は30文字以内で教えてくれるかな？💖' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、保護者の方のお名前は30文字以内で教えてくれるかな？💖' });
+                }
                 handled = true;
             }
             break;
@@ -800,10 +860,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     guardianPhoneNumber: userMessage,
                     registrationStep: 'askingAddressCity'
                 });
-                await safePushMessage(userId, { type: 'text', text: `ありがとう！保護者の方の電話番号もわかったよ🌸\n次に、あなたの**お住まいの市町村**を教えてくれるかな？💖 (例: 多摩市)` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう！保護者の方の電話番号もわかったよ🌸\n次に、あなたの**お住まいの市町村**を教えてくれるかな？💖 (例: 多摩市)` });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう！保護者の方の電話番号もわかったよ🌸\n次に、あなたの**お住まいの市町村**を教えてくれるかな？💖 (例: 多摩市)` });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
+                }
                 handled = true;
             }
             break;
@@ -814,10 +884,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     phoneNumber: userMessage,
                     registrationStep: 'askingAddressCity'
                 });
-                await safePushMessage(userId, { type: 'text', text: `ありがとう！電話番号もわかったよ🌸\n次に、あなたの**お住まいの市町村**を教えてくれるかな？💖 (例: 多摩市)` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう！電話番号もわかったよ🌸\n次に、あなたの**お住まいの市町村**を教えてくれるかな？💖 (例: 多摩市)` });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう！電話番号もわかったよ🌸\n次に、あなたの**お住まいの市町村**を教えてくれるかな？💖 (例: 多摩市)` });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、電話番号は半角数字で、市外局番から正確に教えてくれるかな？💦 (例: 09012345678)\n登録をやり直す場合は「登録やめる」と入力してね。' });
+                }
                 handled = true;
             }
             break;
@@ -828,10 +908,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     'address.city': userMessage,
                     registrationStep: 'askingConsent'
                 });
-                await safePushMessage(userId, { type: 'text', text: `ありがとう、${userMessage}だね！\n最後に、**NPO法人コネクトの活動内容とプライバシーポリシーに同意**してくれるかな？\n同意する？しない？🌸` });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ありがとう、${userMessage}だね！\n最後に、**NPO法人コネクトの活動内容とプライバシーポリシーに同意**してくれるかな？\n同意する？しない？🌸` });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: `ありがとう、${userMessage}だね！\n最後に、**NPO法人コネクトの活動内容とプライバシーポリシーに同意**してくれるかな？\n同意する？しない？🌸` });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、市町村名は20文字以内で教えてくれるかな？💖' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、市町村名は20文字以内で教えてくれるかな？💖' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、市町村名は20文字以内で教えてくれるかな？💖' });
+                }
                 handled = true;
             }
             break;
@@ -846,22 +936,42 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                         completedRegistration: true,
                         membershipType: "free"
                     });
-                    await safePushMessage(userId, {
-                        type: 'flex',
-                        altText: '学生証提出のお願い',
-                        contents: {
-                            type: 'bubble',
-                            body: {
-                                type: 'box',
-                                layout: 'vertical',
-                                contents: [
-                                    { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
-                                    { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
-                                    { type: 'button', style: 'primary', height: 'sm', action: { type: 'uri', label: '学生証提出フォームへ', uri: prefilledFormUrl }, margin: 'md', color: '#FFB6C1' }
-                                ]
+                    // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                    if (event.replyToken) {
+                        await client.replyMessage(event.replyToken, {
+                            type: 'flex',
+                            altText: '学生証提出のお願い',
+                            contents: {
+                                type: 'bubble',
+                                body: {
+                                    type: 'box',
+                                    layout: 'vertical',
+                                    contents: [
+                                        { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
+                                        { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
+                                        { type: 'button', style: 'primary', height: 'sm', action: { type: 'uri', label: '学生証提出フォームへ', uri: prefilledFormUrl }, margin: 'md', color: '#FFB6C1' }
+                                    ]
+                                }
                             }
-                        }
-                    });
+                        });
+                    } else {
+                        await safePushMessage(userId, {
+                            type: 'flex',
+                            altText: '学生証提出のお願い',
+                            contents: {
+                                type: 'bubble',
+                                body: {
+                                    type: 'box',
+                                    layout: 'vertical',
+                                    contents: [
+                                        { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
+                                        { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
+                                        { type: 'button', style: 'primary', height: 'sm', action: { type: 'uri', label: '学生証提出フォームへ', uri: prefilledFormUrl }, margin: 'md', color: '#FFB6C1' }
+                                    ]
+                                }
+                            }
+                        });
+                    }
                 } else {
                     await usersCollection.doc(userId).update({
                         consentObtained: true,
@@ -869,7 +979,12 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                         completedRegistration: true,
                         membershipType: "free"
                     });
-                    await safePushMessage(userId, { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                    // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                    if (event.replyToken) {
+                        await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                    } else {
+                        await safePushMessage(userId, { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                    }
                 }
                 handled = true;
             } else if (lowerUserMessage.includes('同意しない') || lowerUserMessage.includes('しない')) {
@@ -878,10 +993,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     registrationStep: null,
                     completedRegistration: false
                 });
-                await safePushMessage(userId, { type: 'text', text: 'そっか、同意しないんだね。会員登録は完了できないけど、いつでもお話しできるからね🌸' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'そっか、同意しないんだね。会員登録は完了できないけど、いつでもお話しできるからね🌸' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'そっか、同意しないんだね。会員登録は完了できないけど、いつでもお話しできるからね🌸' });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、「同意する」か「同意しない」で教えてくれるかな？💦' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、「同意する」か「同意しない」で教えてくれるかな？💦' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、「同意する」か「同意しない」で教えてくれるかな？💦' });
+                }
                 handled = true;
             }
             break;
@@ -911,10 +1036,20 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                     studentIdVerified: false,
                     completedRegistration: true
                 });
-                await safePushMessage(userId, { type: 'text', text: '学生証の写真を送ってくれてありがとう！確認するね🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: '学生証の写真を送ってくれてありがとう！確認するね🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: '学生証の写真を送ってくれてありがとう！確認するね🌸\nこれで会員登録が完了したよ！いつでもお話ししてね💖' });
+                }
                 handled = true;
             } else {
-                await safePushMessage(userId, { type: 'text', text: 'ごめんね、学生証の写真を送ってくれるかな？💦' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、学生証の写真を送ってくれるかな？💦' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、学生証の写真を送ってくれるかな？💦' });
+                }
                 handled = true;
             }
             break;
@@ -935,21 +1070,36 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
 
     if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep === 'awaiting_contact_form') {
         await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
-        await safePushMessage(userId, { type: 'text', text: '見守りサービス登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+        if (event.replyToken) {
+            await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービス登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        } else {
+            await safePushMessage(userId, { type: 'text', text: '見守りサービス登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
+        }
         logToDb(userId, userMessage, '見守りサービス登録キャンセル', 'こころちゃん（見守り登録）', 'watch_service_cancel', true);
         return true;
     }
 
     const currentUserConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
     if (!currentUserConfig.canUseWatchService) {
-        await safePushMessage(userId, { type: 'text', text: `ごめんね💦 あなたの会員タイプ（${user.membershipType}）では、見守りサービスはまだ使えないんだ🌸 見守りサービスは無料会員、寄付会員、サブスク会員の方が利用できるよ。` });
+        // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+        if (event.replyToken) {
+            await client.replyMessage(event.replyToken, { type: 'text', text: `ごめんね💦 あなたの会員タイプ（${user.membershipType}）では、見守りサービスはまだ使えないんだ🌸 見守りサービスは無料会員、寄付会員、サブスク会員の方が利用できるよ。` });
+        } else {
+            await safePushMessage(userId, { type: 'text', text: `ごめんね💦 あなたの会員タイプ（${user.membershipType}）では、見守りサービスはまだ使えないんだ🌸 見守りサービスは無料会員、寄付会員、サブスク会員の方が利用できるよ。` });
+        }
         logToDb(userId, userMessage, `見守りサービス利用不可`, 'こころちゃん（見守り案内）', 'watch_service_not_available', true);
         return true;
     }
 
     if (user.category && (user.category === '小学生' || user.category === '中学生～大学生') && !lowerUserMessage.includes('一人暮らし')) {
         const replyText = `ごめんね、見守りサービスは主に30代以上の一人暮らしの方を対象としているんだ💦\n高校生や大学生で一人暮らしをしていて不安な場合は、特別な相談もできるから教えてね。もし、いじめや詐欺のことで困っていたら、いつでも話を聞くよ🌸`;
-        await safePushMessage(userId, { type: 'text', text: replyText });
+        // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+        if (event.replyToken) {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        } else {
+            await safePushMessage(userId, { type: 'text', text: replyText });
+        }
         logToDb(userId, userMessage, replyText, 'こころちゃん（見守り対象外）', 'watch_service_category_denied', true);
         return true;
     }
@@ -998,10 +1148,18 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 await usersCollection.doc(userId).update(
                     { lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false }
                 );
-                await safePushMessage(userId, {
-                    type: 'text',
-                    text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
-                });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
+                    });
+                } else {
+                    await safePushMessage(userId, {
+                        type: 'text',
+                        text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
+                    });
+                }
                 logToDb(userId, userMessage, 'ありがとう🌸 元気そうで安心したよ💖 またね！', 'こころちゃん（見守り応答）', 'watch_service_ok_response', true);
                 return true;
             } catch (error) {
@@ -1016,10 +1174,18 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     if (lowerUserMessage.includes("まあまあかな")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
             try {
-                await safePushMessage(userId, {
-                    type: 'text',
-                    text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
-                });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
+                    });
+                } else {
+                    await safePushMessage(userId, {
+                        type: 'text',
+                        text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
+                    });
+                }
                 logToDb(userId, userMessage, 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖', 'こころちゃん（見守り応答）', 'watch_service_status_somewhat', true);
                 return true;
             } catch (error) {
@@ -1034,10 +1200,18 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     if (lowerUserMessage.includes("少し疲れた…")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
             try {
-                await safePushMessage(userId, {
-                    type: 'text',
-                    text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
-                });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
+                    });
+                } else {
+                    await safePushMessage(userId, {
+                        type: 'text',
+                        text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
+                    });
+                }
                 logToDb(userId, userMessage, '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖', 'こころちゃん（見守り応答）', 'watch_service_status_tired', true);
                 return true;
             } catch (error) {
@@ -1052,10 +1226,18 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     if (lowerUserMessage.includes("話を聞いて")) {
         if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
             try {
-                await safePushMessage(userId, {
-                    type: 'text',
-                    text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
-                });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
+                    });
+                } else {
+                    await safePushMessage(userId, {
+                        type: 'text',
+                        text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
+                    });
+                }
                 logToDb(userId, userMessage, 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖', 'こころちゃん（見守り応答）', 'watch_service_status_talk', true);
                 return true;
             } catch (error) {
@@ -1111,7 +1293,12 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         if (user && user.wantsWatchCheck) {
             try {
                 await usersCollection.doc(userId).update({ wantsWatchCheck: false, emergencyContact: null, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false });
-                await safePushMessage(userId, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録してね💖' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録してね💖' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録してね💖' });
+                }
                 logToDb(userId, userMessage, '見守りサービスを解除しました。', 'こころちゃん（見守り解除）', 'watch_service_unregistered', true);
                 return true;
             } catch (error) {
@@ -1120,7 +1307,12 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 return false;
             }
         } else {
-            await safePushMessage(userId, { type: 'text', text: '見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖' });
+            // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+            if (event.replyToken) {
+                await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖' });
+            } else {
+                await safePushMessage(userId, { type: 'text', text: '見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖' });
+            }
             return true;
         }
     }
@@ -1337,7 +1529,7 @@ app.post('/webhook', async (req, res) => {
                 wantsWatchCheck: false,
                 emergencyContact: null,
                 emergencyContactName: null, // 追加: 緊急連絡先名
-                relationshipToEmergencyContact: null, // 追加: 続柄
+                relationshipToEmergencyContact: null, // ⭐修正: ここで初期化を追加 ⭐
                 lastOkResponse: null,
                 scheduledMessageSent: false,
                 firstReminderSent: false,
@@ -1683,7 +1875,12 @@ app.post('/webhook', async (req, res) => {
 
             // 9. 「相談」モードの開始（`useProForNextConsultation`がfalseの場合のみ）
             if (['そうだん', '相談'].includes(lowerUserMessage) && !user.useProForNextConsultation) {
-                await safePushMessage(userId, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' });
+                // ⭐修正: replyTokenがあればreplyMessageを使用 ⭐
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' });
+                } else {
+                    await safePushMessage(userId, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' });
+                }
                 usersCollection.doc(userId).update({ useProForNextConsultation: true });
                 logToDb(userId, userMessage, '（相談モード開始）', 'こころちゃん（モード切替）', 'consultation_mode_start', true);
                 return;
@@ -1755,6 +1952,7 @@ app.post('/webhook', async (req, res) => {
             let aiReply;
             let aiModelUsed = '';
 
+            // AI応答の生成
             if (userMessage.length >= CHARACTER_LIMIT_FOR_GPT4O_MINI) {
                 // 長文の場合はGPT-4o mini
                 aiReply = await generateGPTReply(userMessage, "gpt-4o-mini", userId, user);
@@ -1764,9 +1962,18 @@ app.post('/webhook', async (req, res) => {
                 aiReply = await generateGeminiReply(userMessage, "gemini-1.5-flash-latest", userId, user);
                 aiModelUsed = "gemini-1.5-flash-latest";
             }
-
-            safePushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("通常AI応答プッシュ失敗", e));
-            logToDb(userId, userMessage, aiReply, `こころちゃん（AI会話: ${aiModelUsed}）`, 'normal_conversation', false);
+            
+            // ⭐修正: AI応答はreplyMessageを優先し、タイムアウト時にsafePushMessageをフォールバック ⭐
+            try {
+                await client.replyMessage(replyToken, { type: 'text', text: aiReply });
+                logToDb(userId, userMessage, aiReply, `こころちゃん（AI会話: ${aiModelUsed}）`, 'normal_conversation', false);
+            } catch (error) {
+                // replyMessageが失敗した場合（例: タイムアウト）はsafePushMessageで再試行
+                console.warn(`⚠️ replyMessage失敗、safePushMessageで再試行します:`, error.message);
+                await safePushMessage(userId, { type: 'text', text: aiReply });
+                logToDb(userId, userMessage, aiReply, `こころちゃん（AI会話: ${aiModelUsed} - Fallback Push）`, 'normal_conversation', false);
+                await logErrorToDb(userId, `AI応答replyMessage失敗`, { error: error.message, replyToken: replyToken, userMessage: userMessage, aiModel: aiModelUsed });
+            }
             return;
 
         } else if (event.type === 'postback') {
@@ -1784,7 +1991,7 @@ app.post('/webhook', async (req, res) => {
                 return;
             }
 
-            // ⭐修正: ポストバックの「見守り登録/解除」もsafePushMessageに切り替え ⭐
+            // ⭐修正: ポストバックの「見守り登録/解除」もreplyMessageに切り替え（replyTokenが利用可能） ⭐
             const handledByWatchServicePostback = await handleWatchServiceRegistration(event, userId, event.postback.data, user);
             if (handledByWatchServicePostback) {
                 return;
