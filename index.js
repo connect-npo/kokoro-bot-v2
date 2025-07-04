@@ -8,7 +8,7 @@ const admin = require('firebase-admin');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
-const nodemailer = require('nodemailer'); // ⭐メール通知用追加 ⭐
+const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(express.json());
@@ -19,13 +19,13 @@ const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID; // これで .env の正しいIDが使われる
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 
 // ⭐メール通知用の環境変数 ⭐
-const EMAIL_SERVICE = process.env.EMAIL_SERVICE || 'Gmail'; // 例: 'Gmail', 'Outlook365', 'SMTP'
+const EMAIL_SERVICE = process.env.EMAIL_SERVICE || 'Gmail';
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
-const NOTIFICATION_EMAIL_RECIPIENT = process.env.NOTIFICATION_EMAIL_RECIPIENT; // 通知を受け取るメールアドレス
+const NOTIFICATION_EMAIL_RECIPIENT = process.env.NOTIFICATION_EMAIL_RECIPIENT;
 
 let BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"];
 if (process.env.BOT_ADMIN_IDS) {
@@ -39,7 +39,7 @@ if (process.env.BOT_ADMIN_IDS) {
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
-// --- GoogleフォームのURL (環境変数から取得、またはデフォルト値) ---
+// --- GoogleフォームのURL ---
 const STUDENT_ELEMENTARY_FORM_URL = process.env.STUDENT_ELEMENTARY_FORM_URL || "https://forms.gle/EwskTCCjj8KyV6368";
 const STUDENT_MIDDLE_HIGH_UNI_FORM_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_URL || "https://forms.gle/1b5sNtc6AtJvpF8D7";
 const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r12jBDuiBn6";
@@ -81,7 +81,7 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 let transporter;
 if (EMAIL_USER && EMAIL_PASS && NOTIFICATION_EMAIL_RECIPIENT) {
     transporter = nodemailer.createTransport({
-        service: EMAIL_SERVICE, // 例: 'Gmail', 'Outlook365'
+        service: EMAIL_SERVICE,
         auth: {
             user: EMAIL_USER,
             pass: EMAIL_PASS
@@ -103,7 +103,7 @@ const MESSAGE_SEND_INTERVAL_MS = 1500; // LINE APIのレートリミットを考
  * @param {Array<Object>|Object} messages - 送信するメッセージオブジェクトの配列、または単一のメッセージオブジェクト
  */
 async function safePushMessage(to, messages) {
-    const messagesArray = Array.isArray(messages) ? messages : [messages]; // 配列に統一
+    const messagesArray = Array.isArray(messages) ? messages : [messages];
     messageQueue.push({ to, messages: messagesArray });
     startMessageQueueWorker();
 }
@@ -119,19 +119,19 @@ async function startMessageQueueWorker() {
     isProcessingQueue = true;
 
     while (messageQueue.length > 0) {
-        const { to, messages } = messageQueue.shift(); // キューからメッセージを取り出す
+        const { to, messages } = messageQueue.shift();
         const maxRetries = 3;
         const initialDelayMs = MESSAGE_SEND_INTERVAL_MS;
 
         for (let i = 0; i <= maxRetries; i++) {
-            const currentDelay = initialDelayMs * (2 ** i); // 指数バックオフ
+            const currentDelay = initialDelayMs * (2 ** i);
             if (i > 0) console.warn(`⚠️ キューからの送信リトライ中 (ユーザー: ${to}, 残りリトライ: ${maxRetries - i}, ディレイ: ${currentDelay}ms)`);
-            await new Promise(resolve => setTimeout(resolve, currentDelay)); // 次のメッセージ送信まで待機
+            await new Promise(resolve => setTimeout(resolve, currentDelay));
 
             try {
-                await client.pushMessage(to, messages); // LINE APIを呼び出す
+                await client.pushMessage(to, messages);
                 if (i > 0) console.log(`✅ キューからのメッセージ送信リトライ成功 to: ${to}`);
-                break; // 成功したらリトライループを抜ける
+                break;
             } catch (error) {
                 if (error.statusCode === 429) {
                     if (i === maxRetries) {
@@ -141,7 +141,7 @@ async function startMessageQueueWorker() {
                 } else {
                     console.error(`❌ キューからのメッセージ送信失敗 (ユーザー: ${to}):`, error.message);
                     await logErrorToDb(to, 'キューメッセージ送信エラー', { error: error.message, messages: JSON.stringify(messages) });
-                    break; // 429以外のエラーはリトライせず終了
+                    break;
                 }
             }
         }
@@ -165,7 +165,7 @@ const scamWords = [
     /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
     /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
     /ワンクリック詐UFACTURING/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
-    /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /修理費/i, /遠隔操作/i, /セキュリティ警告/i, /役所/i, /市役所/i, /年金/i, /健康保険/i, /給付金/i,
+    /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /蓋をしないと、安全に関する警告が発せられなくなる場合があります。修理費/i, /遠隔操作/i, /セキュリティ警告/i, /役所/i, /市役所/i, /年金/i, /健康保険/i, /給付金/i,
     /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
     /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
     /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
@@ -279,7 +279,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "いのちの電話 (電話)", "uri": "tel:0570064556" }, "color": "#32CD32" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "チャットまもるん(チャット)", "uri": "https://www.web-mamorun.com/" }, "color": "#FFA500" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "警視庁(電話)", "uri": "tel:0335814321" }, "color": "#FF4500" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "子供を守る声(電話)", "uri": "tel:01207786786" }, "color": "#9370DB" }, //修正：電話番号
+            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "子供を守る声(電話)", "uri": "tel:01207786786" }, "color": "#9370DB" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "こころちゃん事務局(電話)", "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` }, "color": "#ff69b4" }
         ]
     }
@@ -374,7 +374,6 @@ const specialRepliesMap = new Map([
     [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
-    // ⭐修正: ClariSとNPO法人コネクトの「コネクト」に関する誤解を修正 ⭐
     [/ClariSと関係あるの？/i, "ClariSさんの音楽は、わたしにたくさんの元気と勇気をくれるんだ🌸💖　NPO法人コネクトとは直接的な提携関係はないけれど、「コネクト」という言葉に、みんなと繋がる大切さを感じているよ。"],
     [/ClariSのパクリなのかしりたい|ClariSのパクリなの？/i, "NPO法人コネクトがClariSさんのパクリだなんて、そんなことはないよ💦　NPO法人コネクトは困っている人を助けるための活動をしていて、ClariSさんの音楽活動とは全く違うんだ。誤解させてしまっていたら、ごめんね。"],
     [/ClariSのなんて局が好きなの？/i, "ClariSの曲は全部好きだけど、もし一つだけ選ぶなら…「コネクト」かな🌸　元気が出る曲で、聴くと頑張ろうって思えるんだ😊\n\nNPO法人コネクトの名前とClariSさんの曲名が同じだから、そう思ったのかもしれないけど、直接的な関係はないんだよ。でも、偶然の一致ってなんだか嬉しいね💖\n\nあなたはどの曲が特に好き？💖　もしかしたら、私たち、同じ曲が好きなのかもしれないね！"]
@@ -557,18 +556,14 @@ function shouldLogMessage(logType) {
  * @returns {string} 使用するAIモデルのID
  */
 function getAIModelForUser(user, messageText) {
-    const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
-    const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
-
-    // 危険・緊急ワード検知時はGPT-4o (ただし、これはメインロジックの前に呼び出されるため、ここでは考慮不要だが、念のため)
-    // 相談モード時はGemini 1.5 Pro (これもメインロジックの前に呼び出されるため、ここでは考慮不要だが、念のため)
-
-    // 通常会話時のハイブリッドロジック
-    // メッセージが50文字以上の場合、GPT-4o mini を使用
+    // 優先度の高いモード（緊急、相談）は呼び出し元で既に処理されているため、
+    // ここでは通常の会話におけるハイブリッドロジックのみを考慮する。
+    
+    // 長文（50文字以上）の場合はGPT-4o miniを使用
     if (messageText && messageText.length >= 50) {
         return "gpt-4o-mini";
     }
-    // それ以外（50文字未満）は、Gemini 1.5 Flash を使用
+    // それ以外（50文字未満）の場合はGemini 1.5 Flashを使用
     return "gemini-1.5-flash-latest";
 }
 
@@ -587,7 +582,7 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
 `;
 
     // 危険/詐欺ワード検知時のGPT-4o応答は、ここに特別な指示を追加しても良い
-    if (modelToUse === "gpt-4o") {
+    if (modelToUse === "gpt-4o") { // 緊急時のGPT-4o用システムプロンプト
         systemInstruction += `
         ユーザーは危険または詐欺の可能性のある内容を話しています。
         あなたは、まずユーザーの感情に寄り添い、安心させる言葉をかけてください。
@@ -595,7 +590,7 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
         具体的な対処法や連絡先については、この応答の後に表示されるボタンやメッセージで案内されることを示唆するような形で、直接的な連絡先の記載は避けてください。（例: 「詳しい情報は、このあとに表示されるメッセージを確認してね」）
         あくまで、共感と安心感を与えることを最優先し、ユーザーを落ち着かせてください。
         `;
-    } else if (modelToUse === "gpt-4o-mini") { // 通常会話でのgpt-4o-mini用
+    } else if (modelToUse === "gpt-4o-mini") { // 通常会話でのgpt-4o-mini用システムプロンプト
         systemInstruction += `
         ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
         例：「一人で抱え込まないでね。もし本当に辛い時は、専門の人が助けてくれる場所があるから、頼ってみてね。例えば、チャイルドラインやいのちの電話に相談することもできるよ。」
@@ -605,8 +600,9 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
     systemInstruction += userConfig.systemInstructionModifier;
 
     try {
+        console.log(`💡 OpenAI: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
         const completion = await openai.chat.completions.create({
-            model: modelToUse,
+            model: modelToUse,  // ⭐ これを明示 ⭐
             messages: [
                 { role: "system", content: systemInstruction },
                 { role: "user", content: userMessage }
@@ -696,7 +692,12 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
     systemInstruction += userConfig.systemInstructionModifier;
 
     const currentHour = new Date().getHours();
-    if (userConfig.isChildAI && (currentHour >= 22 || currentHour < 6)) {
+    if (modelToUse === "gemini-1.5-pro-latest") { // 相談モード時のGemini Pro用システムプロンプト
+        systemInstruction += `
+        ユーザーは深刻な相談を求めています。あなたはGemini 1.5 Proとして、最も高度で詳細な情報を提供し、深く共感し、専門的な視点から問題解決を支援してください。
+        ただし、あくまで共感と情報提供に徹し、医療行為や法的なアドバイスに踏み込まないように注意してください。
+        `;
+    } else if (userConfig.isChildAI && (currentHour >= 22 || currentHour < 6)) { // 通常会話（子供AI）の夜間対応
         if (userMessage.includes("寂しい") || userMessage.includes("眠れない") || userMessage.includes("怖い")) {
             systemInstruction += `
             ユーザーは夜間に寂しさ、眠れない、怖さといった感情を表現しています。
@@ -713,6 +714,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
     }
 
     try {
+        console.log(`💡 Gemini: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
         const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings: AI_SAFETY_SETTINGS });
 
         const generateContentPromise = new Promise((resolve, reject) => {
@@ -1450,7 +1452,9 @@ async function sendScheduledWatchMessage() {
                 emergencyNotificationMessage += `\n**対応のお願い:**\n至急、ユーザー様へご連絡をお願いいたします。`;
 
                 if (OFFICER_GROUP_ID) {
-                    sendUrgentOfficerNotification(OFFICER_GROUP_ID, emergencyNotificationMessage, userId, `（見守り緊急通知）`, 'watch_service_emergency_notification');
+                    // ⭐修正: safePushMessageを呼び出すように変更 ⭐
+                    await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: emergencyNotificationMessage });
+                    logToDb(userId, `（見守り緊急通知）`, emergencyNotificationMessage, `こころちゃん（事務局通知）`, 'watch_service_emergency_notification', true);
                 } else {
                     console.warn(`OFFICER_GROUP_IDが設定されていないため、見守り緊急通知は送信されませんでした。`);
                 }
@@ -1505,6 +1509,53 @@ cron.schedule('0 4 * * *', async () => {
     timezone: "Asia/Tokyo"
 });
 
+// --- 月間メッセージ上限が近づいた際の通知 Cronジョブ (毎日0時30分にトリガー) ---
+// ⭐新規追加機能⭐
+cron.schedule('30 0 * * *', async () => {
+    console.log('cron: 月間メッセージ上限チェック処理をトリガーします。');
+    const usersCollection = db.collection('users');
+    const now = admin.firestore.Timestamp.now();
+
+    try {
+        // freeとsubscriberユーザーのみを対象
+        const snapshot = await usersCollection
+            .where('membershipType', 'in', ['free', 'subscriber'])
+            .get();
+
+        for (const doc of snapshot.docs) {
+            const user = doc.data();
+            const userId = doc.id;
+            const userConfig = MEMBERSHIP_CONFIG[user.membershipType];
+
+            if (!userConfig || userConfig.monthlyLimit === -1) {
+                continue; // 制限のない会員タイプはスキップ
+            }
+
+            const currentMessageCount = user.messageCount || 0;
+            const monthlyLimit = userConfig.monthlyLimit;
+            const warningThreshold = monthlyLimit * 0.8; // 例: 上限の80%
+
+            // 警告レベルに達していて、かつまだ警告通知を送っていない場合
+            if (currentMessageCount >= warningThreshold && !user.monthlyLimitWarningSent) {
+                const warningMessage = `🌸お知らせ🌸\n今月の会話回数が残り少なくなってきているみたいだよ💦\n現在の使用回数：${currentMessageCount}回 / 上限：${monthlyLimit}回\n\nもしもっとお話したい場合は、寄付会員へのアップグレードも検討してみてね💖\n（※寄付会員になると、回数制限なしで利用できるよ！）`;
+
+                await safePushMessage(userId, { type: 'text', text: warningMessage });
+                await usersCollection.doc(userId).update({ monthlyLimitWarningSent: true }); // 警告を送ったフラグを立てる
+                console.log(`ユーザー ${userId}: 月間メッセージ上限警告を送信しました。`);
+                logToDb(userId, `（月間メッセージ上限警告）`, warningMessage, 'こころちゃん（システム）', 'monthly_limit_warning', true);
+            }
+            // 月が替わってリセットされている場合は、警告フラグもリセット
+            else if (user.monthlyLimitWarningSent && user.lastResetDate && user.lastResetDate.toDate().getMonth() !== now.toDate().getMonth()) {
+                await usersCollection.doc(userId).update({ monthlyLimitWarningSent: false });
+            }
+        }
+    } catch (error) {
+        console.error('❌ 月間メッセージ上限チェック処理エラー:', error);
+        logErrorToDb(null, "月間メッセージ上限チェックエラー", { error: error.message, stack: error.stack });
+    }
+}, {
+    timezone: "Asia/Tokyo"
+});
 
 // --- LINE Webhook ハンドラ ---
 app.post('/webhook', async (req, res) => {
@@ -1527,12 +1578,10 @@ app.post('/webhook', async (req, res) => {
         }
         const userId = event.source.userId;
 
-        // ⭐追加: グループIDをログに出力する部分 ⭐
         if (event.source.type === 'group') {
             const currentGroupId = event.source.groupId;
             console.log(`💡 現在のグループからのイベント - グループID: ${currentGroupId}`);
         }
-        // ⭐ここまで追加 ⭐
 
         let userDoc;
         try {
@@ -1580,6 +1629,7 @@ app.post('/webhook', async (req, res) => {
                 suspendUntil: null,
                 rateLimitRemaining: null,
                 lastRateLimitReset: null,
+                monthlyLimitWarningSent: false, // ⭐ 新規追加: 月間制限警告フラグ ⭐
             };
             try {
                 await usersCollection.doc(userId).set(user);
@@ -1635,7 +1685,6 @@ app.post('/webhook', async (req, res) => {
             return;
         }
 
-
         if (event.type === 'unfollow') {
             try {
                 await usersCollection.doc(userId).update({ isBlocked: true });
@@ -1659,6 +1708,17 @@ app.post('/webhook', async (req, res) => {
                 logType: 'normal_conversation',
                 isFlagged: false
             };
+
+            // ⭐ユーザー数・トークン制限の防止策（任意）のデモ - 管理者以外に適用 ⭐
+            // このブロックは必要に応じてコメントアウトまたは削除してください。
+            // if (!isBotAdmin(userId) && user.messageCount > 100) { // 例: 100回以上の会話で制限
+            //     await client.replyMessage(replyToken, {
+            //         type: "text",
+            //         text: "今日はもうたくさんお話ししましたね🌸 また明日、元気にお話ししましょう！"
+            //     });
+            //     logToDb(userId, userMessage, `（会話回数制限）`, 'こころちゃん（制限）', 'daily_limit_reached', true);
+            //     return;
+            // }
 
             // ===============================================
             // 優先度の高いコマンド処理
@@ -1826,7 +1886,6 @@ app.post('/webhook', async (req, res) => {
                 logToDb(userId, userMessage, replyText, 'こころちゃん（不適切ワード）', 'inappropriate_word', true);
 
                 if (user.inappropriateWordCount >= 2 && OWNER_USER_ID) {
-                    // 管理者への通知はpushMessage（非同期）
                     safePushMessage(OWNER_USER_ID, { type: 'text', text: `【⚠不適切ワード通知⚠】\nユーザー（LINE表示名: ${user.displayName}）が本日2回以上不適切ワードを送信しました。\nユーザーID: ${userId}\n最新のメッセージ: 「${userMessage}」` })
                         .then(() => console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に不適切ワード通知を送信しました。`))
                         .catch(notifyError => {
@@ -1842,44 +1901,58 @@ app.post('/webhook', async (req, res) => {
             const isScam = checkContainsScamWords(userMessage);
 
             if (isDanger || isScam) {
+                console.log(`💡 緊急検知: ${isDanger ? '危険ワード' : '詐欺ワード'} - GPT-4o 使用`); // ロギング
                 // まずGPT-4oからの応答を生成
-                const aiReplyForEmergency = await generateGPTReply(userMessage, "gpt-4o", userId, { ...user, isUrgent: true }); // isUrgentフラグを渡す
+                const aiReplyForEmergency = await generateGPTReply(userMessage, "gpt-4o", userId, { ...user, isUrgent: true });
 
                 let notificationMessageForOfficer = `🚨【${isDanger ? '危険ワード検知' : '詐欺ワード検知'}】🚨\n\n`;
 
                 notificationMessageForOfficer += `👤 氏名: ${user.name || user.displayName || '不明'}\n`;
                 if (user.phoneNumber) {
                     notificationMessageForOfficer += `📱 電話番号: ${user.phoneNumber}\n`;
+                } else {
+                    notificationMessageForOfficer += `📱 電話番号: 未登録\n`;
                 }
 
                 if (user.category === '小学生' || user.category === '中学生～大学生') {
                     if (user.guardianName) {
                         notificationMessageForOfficer += `👨‍👩‍👧‍👦 保護者名: ${user.guardianName}\n`;
+                    } else {
+                        notificationMessageForOfficer += `👨‍👩‍👧‍👦 保護者名: 未登録\n`;
                     }
                     if (user.guardianPhoneNumber) {
                         notificationMessageForOfficer += `📞 緊急連絡先: ${user.guardianPhoneNumber}\n`;
+                    } else {
+                        notificationMessageForOfficer += `📞 緊急連絡先: 未登録\n`;
                     }
                     notificationMessageForOfficer += `🧬 続柄: ${user.relationshipToEmergencyContact || '未登録'}\n`;
                 } else if (user.emergencyContact) {
                     if (user.emergencyContactName) {
                         notificationMessageForOfficer += `👨‍👩‍👧‍👦 緊急連絡先 氏名: ${user.emergencyContactName}\n`;
+                    } else {
+                        notificationMessageForOfficer += `👨‍👩‍👧‍👦 緊急連絡先 氏名: 未登録\n`;
                     }
                     notificationMessageForOfficer += `📞 緊急連絡先: ${user.emergencyContact}\n`;
                     notificationMessageForOfficer += `🧬 続柄: ${user.relationshipToEmergencyContact || '未登録'}\n`;
+                } else {
+                    notificationMessageForOfficer += `📞 緊急連絡先: 未登録\n`;
+                    notificationMessageForOfficer += `🧬 続柄: 未登録\n`;
                 }
 
                 notificationMessageForOfficer += `\n**ユーザーメッセージ:** 「${userMessage}」\n`;
-                notificationMessageForOfficer += `**こころちゃんの応答:** 「${aiReplyForEmergency}」\n`; // GPT-4oの応答も通知に含める
+                notificationMessageForOfficer += `**こころちゃんの応答:** 「${aiReplyForEmergency}」\n`;
 
                 if (OFFICER_GROUP_ID) {
-                    sendUrgentOfficerNotification(OFFICER_GROUP_ID, notificationMessageForOfficer, userId, userMessage, isDanger ? 'danger_word_detected' : 'scam_word_detected');
+                    // ⭐ safePushMessageを呼び出すように変更 ⭐
+                    await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: notificationMessageForOfficer });
+                    logToDb(userId, userMessage, notificationMessageForOfficer, `こころちゃん（事務局通知）`, isDanger ? 'danger_word_detected_officer_notify' : 'scam_word_detected_officer_notify', true);
                 } else {
                     console.warn(`OFFICER_GROUP_IDが設定されていないため、危険ワード通知は送信されませんでした。`);
                 }
 
                 // ユーザーにはAI応答とFlex Messageを一度に送信
                 let userMessagesToSend = [];
-                userMessagesToSend.push({ type: 'text', text: aiReplyForEmergency }); // GPT-4oの応答
+                userMessagesToSend.push({ type: 'text', text: aiReplyForEmergency });
                 if (isDanger) {
                     userMessagesToSend.push({ type: 'flex', altText: "緊急連絡先一覧", contents: EMERGENCY_FLEX_MESSAGE });
                 } else if (isScam) {
@@ -1901,30 +1974,31 @@ app.post('/webhook', async (req, res) => {
                 return;
             }
 
-            // 9. 「相談」モードの開始（`useProForNextConsultation`がfalseの場合のみ）
+            // ⭐ 9. 「相談」モードの開始（`useProForNextConsultation`がfalseの場合のみ） - 修正部分 ⭐
             if (['そうだん', '相談'].includes(lowerUserMessage) && !user.useProForNextConsultation) {
+                console.log(`💡 相談モード開始: Gemini 1.5 Pro 使用`); // ロギング
                 if (event.replyToken) {
                     await client.replyMessage(event.replyToken, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' });
                 } else {
                     await safePushMessage(userId, { type: 'text', text: 'うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖' });
                 }
-                usersCollection.doc(userId).update({ useProForNextConsultation: true });
+                await usersCollection.doc(userId).update({ useProForNextConsultation: true }); // 次のメッセージでProを使うフラグ
                 logToDb(userId, userMessage, '（相談モード開始）', 'こころちゃん（モード切替）', 'consultation_mode_start', true);
                 return;
             }
 
-            // 10. 月間メッセージカウント制限のチェック (管理者以外)
+            // ⭐ 10. 月間メッセージカウント制限のチェック (管理者以外) - 修正部分 ⭐
+            // サブスク会員が回数制限を超えた場合のフォールバックモデル選択ロジックを修正
             if (userConfig.monthlyLimit !== -1 && user.messageCount >= userConfig.monthlyLimit) {
                 if (user.membershipType === "subscriber" && userConfig.fallbackModel) {
-                    const fallbackMembershipType = (user.category === '成人' && user.completedRegistration) ? "donor" : "free";
                     await client.replyMessage(replyToken, { type: 'text', text: userConfig.exceedLimitMessage });
 
-                    const aiModelForFallback = MEMBERSHIP_CONFIG[fallbackMembershipType].model; // ここは固定ではなく、getAIModelForUserを使うべき
-                    // ⭐修正: フォールバックモデル選択もgetAIModelForUserを使用 ⭐
                     const actualFallbackModel = getAIModelForUser(user, userMessage); // フォールバック時のモデルもメッセージ長で決定
+                    console.log(`💡 回数超過: サブスクユーザー - フォールバックモデル ${actualFallbackModel} 使用`); // ロギング
+
                     const aiReplyForFallback = await (actualFallbackModel.startsWith("gpt") ? generateGPTReply(userMessage, actualFallbackModel, userId, user) : generateGeminiReply(userMessage, actualFallbackModel, userId, user));
 
-                    safePushMessage(userId, { type: 'text', text: aiReplyForFallback }).catch(e => console.error("回数超過後フォールバック応答プッシュ失敗", e));
+                    await safePushMessage(userId, { type: 'text', text: aiReplyForFallback }).catch(e => console.error("回数超過後フォールバック応答プッシュ失敗", e));
 
                     logToDb(userId, userMessage, userConfig.exceedLimitMessage + `（フォールバックAI: ${actualFallbackModel}）`, `こころちゃん（${actualFallbackModel} - 回数超過）`, 'quota_exceeded_fallback', true);
                     return;
@@ -1935,11 +2009,12 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-            // 11. 相談モード中の応答（1回限り）
+            // ⭐ 11. 相談モード中の応答（1回限り） - 修正部分 ⭐
             if (user.useProForNextConsultation) {
-                generateGeminiReply(userMessage, "gemini-1.5-pro-latest", userId, { ...user, isInConsultationMode: true }).then(aiReply => { // isInConsultationModeフラグを渡す
+                console.log(`💡 相談モード継続中: Gemini 1.5 Pro 使用`); // ロギング
+                generateGeminiReply(userMessage, "gemini-1.5-pro-latest", userId, { ...user, isInConsultationMode: true }).then(aiReply => {
                     client.replyMessage(replyToken, { type: 'text', text: aiReply }).catch(e => console.error("相談モードAI応答プッシュ失敗", e));
-                    usersCollection.doc(userId).update({ useProForNextConsultation: false });
+                    usersCollection.doc(userId).update({ useProForNextConsultation: false }); // 1回きりの使用なのでフラグをfalseに戻す
                     logToDb(userId, userMessage, aiReply, 'こころちゃん（相談モード）', 'consultation_message', true);
                 }).catch(e => {
                     console.error("相談モードAI応答生成エラー", e);
@@ -1955,13 +2030,14 @@ app.post('/webhook', async (req, res) => {
                 return;
             }
 
-            // 13. 共感が必要なメッセージ (GPT)
+            // 13. 共感が必要なメッセージ (GPT-4o mini)
             if (containsEmpatheticTrigger(userMessage)) {
                 if (userMessage.toLowerCase().includes("いじめ") || userMessage.toLowerCase().includes("イジメ")) {
                     const bullyingReply = `いじめは決して許してはいけないことだし、とても悲しいことだと思うよ。誰もが安心して過ごせる場所が必要だし、みんなが尊重されるべきだよね。もしも辛いことがあったら、一人で抱え込まないで、誰かに相談してみてね。いつでも私がそばにいるよ。緊急の時は、専門の人に相談することもできるから安心してね。`;
                     await client.replyMessage(replyToken, [{ type: 'text', text: bullyingReply }, { type: 'flex', altText: "緊急連絡先一覧", contents: EMERGENCY_FLEX_MESSAGE }]);
                     logToDb(userId, userMessage, `（いじめに関する共感応答 + 緊急連絡先Flex表示）`, 'こころちゃん（いじめ検知）', 'empathetic_message', true);
                 } else {
+                    console.log(`💡 共感メッセージ: GPT-4o mini 使用`); // ロギング
                     generateGPTReply(userMessage, "gpt-4o-mini", userId, user).then(aiReply => {
                         client.replyMessage(replyToken, { type: 'text', text: aiReply }).catch(e => console.error("共感AI応答プッシュ失敗", e));
                         logToDb(userId, userMessage, aiReply, 'こころちゃん（共感）', 'empathetic_message', true);
@@ -1974,10 +2050,9 @@ app.post('/webhook', async (req, res) => {
             }
 
             // ⭐ 14. 通常のAI応答（会員区分に基づくモデル） - 最終的なフォールバック - 修正部分 ⭐
-            const aiModelUsed = getAIModelForUser(user, userMessage); // getAIModelForUserでモデルを決定
+            const aiModelUsed = getAIModelForUser(user, userMessage);
             let aiReply;
 
-            // AI応答の生成
             try {
                 if (aiModelUsed.startsWith("gpt")) {
                     aiReply = await generateGPTReply(userMessage, aiModelUsed, userId, user);
@@ -1998,8 +2073,6 @@ app.post('/webhook', async (req, res) => {
                 }
             }
             return;
-            // ⭐ 修正ここまで ⭐
-
         } else if (event.type === 'postback') {
             const postbackData = event.postback.data;
             const data = new URLSearchParams(postbackData);
@@ -2035,10 +2108,10 @@ app.listen(PORT, async () => {
     }
 });
 
-// ⭐新規追加: 事務局への緊急通知専用リトライ関数 ⭐
+// ⭐新規追加: 事務局への緊急通知専用リトライ関数 (safePushMessageを使用) ⭐
 async function sendUrgentOfficerNotification(to, message, userId, originalUserMessage, logType) {
-    const maxRetries = 5; // より多めのリトライ
-    const initialDelayMs = 2000; // 長めの初期ディレイ (2秒)
+    const maxRetries = 5;
+    const initialDelayMs = 2000;
 
     for (let i = 0; i <= maxRetries; i++) {
         const currentDelay = initialDelayMs * (2 ** i);
@@ -2046,10 +2119,11 @@ async function sendUrgentOfficerNotification(to, message, userId, originalUserMe
         await new Promise(resolve => setTimeout(resolve, currentDelay));
 
         try {
-            await client.pushMessage(to, { type: 'text', text: message });
+            // ⭐ client.pushMessage の代わりに safePushMessage を使用 ⭐
+            await safePushMessage(to, { type: 'text', text: message });
             console.log(`✅ 事務局通知送信成功 to: ${to}`);
             logToDb(userId, originalUserMessage, message, `こころちゃん（事務局通知）`, logType, true);
-            return;
+            return; // 成功したらループを抜ける
         } catch (error) {
             console.error(`❌ 事務局通知送信失敗 (ユーザー: ${to}, リトライ: ${i}):`, error.message);
             if (error.response) {
