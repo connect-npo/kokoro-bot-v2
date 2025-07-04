@@ -70,40 +70,49 @@ const client = new Client({
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
+// --- メッセージキュー関連 ---
+const messageQueue = [];
+let isProcessingQueue = false;
+const MESSAGE_SEND_INTERVAL_MS = 500; // LINE APIのレートリミットを考慮した送信間隔（例: 0.5秒）
+
 /**
- * LINEメッセージを安全にプッシュする関数（レート制限対応）
+ * LINEメッセージを送信キューに追加する関数。
+ * 実際の送信はワーカーが行う。
  * @param {string} to - 送信先のユーザーIDまたはグループID
  * @param {Array<Object>|Object} messages - 送信するメッセージオブジェクトの配列、または単一のメッセージオブジェクト
- * @param {number} initialDelayMs - 初回の待機時間（ミリ秒）
- * @param {number} maxRetries - 最大リトライ回数
  */
-async function safePushMessage(to, messages, initialDelayMs = 1000, maxRetries = 3) {
-    const messagesArray = Array.isArray(messages) ? messages : [messages]; // 配列に統一
-
-    for (let i = 0; i <= maxRetries; i++) {
-        const currentDelay = initialDelayMs * (2 ** i); // 指数バックオフ
-        if (i > 0) console.warn(`⚠️ プッシュ制限（429）のためリトライ中 (ユーザー: ${to}, 残りリトライ: ${maxRetries - i}, ディレイ: ${currentDelay}ms)`);
-        await new Promise(resolve => setTimeout(resolve, currentDelay)); // 指定時間待機
-
-        try {
-            await client.pushMessage(to, messagesArray);
-            if (i > 0) console.log(`✅ メッセージ送信リトライ成功 to: ${to}`);
-            return; // 成功したら終了
-        } catch (error) {
-            if (error.statusCode === 429) {
-                if (i === maxRetries) {
-                    console.error(`🚨 プッシュ制限リトライ失敗: 最大リトライ回数に達しました (ユーザー: ${to})`);
-                    await logErrorToDb(to, `プッシュメッセージ429エラー (最終リトライ失敗)`, { error: error.message, messages: JSON.stringify(messagesArray) });
-                }
-            } else {
-                console.error(`❌ プッシュメッセージ送信失敗 (ユーザー: ${to}):`, error.message);
-                await logErrorToDb(to, 'プッシュメッセージ送信エラー', { error: error.message, messages: JSON.stringify(messagesArray) });
-                return; // 429以外のエラーはリトライせず終了
-            }
-        }
-    }
+async function safePushMessage(to, messages) {
+    const messagesArray = Array.isArray(messages) ? messages : [messages];
+    messageQueue.push({ to, messages: messagesArray });
+    startMessageQueueWorker();
 }
 
+/**
+ * メッセージキューを処理するワーカー関数。
+ * 一定間隔でメッセージを送信する。
+ */
+async function startMessageQueueWorker() {
+    if (isProcessingQueue) {
+        return;
+    }
+    isProcessingQueue = true;
+
+    while (messageQueue.length > 0) {
+        const { to, messages } = messageQueue.shift(); // キューからメッセージを取り出す
+        try {
+            console.log(`✉️ キューからメッセージを送信中 to: ${to}`);
+            await client.pushMessage(to, messages); // 直接LINE APIを呼び出す
+            console.log(`✅ キューからのメッセージ送信成功 to: ${to}`);
+        } catch (error) {
+            console.error(`❌ キューからのメッセージ送信失敗 (ユーザー: ${to}):`, error.message);
+            // キューワーカーでのエラーなので、ログ記録のみに留める（リトライはしない）
+            await logErrorToDb(to, 'キューメッセージ送信エラー', { error: error.message, messages: JSON.stringify(messages) });
+        }
+        await new Promise(resolve => setTimeout(resolve, MESSAGE_SEND_INTERVAL_MS)); // 次のメッセージ送信まで待機
+    }
+
+    isProcessingQueue = false;
+}
 
 // --- 各種ワードリスト ---
 const dangerWords = [
@@ -676,7 +685,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
         console.error(`Gemini APIエラー:`, error.response?.data || error.message);
         await logErrorToDb(userId, `Gemini APIエラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
         if (error.message === "API応答がタイムアウトしました。") {
-            return "ごめんね、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
+            return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
         }
         if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
@@ -1150,10 +1159,12 @@ async function sendScheduledWatchMessage() {
             // 3日（72時間）返信なし（定期見守りメッセージ or リマインダー）
             else if (lastOkResponse < threeDaysAgo && !user.scheduledMessageSent) {
                 const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)];
-                await safePushMessage(userId, { type: 'text', text: randomMessage });
+                // ⭐修正: 見守り応答はGemini 1.5 Flashを使用 ⭐
+                const aiReply = await generateGeminiReply(randomMessage, "gemini-1.5-flash-latest", userId, user);
+                await safePushMessage(userId, { type: 'text', text: aiReply });
                 updateData.scheduledMessageSent = true;
                 console.log(`ユーザー ${userId}: 3日経過 - 定期見守りメッセージを送信`);
-                logToDb(userId, `（3日未応答定期見守り）`, randomMessage, 'こころちゃん（見守り）', 'watch_service_scheduled_message', true);
+                logToDb(userId, `（3日未応答定期見守り）`, aiReply, 'こころちゃん（見守り）', 'watch_service_scheduled_message', true);
             }
             // 7日返信なし（二回目のリマインダー）
             else if (lastOkResponse < sevenDaysAgo && !user.secondReminderSent) {
@@ -1637,7 +1648,7 @@ app.post('/webhook', async (req, res) => {
 
                 await safePushMessage(userId, userMessagesToSend);
 
-                // ⭐変更: 危険ワード/詐欺ワード検知時はGPT-4oで応答 ⭐
+                // ⭐修正: 危険ワード/詐欺ワード検知時はGPT-4oで応答 ⭐
                 generateGPTReply(userMessage, "gpt-4o", userId, user).then(response => {
                     safePushMessage(userId, { type: 'text', text: response }).catch(e => console.error("GPT応答プッシュ失敗", e));
                 }).catch(e => {
@@ -1726,8 +1737,7 @@ app.post('/webhook', async (req, res) => {
             }
 
             // 14. 通常のAI応答（会員区分に基づくモデル） - 最終的なフォールバック
-            // ⭐変更: 通常応答のハイブリッド化 ⭐
-            const CHARACTER_LIMIT_FOR_GPT4O_MINI = 50; // 例: 50文字以上のメッセージでGPT-4o miniを使用
+            const CHARACTER_LIMIT_FOR_GPT4O_MINI = 50; // 50文字以上のメッセージでGPT-4o miniを使用
             let aiReply;
             let aiModelUsed = '';
 
@@ -1738,7 +1748,7 @@ app.post('/webhook', async (req, res) => {
             } else {
                 // 通常はGemini 1.5 Flash
                 aiReply = await generateGeminiReply(userMessage, userConfig.model, userId, user);
-                aiModelUsed = userConfig.model; // 通常はFlash
+                aiModelUsed = userConfig.model; // userConfig.modelは通常Flash
             }
 
             safePushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("通常AI応答プッシュ失敗", e));
