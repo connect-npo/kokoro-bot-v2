@@ -81,7 +81,7 @@ const MESSAGE_SEND_INTERVAL_MS = 1000; // LINE APIのレートリミットを考
  * @param {Array<Object>|Object} messages - 送信するメッセージオブジェクトの配列、または単一のメッセージオブジェクト
  */
 async function safePushMessage(to, messages) {
-    const messagesArray = Array.isArray(messages) ? messages : [messages];
+    const messagesArray = Array.isArray(messages) ? messages : [messages]; // 配列に統一
     messageQueue.push({ to, messages: messagesArray });
     startMessageQueueWorker();
 }
@@ -183,7 +183,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 20,
         isChildAI: true,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、今月の会話回数（20回）を超えちゃったみたい💦 また来月になったらお話しできるから、楽しみにしててね！💖",
+        exceedLimitMessage: "ごめんね、今月の会話回数（20回）を超えちゃったみたい💦 また来月になったらお話しできるから、楽しみにしてててね！💖",
         systemInstructionModifier: ""
     },
     "donor": {
@@ -699,7 +699,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
         console.error(`Gemini APIエラー:`, error.response?.data || error.message);
         await logErrorToDb(userId, `Gemini APIエラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
         if (error.message === "API応答がタイムアウトしました。") {
-            return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
+            return "ごめんね、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
         }
         if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
@@ -1750,7 +1750,8 @@ app.post('/webhook', async (req, res) => {
             }
 
             // 14. 通常のAI応答（会員区分に基づくモデル） - 最終的なフォールバック
-            const CHARACTER_LIMIT_FOR_GPT4O_MINI = 50; // 50文字以上のメッセージでGPT-4o miniを使用
+            // ⭐修正: 長文メッセージはGPT-4o mini、それ以外はGemini 1.5 Flash（コスト最適化） ⭐
+            const CHARACTER_LIMIT_FOR_GPT4O_MINI = 50; // 例: 50文字以上のメッセージでGPT-4o miniを使用
             let aiReply;
             let aiModelUsed = '';
 
@@ -1760,8 +1761,8 @@ app.post('/webhook', async (req, res) => {
                 aiModelUsed = 'gpt-4o-mini';
             } else {
                 // 通常はGemini 1.5 Flash
-                aiReply = await generateGeminiReply(userMessage, userConfig.model, userId, user);
-                aiModelUsed = userConfig.model; // userConfig.modelは通常Flash
+                aiReply = await generateGeminiReply(userMessage, "gemini-1.5-flash-latest", userId, user);
+                aiModelUsed = "gemini-1.5-flash-latest";
             }
 
             safePushMessage(userId, { type: 'text', text: aiReply }).catch(e => console.error("通常AI応答プッシュ失敗", e));
@@ -1783,7 +1784,8 @@ app.post('/webhook', async (req, res) => {
                 return;
             }
 
-            const handledByWatchServicePostback = await handleWatchServiceRegistration(event, userId, "", user);
+            // ⭐修正: ポストバックの「見守り登録/解除」もsafePushMessageに切り替え ⭐
+            const handledByWatchServicePostback = await handleWatchServiceRegistration(event, userId, event.postback.data, user);
             if (handledByWatchServicePostback) {
                 return;
             }
