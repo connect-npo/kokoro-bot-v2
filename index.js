@@ -2,6 +2,12 @@
 require('dotenv').config();
 
 // --- 必要なモジュールのインポート ---
+// index.js の冒頭付近、環境変数の設定部分
+// ...
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+// ⭐修正: OPENAI_MODEL 環境変数を読み込む。デフォルトはgpt-4o-miniでコストを最適化。⭐
+const OPENAI_DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini"; // ここを追加または修正
+// ...
 const express = require('express');
 const { Client } = require('@line/bot-sdk');
 const admin = require('firebase-admin');
@@ -568,7 +574,7 @@ function getAIModelForUser(user, messageText) {
 }
 
 // --- AI応答生成関数 ---
-// GPTモデル（OpenAI）からの応答生成
+// generateGPTReply 関数 (最終修正版)
 async function generateGPTReply(userMessage, modelToUse, userId, user) {
     const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
     const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
@@ -582,6 +588,7 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
 `;
 
     // 危険/詐欺ワード検知時のGPT-4o応答は、ここに特別な指示を追加しても良い
+    // ⭐修正: modelToUse が "gpt-4o" の場合にのみ、gpt-4o専用のシステムプロンプトを追加 ⭐
     if (modelToUse === "gpt-4o") { // 緊急時のGPT-4o用システムプロンプト
         systemInstruction += `
         ユーザーは危険または詐欺の可能性のある内容を話しています。
@@ -600,14 +607,22 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
     systemInstruction += userConfig.systemInstructionModifier;
 
     try {
-        console.log(`💡 OpenAI: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
+        // ⭐重要修正: 実際に使用するOpenAIモデルをここで確定させる ⭐
+        // modelToUse が "gpt-4o" の場合はそれを優先 (緊急時用)
+        // それ以外の場合 (gpt-4o-miniとして渡された場合など) は、環境変数で指定されたデフォルトモデルを使用
+        const actualOpenAIModel = (modelToUse === "gpt-4o") ? "gpt-4o" : OPENAI_DEFAULT_MODEL;
+        
+        console.log(`💡 OpenAI: ${actualOpenAIModel} 使用中`); // 明示的なロギング
+
         const completion = await openai.chat.completions.create({
-            model: modelToUse,  // ⭐ これを明示 ⭐
+            model: actualOpenAIModel,  // ⭐ ここが最終的なモデル指定 ⭐
             messages: [
                 { role: "system", content: systemInstruction },
                 { role: "user", content: userMessage }
             ],
-            max_tokens: modelToUse === "gpt-4o" ? 1000 : (userConfig.isChildAI ? 200 : 600)
+            // max_tokens はモデルに合わせて調整。GPT-4oなら1000、GPT-4o miniなら200-600。
+            // ここではmodelToUseではなくactualOpenAIModelで判定すべき
+            max_tokens: (actualOpenAIModel === "gpt-4o") ? 1000 : (userConfig.isChildAI ? 200 : 600)
         });
         return completion.choices[0].message.content.trim();
     } catch (error) {
