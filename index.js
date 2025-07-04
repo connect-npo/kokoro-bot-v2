@@ -8,6 +8,7 @@ const admin = require('firebase-admin');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
+const nodemailer = require('nodemailer'); // ⭐メール通知用追加 ⭐
 
 const app = express();
 app.use(express.json());
@@ -18,7 +19,14 @@ const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+// ⭐修正: OFFICER_GROUP_ID を環境変数から読み込むように変更 ⭐
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID; // これで .env の正しいIDが使われる
+
+// ⭐メール通知用の環境変数 ⭐
+const EMAIL_SERVICE = process.env.EMAIL_SERVICE || 'Gmail'; // 例: 'Gmail', 'Outlook365', 'SMTP'
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
+const NOTIFICATION_EMAIL_RECIPIENT = process.env.NOTIFICATION_EMAIL_RECIPIENT; // 通知を受け取るメールアドレス
 
 let BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"];
 if (process.env.BOT_ADMIN_IDS) {
@@ -69,6 +77,21 @@ const client = new Client({
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+// --- Nodemailerトランスポーターの設定 ---
+let transporter;
+if (EMAIL_USER && EMAIL_PASS && NOTIFICATION_EMAIL_RECIPIENT) {
+    transporter = nodemailer.createTransport({
+        service: EMAIL_SERVICE, // 例: 'Gmail', 'Outlook365'
+        auth: {
+            user: EMAIL_USER,
+            pass: EMAIL_PASS
+        }
+    });
+    console.log("✅ Nodemailerトランスポーターを初期化しました。");
+} else {
+    console.warn("⚠️ メール通知用の環境変数が不足しています。緊急通知メールは送信されません。");
+}
 
 // --- メッセージキュー関連 ---
 const messageQueue = [];
@@ -336,7 +359,7 @@ const specialRepliesMap = new Map([
 
     [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-    [/やっほー/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
+    [/ya-ho-|ヤッホー|やっほー/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんにちは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんばんわ/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/おはよう/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
@@ -516,8 +539,8 @@ function shouldLogMessage(logType) {
         'admin_history_display', 'admin_error_history', 'admin_myid_display', 'admin_command_unknown',
         'registration_start', 'registration_flow_handled', 'watch_service_category_denied',
         'watch_service_interaction', 'watch_service_ok_response', 'watch_service_status_somewhat',
-        'watch_service_status_tired', 'watch_service_status_talk', 'watch_service_registration_start',
-        'watch_service_registration_complete', 'watch_service_emergency_notification',
+        'watch_service_status_tired', 'watch_service_status_talk', 'watch_service_registration_complete',
+        'watch_service_emergency_notification',
         'consultation_mode_start', 'consultation_message', 'organization_inquiry_fixed',
         'special_reply', 'homework_query', 'system_follow', 'registration_buttons_display',
         'registration_already_completed', 'watch_service_scheduled_message', 'user_suspended'
@@ -1275,7 +1298,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                         type: 'box',
                         layout: 'vertical',
                         contents: [
-                            { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: '#FF69B4', align: 'center' },
+                            { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
                             { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
                             { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
                         ]
@@ -1427,9 +1450,8 @@ async function sendScheduledWatchMessage() {
                 emergencyNotificationMessage += `\n**対応のお願い:**\n至急、ユーザー様へご連絡をお願いいたします。`;
 
                 if (OFFICER_GROUP_ID) {
-                    await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: emergencyNotificationMessage });
-                    console.log(`🚨 事務局へ緊急通知を送信しました (未応答: ${notificationType}) for user ${userId}`);
-                    logToDb(userId, `（緊急連絡先へ通知）`, emergencyNotificationMessage, 'こころちゃん（見守り緊急）', 'watch_service_emergency_notification', true);
+                    // ⭐修正: 事務局への緊急通知は、専用のリトライ関数で確実に送る ⭐
+                    sendUrgentOfficerNotification(OFFICER_GROUP_ID, emergencyNotificationMessage, userId, `（見守り緊急通知）`, 'watch_service_emergency_notification');
                 } else {
                     console.warn(`OFFICER_GROUP_IDが設定されていないため、見守り緊急通知は送信されませんでした。`);
                 }
@@ -1499,16 +1521,20 @@ app.post('/webhook', async (req, res) => {
     const usersCollection = db.collection("users");
     const messagesCollection = db.collection("logs");
 
-    // 各イベントを個別に非同期処理
-    // Promise.allを使用することで、すべてのイベント処理が完了するのを待つ
-    // ただし、LINEの5秒ルールに間に合わない可能性があるため、forEachのままにする
-    // 各イベントハンドラ内で、replyMessageを優先し、pushMessageはキュー経由にする
     events.forEach(async event => {
         if (!event.source || !event.source.userId) {
             console.warn("Event has no userId, skipping:", event);
             return;
         }
         const userId = event.source.userId;
+
+        // ⭐追加: グループIDをログに出力する部分 ⭐
+        if (event.source.type === 'group') {
+            const currentGroupId = event.source.groupId;
+            console.log(`💡 現在のグループからのイベント - グループID: ${currentGroupId}`);
+        }
+        // ⭐ここまで追加 ⭐
+
         let userDoc;
         try {
             userDoc = await usersCollection.doc(userId).get();
@@ -1535,7 +1561,6 @@ app.post('/webhook', async (req, res) => {
                 wantsWatchCheck: false,
                 emergencyContact: null,
                 emergencyContactName: null,
-                // ⭐修正: relationshipToEmergencyContact の初期化を追加 ⭐
                 relationshipToEmergencyContact: null,
                 lastOkResponse: null,
                 scheduledMessageSent: false,
@@ -1807,7 +1832,7 @@ app.post('/webhook', async (req, res) => {
                         .then(() => console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に不適切ワード通知を送信しました。`))
                         .catch(notifyError => {
                             console.error(`❌ OWNER_USER_IDへの不適切ワード通知送信エラー:`, notifyError.message);
-                            logErrorToDb(OWNER_USER_ID, "不適切ワード通知送信エラー", { error: notifyError.message, userId: userId, originalMessage: userMessage });
+                            logErrorToDb(OWNER_USER_ID, "不適切ワード通知送信エラー", { error: notifyError.message, userId: userId, originalUserMessage: userMessage });
                         });
                 }
                 return;
