@@ -2090,3 +2090,24 @@ async function sendUrgentOfficerNotification(to, message, userId, originalUserMe
         }
     }
 }
+// ⭐緊急通知テストコード - デプロイ後削除してください！⭐
+(async () => {
+    try {
+        const testGroupId = "Cf9ff58337301359d727ccbf1a189ab49"; // ログで確認された正しいグループID
+        const testMessage = {
+            type: 'text',
+            text: '🔔 クララからの最終確認テスト（直書き）です！'
+        };
+        console.log(`✉️ 直書きテスト: ${testGroupId} にメッセージ送信を試みます。`);
+        // client.pushMessage を直接呼び出す (safePushMessageを介さない)
+        await client.pushMessage(testGroupId, testMessage);
+        console.log(`✅ 直書きテスト: ${testGroupId} へのメッセージ送信成功！`);
+    } catch (error) {
+        console.error(`❌ 直書きテスト: ${error.message}`);
+        if (error.response) {
+            console.error("ステータスコード:", error.response.status);
+            console.error("レスポンスデータ:", error.response.data);
+        }
+    }
+})();
+// ⭐テストコードここまで ⭐
