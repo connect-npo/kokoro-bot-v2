@@ -73,11 +73,10 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 // --- メッセージキュー関連 ---
 const messageQueue = [];
 let isProcessingQueue = false;
-const MESSAGE_SEND_INTERVAL_MS = 500; // LINE APIのレートリミットを考慮した送信間隔（例: 0.5秒）
+const MESSAGE_SEND_INTERVAL_MS = 1000; // LINE APIのレートリミットを考慮した安全な送信間隔（1秒）
 
 /**
  * LINEメッセージを送信キューに追加する関数。
- * 実際の送信はワーカーが行う。
  * @param {string} to - 送信先のユーザーIDまたはグループID
  * @param {Array<Object>|Object} messages - 送信するメッセージオブジェクトの配列、または単一のメッセージオブジェクト
  */
@@ -89,7 +88,7 @@ async function safePushMessage(to, messages) {
 
 /**
  * メッセージキューを処理するワーカー関数。
- * 一定間隔でメッセージを送信する。
+ * 一定間隔でメッセージを送信し、429エラー時にはリトライを行う。
  */
 async function startMessageQueueWorker() {
     if (isProcessingQueue) {
@@ -99,16 +98,31 @@ async function startMessageQueueWorker() {
 
     while (messageQueue.length > 0) {
         const { to, messages } = messageQueue.shift(); // キューからメッセージを取り出す
-        try {
-            console.log(`✉️ キューからメッセージを送信中 to: ${to}`);
-            await client.pushMessage(to, messages); // 直接LINE APIを呼び出す
-            console.log(`✅ キューからのメッセージ送信成功 to: ${to}`);
-        } catch (error) {
-            console.error(`❌ キューからのメッセージ送信失敗 (ユーザー: ${to}):`, error.message);
-            // キューワーカーでのエラーなので、ログ記録のみに留める（リトライはしない）
-            await logErrorToDb(to, 'キューメッセージ送信エラー', { error: error.message, messages: JSON.stringify(messages) });
+        const maxRetries = 3;
+        const initialDelayMs = MESSAGE_SEND_INTERVAL_MS;
+
+        for (let i = 0; i <= maxRetries; i++) {
+            const currentDelay = initialDelayMs * (2 ** i); // 指数バックオフ
+            if (i > 0) console.warn(`⚠️ キューからの送信リトライ中 (ユーザー: ${to}, 残りリトライ: ${maxRetries - i}, ディレイ: ${currentDelay}ms)`);
+            await new Promise(resolve => setTimeout(resolve, currentDelay)); // 次のメッセージ送信まで待機
+
+            try {
+                await client.pushMessage(to, messages); // LINE APIを呼び出す
+                if (i > 0) console.log(`✅ キューからのメッセージ送信リトライ成功 to: ${to}`);
+                break; // 成功したらリトライループを抜ける
+            } catch (error) {
+                if (error.statusCode === 429) {
+                    if (i === maxRetries) {
+                        console.error(`🚨 キューからのメッセージ送信リトライ失敗: 最大リトライ回数に達しました (ユーザー: ${to})`);
+                        await logErrorToDb(to, `キューメッセージ送信429エラー (最終リトライ失敗)`, { error: error.message, messages: JSON.stringify(messages) });
+                    }
+                } else {
+                    console.error(`❌ キューからのメッセージ送信失敗 (ユーザー: ${to}):`, error.message);
+                    await logErrorToDb(to, 'キューメッセージ送信エラー', { error: error.message, messages: JSON.stringify(messages) });
+                    break; // 429以外のエラーはリトライせず終了
+                }
+            }
         }
-        await new Promise(resolve => setTimeout(resolve, MESSAGE_SEND_INTERVAL_MS)); // 次のメッセージ送信まで待機
     }
 
     isProcessingQueue = false;
@@ -128,7 +142,7 @@ const scamWords = [
     /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
     /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
     /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
-    /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
+    /ワンクリック詐UFACTURING/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
     /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /修理費/i, /遠隔操作/i, /セキュリティ警告/i, /役所/i, /市役所/i, /年金/i, /健康保険/i, /給付金/i,
     /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
     /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
@@ -1648,7 +1662,6 @@ app.post('/webhook', async (req, res) => {
 
                 await safePushMessage(userId, userMessagesToSend);
 
-                // ⭐修正: 危険ワード/詐欺ワード検知時はGPT-4oで応答 ⭐
                 generateGPTReply(userMessage, "gpt-4o", userId, user).then(response => {
                     safePushMessage(userId, { type: 'text', text: response }).catch(e => console.error("GPT応答プッシュ失敗", e));
                 }).catch(e => {
