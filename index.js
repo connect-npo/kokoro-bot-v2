@@ -592,13 +592,13 @@ function getAIModelForUser(user, messageText) {
     // 長文（50文字以上）の場合はGPT-4o miniを使用
     if (messageText && messageText.length >= 50) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log("AI Model Selected: gpt-4o-mini (Long message)");
+            console.log(`AI Model Selected: gpt-4o-mini (Long message) for user: ${user ? user.membershipType : 'guest'}`); // Logging user type
         }
         return "gpt-4o-mini";
     }
     // それ以外（50文字未満）の場合はGemini 1.5 Flashを使用
     if (process.env.NODE_ENV !== 'production') {
-        console.log("AI Model Selected: gemini-1.5-flash-latest (Short message)");
+        console.log(`AI Model Selected: gemini-1.5-flash-latest (Short message) for user: ${user ? user.membershipType : 'guest'}`); // Logging user type
     }
     return "gemini-1.5-flash-latest";
 }
@@ -628,16 +628,46 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
         `;
     } else if (modelToUse === "gpt-4o-mini") { // 通常会話でのgpt-4o-mini用システムプロンプト
         // ⭐ 成人ユーザーの場合は宿題に関するシステム指示を変更 ⭐
-        if (userConfig.isChildAI) { // 子供AIの場合のみ宿題ヒントの指示を追加
-            systemInstruction += `
-            ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
-            `;
-        } else { // 成人ユーザー（donor, adminなど）の場合
+        if (!userConfig.isChildAI) { // isChildAIがfalse（成人AI）の場合のみ宿題ヒントの指示を追加 (修正)
             systemInstruction += `
             ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
             `;
+        } else { // 子供AIの場合 (宿題の答えを直接教えない)
+             systemInstruction += `
+            質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
+            代わりに、**「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢を優しく伝えてください。
+            具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントを優しく教えてください**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないでください。
+            `;
         }
+        // 共感を求める言葉に対する専門機関誘導は、Gemini 側のシステム指示と重複するため削除または簡潔化
+        // if (containsEmpatheticTrigger(userMessage)) {
+        //     systemInstruction += `
+        //     ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
+        //     `;
+        // }
     }
+
+    // AIの知識に関する指示と繰り返し防止の指示を追加 (Geminiと共通化)
+    systemInstruction += `
+    # AIの知識に関する指示と繰り返し防止
+    「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えてください。
+    - 好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖
+    - 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
+    ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。
+
+    # 医療や健康に関する話題
+    医療や健康に関する話題（病気、薬、検査、治療など）では、**自分が体験した・していないという発言は絶対にしないでください**。
+    代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
+    **医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
+
+    # 不適切な発言への対応
+    不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。
+    **いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、**
+    **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
+    **特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
+    また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
+    「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
+    `;
 
     systemInstruction += userConfig.systemInstructionModifier;
 
@@ -1812,7 +1842,7 @@ async function handleEvent(event) {
 
     // ここから個人チャットの処理
     let user = await getUserData(userId);
-    // ⭐ handleEvent関数の冒頭でuserConfigを定義 ⭐
+    // ⭐ handleEvent関数の冒頭でuserConfigを定義 (修正箇所) ⭐
     const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
 
     let replyText = "";
