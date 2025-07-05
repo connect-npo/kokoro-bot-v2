@@ -362,7 +362,7 @@ const specialRepliesMap = new Map([
     [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/ya-ho-|ヤッホー|やっほー/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんにちは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
-    [/こんばんわ/i, "やっほー！今日はどうしたの？� 何か話したいことあるかな？😊"],
+    [/こんばんわ/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/おはよう/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんばんは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
@@ -405,7 +405,7 @@ const watchMessages = [
     "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
     "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
     "こんにちは😊 困ったことはないかな？いつでも相談してね！",
-    "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
+    "やっほー🌸 こころだよ！何かあったら、こころに教えてね�",
     "元気出してね！こころちゃん、あなたの味方だよ😊",
     "こころちゃんだよ🌸 今日も一日お疲れ様💖",
     "こんにちは😊 笑顔で過ごせてるかな？",
@@ -1410,8 +1410,8 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 firstReminderSent: false,
                 emergencyNotificationSent: false
             });
-            logToDb(userId, userMessage, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
-            return true;
+            logToDb(userId, `Postback: ${event.postback.data}`, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
+            return Promise.resolve(null); // ここで処理を終了
         }
     }
 
@@ -1689,115 +1689,109 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
 
 // --- LINEイベントハンドラ ---
 async function handleEvent(event) {
-    if (event.type !== 'message' || event.message.type !== 'text') {
+    // グループチャットからのメッセージの場合、個人への返信は行わない
+    if (event.source.type === 'group' && event.type === 'message' && event.message.type === 'text') {
+        const userId = event.source.userId; // グループ内でのユーザーID
+        const groupId = event.source.groupId; // グループID
+        const userMessage = event.message.text;
+        const lowerUserMessage = userMessage.toLowerCase();
+        const isAdmin = isBotAdmin(userId);
+
+        // 管理者コマンドのみグループ内で処理
+        if (isAdmin && userMessage.startsWith('!')) {
+            // 管理者コマンドの処理ロジック（個人チャットと同様）
+            const command = userMessage.substring(1).split(' ')[0];
+            const args = userMessage.substring(command.length + 1).trim();
+            let targetUserId = userId; // デフォルトは自分自身
+
+            if (args.startsWith('user ')) {
+                const parts = args.split(' ');
+                if (parts.length >= 2) {
+                    targetUserId = parts[1];
+                    const remainingArgs = parts.slice(2).join(' ').trim();
+                    if (command === "set" && remainingArgs) {
+                        const newMembershipType = remainingArgs.split(' ')[0];
+                        if (MEMBERSHIP_CONFIG[newMembershipType]) {
+                            await updateUserData(targetUserId, { membershipType: newMembershipType });
+                            await safePushMessage(groupId, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
+                            await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
+                            return Promise.resolve(null);
+                        } else {
+                            await safePushMessage(groupId, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
+                            await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
+                            return Promise.resolve(null);
+                        }
+                    }
+                }
+            }
+
+            let replyText = "";
+            switch (command) {
+                case 'status':
+                    const targetUser = await getUserData(targetUserId);
+                    if (targetUser) {
+                        const lastMessageDate = targetUser.lastMessageDate ? new Date(targetUser.lastMessageDate._seconds * 1000).toLocaleString() : 'N/A';
+                        replyText = `ユーザーID: ${targetUserId}\n会員種別: ${targetUser.membershipType}\n今月メッセージ数: ${targetUser.messageCount}\n最終メッセージ日時: ${lastMessageDate}\n見守りサービス: ${targetUser.watchServiceEnabled ? '有効' : '無効'}\n相談モード: ${targetUser.isInConsultationMode ? '有効' : '無効'}`;
+                    } else {
+                        replyText = `ユーザー ${targetUserId} は見つかりませんでした。`;
+                    }
+                    break;
+                case 'reset':
+                    await updateUserData(targetUserId, { messageCount: 0, isInConsultationMode: false });
+                    replyText = `ユーザー ${targetUserId} のメッセージカウントと相談モードをリセットしました。`;
+                    break;
+                case 'myid':
+                    replyText = `あなたのユーザーIDは:\n${userId}`;
+                    break;
+                case 'history':
+                    const historyUserId = args.split(' ')[0] || userId;
+                    const limit = parseInt(args.split(' ')[1]) || 10;
+                    const logsRef = db.collection('logs').where('userId', '==', historyUserId).orderBy('timestamp', 'desc').limit(limit);
+                    const snapshot = await logsRef.get();
+                    let historyMessages = [];
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
+                        historyMessages.push(`[${timestamp}] ${data.logType}: ${data.message} -> ${data.replyText}`);
+                    });
+                    replyText = historyMessages.length > 0 ? historyMessages.join('\n\n') : '履歴はありません。';
+                    break;
+                case 'error_history':
+                    const errorHistoryUserId = args.split(' ')[0] || userId;
+                    const errorLimit = parseInt(args.split(' ')[1]) || 10;
+                    const errorLogsRef = db.collection('error_logs').where('userId', '==', errorHistoryUserId).orderBy('timestamp', 'desc').limit(errorLimit);
+                    const errorSnapshot = await errorLogsRef.get();
+                    let errorHistoryMessages = [];
+                    errorSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
+                        errorHistoryMessages.push(`[${timestamp}] ${data.message} (Details: ${data.errorDetails})`);
+                    });
+                    replyText = errorHistoryMessages.length > 0 ? errorHistoryMessages.join('\n\n') : 'エラー履歴はありません。';
+                    break;
+                default:
+                    replyText = `不明な管理者コマンドです。利用可能なコマンド: !status, !reset, !set user [userId] [membershipType], !myid, !history, !error_history`;
+                    break;
+            }
+            await safePushMessage(groupId, { type: 'text', text: replyText });
+            await logToDb(userId, userMessage, replyText, "AdminCommand", `admin_command_${command}`);
+            return Promise.resolve(null); // グループ内の管理者コマンドはここで処理終了
+        }
+        return Promise.resolve(null); // グループ内の非管理者メッセージは無視
+    }
+
+    // 個人チャットからのメッセージの場合のみ、以下の処理を実行
+    if (event.source.type !== 'user' || event.type !== 'message' || event.message.type !== 'text') {
         return Promise.resolve(null);
     }
 
-    const userId = event.source.userId;
-    const userMessage = event.message.text;
-    const lowerUserMessage = userMessage.toLowerCase();
-    const isAdmin = isBotAdmin(userId);
-
-    let user = await getUserData(userId); // ⭐ getUserDataが上に移動したため、ここで正しく取得される ⭐
+    // ここから個人チャットの処理
+    let user = await getUserData(userId); 
     let replyText = "";
     let responsedBy = "AI";
     let logType = "normal_conversation";
     let isFlagged = false;
     let messagesToSend = [];
-
-    // ⭐ 管理者コマンドの処理は、メッセージ制限チェックよりも前に置くべき ⭐
-    if (isAdmin && userMessage.startsWith('!')) {
-        const command = userMessage.substring(1).split(' ')[0]; // !status -> status
-        const args = userMessage.substring(command.length + 1).trim(); // !status -> (empty)
-        let targetUserId = userId; // デフォルトは自分自身
-
-        // コマンドにユーザーIDが指定されているかチェック
-        if (args.startsWith('user ')) {
-            const parts = args.split(' ');
-            if (parts.length >= 2) {
-                targetUserId = parts[1];
-                const remainingArgs = parts.slice(2).join(' ').trim(); // user [userId] の後の残りの引数
-                // コマンド引数からユーザーIDを分離した場合、残りの引数を改めてパース
-                if (command === "set" && remainingArgs) {
-                    const newMembershipType = remainingArgs.split(' ')[0];
-                    if (MEMBERSHIP_CONFIG[newMembershipType]) {
-                        await updateUserData(targetUserId, { membershipType: newMembershipType });
-                        replyText = `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。`;
-                        logType = 'admin_set_membership';
-                    } else {
-                        replyText = `無効な会員種別です: ${newMembershipType}`;
-                        logType = 'admin_command_invalid_membership';
-                    }
-                    await safePushMessage(userId, { type: 'text', text: replyText });
-                    await logToDb(userId, userMessage, replyText, "AdminCommand", logType);
-                    return Promise.resolve(null); // ここで処理を終了
-                }
-            }
-        }
-
-        switch (command) {
-            case 'status':
-                const targetUser = await getUserData(targetUserId); // 最新のユーザーデータを取得
-                if (targetUser) {
-                    const lastMessageDate = targetUser.lastMessageDate ? new Date(targetUser.lastMessageDate._seconds * 1000).toLocaleString() : 'N/A';
-                    replyText = `ユーザーID: ${targetUserId}\n会員種別: ${targetUser.membershipType}\n今月メッセージ数: ${targetUser.messageCount}\n最終メッセージ日時: ${lastMessageDate}\n見守りサービス: ${targetUser.watchServiceEnabled ? '有効' : '無効'}\n相談モード: ${targetUser.isInConsultationMode ? '有効' : '無効'}`;
-                    logType = 'admin_status';
-                } else {
-                    replyText = `ユーザー ${targetUserId} は見つかりませんでした。`;
-                    logType = 'admin_command_unknown';
-                }
-                break;
-            case 'reset':
-                await updateUserData(targetUserId, { messageCount: 0, isInConsultationMode: false });
-                replyText = `ユーザー ${targetUserId} のメッセージカウントと相談モードをリセットしました。`;
-                logType = 'admin_reset_self_count';
-                break;
-            case 'set':
-                // 上記のargs.startsWith('user ')で処理されるため、ここに来る場合は不正な形式
-                replyText = `!set user [userId] [membershipType] の形式で入力してください。`;
-                logType = 'admin_command_unknown';
-                break;
-            case 'myid':
-                replyText = `あなたのユーザーIDは:\n${userId}`;
-                logType = 'admin_myid_display';
-                break;
-            case 'history':
-                const historyUserId = args.split(' ')[0] || userId;
-                const limit = parseInt(args.split(' ')[1]) || 10;
-                const logsRef = db.collection('logs').where('userId', '==', historyUserId).orderBy('timestamp', 'desc').limit(limit);
-                const snapshot = await logsRef.get();
-                let historyMessages = [];
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
-                    historyMessages.push(`[${timestamp}] ${data.logType}: ${data.message} -> ${data.replyText}`);
-                });
-                replyText = historyMessages.length > 0 ? historyMessages.join('\n\n') : '履歴はありません。';
-                logType = 'admin_history_display';
-                break;
-            case 'error_history':
-                const errorHistoryUserId = args.split(' ')[0] || userId;
-                const errorLimit = parseInt(args.split(' ')[1]) || 10;
-                const errorLogsRef = db.collection('error_logs').where('userId', '==', errorHistoryUserId).orderBy('timestamp', 'desc').limit(errorLimit);
-                const errorSnapshot = await errorLogsRef.get();
-                let errorHistoryMessages = [];
-                errorSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
-                    errorHistoryMessages.push(`[${timestamp}] ${data.message} (Details: ${data.errorDetails})`);
-                });
-                replyText = errorHistoryMessages.length > 0 ? errorHistoryMessages.join('\n\n') : 'エラー履歴はありません。';
-                logType = 'admin_error_history';
-                break;
-            default:
-                replyText = `不明な管理者コマンドです。利用可能なコマンド: !status, !reset, !set user [userId] [membershipType], !myid, !history, !error_history`;
-                logType = 'admin_command_unknown';
-                break;
-        }
-        await safePushMessage(userId, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, "AdminCommand", logType);
-        return Promise.resolve(null);
-    }
 
     // --- 登録フローが進行中の場合、登録フローハンドラを呼び出す ---
     if (user.registrationStep) {
@@ -1882,7 +1876,7 @@ async function handleEvent(event) {
         await safePushMessage(userId, messagesToSend); // 次にFlex Message
         await logToDb(userId, userMessage, "緊急時連絡先表示", "System", "danger_word_triggered", true);
         await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "danger");
-        return Promise.resolve(null);
+        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
     // --- 詐欺ワード検知 ---
@@ -1896,7 +1890,7 @@ async function handleEvent(event) {
         await safePushMessage(userId, messagesToSend); // 次にFlex Message
         await logToDb(userId, userMessage, "詐欺注意喚起表示", "System", "scam_word_triggered", true);
         await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "scam");
-        return Promise.resolve(null);
+        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
     // --- 不適切ワード検知 ---
@@ -1904,28 +1898,40 @@ async function handleEvent(event) {
         replyText = "ごめんね、その言葉はこころちゃんには理解できないの…💦　別の言葉で話しかけてくれると嬉しいな💖";
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logToDb(userId, userMessage, replyText, "System", "inappropriate_word_triggered", true);
-        return Promise.resolve(null);
+        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
     // --- 固定応答のチェック ---
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
-        if (userMessage.toLowerCase().includes("相談したい")) {
+        // ⭐ ClariSの曲に関する固定応答で、団体名について聞かれた場合の特殊処理 ⭐
+        if (userMessage.toLowerCase().includes("コネクト") && userMessage.toLowerCase().includes("関係ある") && specialReply.includes("ClariSさんの音楽は、わたしにたくさんの元気と勇気をくれるんだ")) {
+             // 既にClariSとNPOコネクトは関係ないと説明済みの場合、AIに委ねるか、より詳細な固定応答を検討
+             // 今回は、AIに委ねることで柔軟な応答を試みる
+             // 何もしないで次のAI応答生成に進むか、別の固定応答を返す
+             // ここでは、AI応答生成に進むためにreturnしない
+        } else if (userMessage.toLowerCase().includes("コネクトの歌とは関係ないのね") && specialReply.includes("わたしの活動はNPO法人コネクトのイメージキャラクターとして")) {
+            // この場合もAI応答生成に進むためにreturnしない
+        }
+        else if (userMessage.toLowerCase().includes("相談したい")) {
             await updateUserData(userId, { isInConsultationMode: true });
             logType = "consultation_mode_start";
+            await safePushMessage(userId, { type: 'text', text: specialReply });
+            await logToDb(userId, userMessage, specialReply, "System", logType);
+            return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
         } else {
             logType = "special_reply";
+            await safePushMessage(userId, { type: 'text', text: specialReply });
+            await logToDb(userId, userMessage, specialReply, "System", logType);
+            return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
         }
-        await safePushMessage(userId, { type: 'text', text: specialReply });
-        await logToDb(userId, userMessage, specialReply, "System", logType);
-        return Promise.resolve(null);
     }
 
     // --- 組織に関する問い合わせ ---
     if (isOrganizationInquiry(userMessage)) {
         await safePushMessage(userId, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
         await logToDb(userId, userMessage, ORGANIZATION_REPLY_MESSAGE, "System", "organization_inquiry_fixed");
-        return Promise.resolve(null);
+        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
     // ⭐ 宿題に関する問い合わせ (成人ユーザーはAIで回答) ⭐
@@ -1934,7 +1940,7 @@ async function handleEvent(event) {
         replyText = "宿題のことかな？がんばってるね！🌸 こころちゃんは、直接宿題の答えを教えることはできないんだけど、一緒に考えることはできるよ😊 どんな問題で困ってるの？ヒントなら出せるかも！";
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logToDb(userId, userMessage, replyText, "System", "homework_query");
-        return Promise.resolve(null);
+        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
 
@@ -1951,7 +1957,7 @@ async function handleEvent(event) {
         replyText = userConfig.exceedLimitMessage;
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logToDb(userId, userMessage, replyText, "System", "exceed_limit");
-        return Promise.resolve(null);
+        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
     // --- AIモデルの選択 ---
@@ -1997,7 +2003,7 @@ async function handleEvent(event) {
         await logToDb(userId, userMessage, replyText, "System", "ai_generation_error");
     }
 
-    return Promise.resolve(null);
+    return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
 }
 
 // --- Postbackイベントハンドラ ---
@@ -2042,7 +2048,7 @@ async function handlePostbackEvent(event) {
                 }
                 await safePushMessage(userId, { type: 'text', text: replyText });
                 await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
-                return Promise.resolve(null);
+                return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
             } catch (error) {
                 console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
                 await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId: userId });
@@ -2100,8 +2106,8 @@ async function handlePostbackEvent(event) {
                             layout: 'vertical',
                             contents: [
                                 { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
-                                { type: "text", "text": "安全のために、緊急連絡先を登録してね！", "wrap": true, "margin": "md" },
-                                { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                                { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
+                                { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
                             ]
                         }
                     }
