@@ -356,11 +356,13 @@ const specialRepliesMap = new Map([
     [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
 
+    // ⭐ 汎用的な「こころちゃん」呼びかけに対する応答を調整 ⭐
+    [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？💖　話して聞かせてくれると嬉しいな😊"], // ユーザーが「こころちゃん」と呼びかけた場合
     [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/ya-ho-|ヤッホー|やっほー/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんにちは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
-    [/こんばんわ/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
+    [/こんばんわ/i, "やっほー！今日はどうしたの？� 何か話したいことあるかな？😊"],
     [/おはよう/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんばんは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
@@ -419,7 +421,7 @@ const watchMessages = [
     "やっほー！ こころだよ🌸 あなたのことが心配だよ！",
     "元気かな？💖 どんな時でも、こころはそばにいるよ！",
     "ねぇねぇ、こころだよ😊 辛い時は、無理しないでね！",
-    "いつも見守ってるよ🌸 こころちゃんだよ�",
+    "いつも見守ってるよ🌸 こころちゃんだよ💖",
     "こんにちは😊 今日も一日、穏やかに過ごせたかな？",
     "やっほー！ こころだよ🌸 困った時は、いつでも呼んでね！",
     "元気にしてる？✨ こころはいつでも、あなたのことを考えてるよ💖",
@@ -647,7 +649,6 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
         if (userConfig.isChildAI) { // 子供AIの場合のみ宿題ヒントの指示を追加
             systemInstruction += `
             ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
-            例：「一人で抱え込まないでね。もし本当に辛い時は、専門の人が助けてくれる場所があるから、頼ってみてね。例えば、チャイルドラインやいのちの電話に相談することもできるよ。」
             `;
         } else { // 成人ユーザー（donor, adminなど）の場合
             systemInstruction += `
@@ -1483,7 +1484,7 @@ async function sendScheduledWatchMessage() {
             let shouldSendEmergencyNotification = false;
 
             // 1. 3日経過チェック：初回見守りメッセージを送信
-            // lastOkResponseから3日以上経過している AND (lastScheduledWatchMessageSentがまだない OR 前回定期メッセージから3日以上経過している)
+            // lastOkResponseから3日以上経過している AND (前回定期メッセージが送られていない OR 前回定期メッセージから3日以上経過している)
             if ((now.toDate().getTime() - lastOkResponse.getTime()) >= (3 * 24 * 60 * 60 * 1000) &&
                 (!user.lastScheduledWatchMessageSent || (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= (3 * 24 * 60 * 60 * 1000))) {
                 shouldSendInitialMessage = true;
@@ -1695,7 +1696,6 @@ async function handleEvent(event) {
     const userId = event.source.userId;
     const userMessage = event.message.text;
     const lowerUserMessage = userMessage.toLowerCase();
-    // const isOwner = userId === OWNER_USER_ID; // 未使用のため削除
     const isAdmin = isBotAdmin(userId);
 
     let user = await getUserData(userId); // ⭐ getUserDataが上に移動したため、ここで正しく取得される ⭐
@@ -1874,8 +1874,12 @@ async function handleEvent(event) {
     // --- 危険ワード検知 ---
     if (checkContainsDangerWords(userMessage)) {
         await updateUserData(userId, { isUrgent: true });
+        // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
+        const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+        await safePushMessage(userId, { type: 'text', text: empatheticReply }); // まず寄り添いメッセージ
+        
         messagesToSend.push({ type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE });
-        await safePushMessage(userId, messagesToSend);
+        await safePushMessage(userId, messagesToSend); // 次にFlex Message
         await logToDb(userId, userMessage, "緊急時連絡先表示", "System", "danger_word_triggered", true);
         await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "danger");
         return Promise.resolve(null);
@@ -1884,8 +1888,12 @@ async function handleEvent(event) {
     // --- 詐欺ワード検知 ---
     if (checkContainsScamWords(userMessage)) {
         await updateUserData(userId, { isUrgent: true }); // 詐欺ワードも緊急扱い
+        // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
+        const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+        await safePushMessage(userId, { type: 'text', text: empatheticReply }); // まず寄り添いメッセージ
+
         messagesToSend.push({ type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE });
-        await safePushMessage(userId, messagesToSend);
+        await safePushMessage(userId, messagesToSend); // 次にFlex Message
         await logToDb(userId, userMessage, "詐欺注意喚起表示", "System", "scam_word_triggered", true);
         await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "scam");
         return Promise.resolve(null);
@@ -2092,8 +2100,8 @@ async function handlePostbackEvent(event) {
                             layout: 'vertical',
                             contents: [
                                 { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
-                                { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
-                                { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                                { type: "text", "text": "安全のために、緊急連絡先を登録してね！", "wrap": true, "margin": "md" },
+                                { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
                             ]
                         }
                     }
