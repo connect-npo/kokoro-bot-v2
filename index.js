@@ -1812,6 +1812,9 @@ async function handleEvent(event) {
 
     // ここから個人チャットの処理
     let user = await getUserData(userId);
+    // ⭐ handleEvent関数の冒頭でuserConfigを定義 ⭐
+    const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
+
     let replyText = "";
     let responsedBy = "AI";
     let logType = "normal_conversation";
