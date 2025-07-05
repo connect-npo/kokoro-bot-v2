@@ -8,7 +8,7 @@ const admin = require('firebase-admin');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
-const nodemailer = require('nodemailer');
+// const nodemailer = require('nodemailer'); // メール機能削除のためコメントアウト
 
 const app = express();
 app.use(express.json());
@@ -21,11 +21,11 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 
-// ⭐メール通知用の環境変数 ⭐
-const EMAIL_SERVICE = process.env.EMAIL_SERVICE || 'Gmail';
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
-const NOTIFICATION_EMAIL_RECIPIENT = process.env.NOTIFICATION_EMAIL_RECIPIENT;
+// ⭐メール通知用の環境変数 (削除) ⭐
+// const EMAIL_SERVICE = process.env.EMAIL_SERVICE || 'Gmail';
+// const EMAIL_USER = process.env.EMAIL_USER;
+// const EMAIL_PASS = process.env.EMAIL_PASS;
+// const NOTIFICATION_EMAIL_RECIPIENT = process.env.NOTIFICATION_EMAIL_RECIPIENT;
 
 let BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"];
 if (process.env.BOT_ADMIN_IDS) {
@@ -77,20 +77,20 @@ const client = new Client({
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-// --- Nodemailerトランスポーターの設定 ---
-let transporter;
-if (EMAIL_USER && EMAIL_PASS && NOTIFICATION_EMAIL_RECIPIENT) {
-    transporter = nodemailer.createTransport({
-        service: EMAIL_SERVICE,
-        auth: {
-            user: EMAIL_USER,
-            pass: EMAIL_PASS
-        }
-    });
-    console.log("✅ Nodemailerトランスポーターを初期化しました。");
-} else {
-    console.warn("⚠️ メール通知用の環境変数が不足しています。緊急通知メールは送信されません。");
-}
+// --- Nodemailerトランスポーターの設定 (削除) ---
+// let transporter;
+// if (EMAIL_USER && EMAIL_PASS && NOTIFICATION_EMAIL_RECIPIENT) {
+//     transporter = nodemailer.createTransport({
+//         service: EMAIL_SERVICE,
+//         auth: {
+//             user: EMAIL_USER,
+//             pass: EMAIL_PASS
+//         }
+//     });
+//     console.log("✅ Nodemailerトランスポーターを初期化しました。");
+// } else {
+//     console.warn("⚠️ メール通知用の環境変数が不足しています。緊急通知メールは送信されません。");
+// }
 
 // --- メッセージキュー関連 ---
 const messageQueue = [];
@@ -197,7 +197,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 5,
         isChildAI: true,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！🌸",
+        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！�",
         systemInstructionModifier: ""
     },
     "free": {
@@ -376,7 +376,7 @@ const specialRepliesMap = new Map([
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
     [/ClariSと関係あるの？/i, "ClariSさんの音楽は、わたしにたくさんの元気と勇気をくれるんだ🌸💖　NPO法人コネクトとは直接的な提携関係はないけれど、「コネクト」という言葉に、みんなと繋がる大切さを感じているよ。"],
     [/ClariSのパクリなのかしりたい|ClariSのパクリなの？/i, "NPO法人コネクトがClariSさんのパクリだなんて、そんなことはないよ💦　NPO法人コネクトは困っている人を助けるための活動をしていて、ClariSさんの音楽活動とは全く違うんだ。誤解させてしまっていたら、ごめんね。"],
-    [/ClariSのなんて局が好きなの？/i, "ClariSの曲は全部好きだけど、もし一つだけ選ぶなら…「コネクト」かな🌸　元気が出る曲で、聴くと頑張ろうって思えるんだ�\n\nNPO法人コネクトの名前とClariSさんの曲名が同じだから、そう思ったのかもしれないけど、直接的な関係はないんだよ。でも、偶然の一致ってなんだか嬉しいね💖\n\nあなたはどの曲が特に好き？💖　もしかしたら、私たち、同じ曲が好きなのかもしれないね！"]
+    [/ClariSのなんて局が好きなの？/i, "ClariSの曲は全部好きだけど、もし一つだけ選ぶなら…「コネクト」かな🌸　元気が出る曲で、聴くと頑張ろうって思えるんだ😊\n\nNPO法人コネクトの名前とClariSさんの曲名が同じだから、そう思ったのかもしれないけど、直接的な関係はないんだよ。でも、偶然の一致ってなんだか嬉しいね💖\n\nあなたはどの曲が特に好き？💖　もしかしたら、私たち、同じ曲が好きなのかもしれないね！"]
 ]);
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
@@ -1172,11 +1172,17 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         }
     }
 
+    // OKボタン応答と状態リセット
     if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
-        if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
+        if (user && user.watchServiceEnabled) { // 見守りサービスが有効な場合のみ応答
             try {
                 await usersCollection.doc(userId).update(
-                    { lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false }
+                    { 
+                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                        lastScheduledWatchMessageSent: null, // 定期メッセージ送信状態をリセット
+                        firstReminderSent: false, // 24時間リマインダー状態をリセット
+                        emergencyNotificationSent: false // 緊急通知状態をリセット
+                    }
                 );
                 if (event.replyToken) {
                     await client.replyMessage(event.replyToken, {
@@ -1201,8 +1207,17 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     if (lowerUserMessage.includes("まあまあかな")) {
-        if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
+        if (user && user.watchServiceEnabled) {
             try {
+                // OK応答と同様に、状態をリセット
+                await usersCollection.doc(userId).update(
+                    { 
+                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                        lastScheduledWatchMessageSent: null,
+                        firstReminderSent: false,
+                        emergencyNotificationSent: false
+                    }
+                );
                 if (event.replyToken) {
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
@@ -1226,8 +1241,17 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     if (lowerUserMessage.includes("少し疲れた…")) {
-        if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
+        if (user && user.watchServiceEnabled) {
             try {
+                // OK応答と同様に、状態をリセット
+                await usersCollection.doc(userId).update(
+                    { 
+                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                        lastScheduledWatchMessageSent: null,
+                        firstReminderSent: false,
+                        emergencyNotificationSent: false
+                    }
+                );
                 if (event.replyToken) {
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
@@ -1251,8 +1275,17 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     if (lowerUserMessage.includes("話を聞いて")) {
-        if (user && user.wantsWatchCheck && user.scheduledMessageSent) {
+        if (user && user.watchServiceEnabled) {
             try {
+                // OK応答と同様に、状態をリセット
+                await usersCollection.doc(userId).update(
+                    { 
+                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                        lastScheduledWatchMessageSent: null,
+                        firstReminderSent: false,
+                        emergencyNotificationSent: false
+                    }
+                );
                 if (event.replyToken) {
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
@@ -1276,20 +1309,20 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     if (event.type === 'postback' && event.postback.data === 'action=watch_register') {
-        if (user && user.wantsWatchCheck) {
+        if (user && user.watchServiceEnabled) { // 既に有効な場合は登録済みと返答
             await client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖'
             });
             logToDb(userId, userMessage, '見守りサービス登録済み', 'こころちゃん（見守り登録）', 'watch_service_already_registered', true);
             return true;
-        } else if (user && user.registrationStep === 'awaiting_contact_form') {
+        } else if (user && user.registrationStep === 'awaiting_contact_form') { // フォーム入力中の場合
             await client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: 'まだ緊急連絡先フォームの入力を待ってるよ🌸 フォームを完了してくれるかな？💖'
             });
             return true;
-        } else {
+        } else { // 新規登録フロー開始
             const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
             await client.replyMessage(event.replyToken, {
                 type: 'flex',
@@ -1308,7 +1341,12 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 }
             });
             await usersCollection.doc(userId).update({
-                registrationStep: 'awaiting_contact_form'
+                registrationStep: 'awaiting_contact_form',
+                watchServiceEnabled: true, // 登録開始時に有効化
+                lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 初期登録日時
+                lastScheduledWatchMessageSent: null,
+                firstReminderSent: false,
+                emergencyNotificationSent: false
             });
             logToDb(userId, userMessage, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
             return true;
@@ -1316,9 +1354,20 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ' || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
-        if (user && user.wantsWatchCheck) {
+        if (user && user.watchServiceEnabled) {
             try {
-                await usersCollection.doc(userId).update({ wantsWatchCheck: false, emergencyContact: null, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false });
+                await usersCollection.doc(userId).update({ 
+                    watchServiceEnabled: false, 
+                    emergencyContact: null, 
+                    lastScheduledWatchMessageSent: null,
+                    firstReminderSent: false,
+                    emergencyNotificationSent: false,
+                    // registeredInfo内の連絡先もクリアするべきか検討
+                    'registeredInfo.phoneNumber': admin.firestore.FieldValue.delete(),
+                    'registeredInfo.guardianName': admin.firestore.FieldValue.delete(),
+                    'registeredInfo.emergencyContact': admin.firestore.FieldValue.delete(),
+                    'registeredInfo.relationship': admin.firestore.FieldValue.delete()
+                });
                 if (event.replyToken) {
                     await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録してね💖' });
                 } else {
@@ -1345,7 +1394,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
 
 
 // --- 定期見守りメッセージ送信 Cronジョブ (毎日15時にトリガー) ---
-cron.schedule('0 15 * * *', () => {
+cron.schedule('0 15 * * *', () => { // 毎日15時に実行
     console.log('cron: 定期見守りメッセージ送信処理をトリガーします。');
     sendScheduledWatchMessage();
 }, {
@@ -1354,15 +1403,11 @@ cron.schedule('0 15 * * *', () => {
 
 /**
  * 見守りサービス利用者への定期メッセージ送信と未応答時の緊急連絡通知
+ * 新しいロジック: 3日 -> 24時間 -> 5時間
  */
 async function sendScheduledWatchMessage() {
     const usersCollection = db.collection('users');
     const now = admin.firestore.Timestamp.now();
-    const twentyNineHoursAgo = new Date(now.toDate().getTime() - 29 * 60 * 60 * 1000);
-    const threeDaysAgo = new Date(now.toDate().getTime() - 3 * 24 * 60 * 60 * 1000); // 72時間
-    const sevenDaysAgo = new Date(now.toDate().getTime() - 7 * 24 * 60 * 60 * 1000);
-    const fourteenDaysAgo = new Date(now.toDate().getTime() - 14 * 24 * 60 * 60 * 1000);
-    const twentyOneDaysAgo = new Date(now.toDate().getTime() - 21 * 24 * 60 * 60 * 1000); // 21日
 
     try {
         const snapshot = await usersCollection
@@ -1373,67 +1418,89 @@ async function sendScheduledWatchMessage() {
             const user = doc.data();
             const userId = doc.id;
             const lastOkResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : user.createdAt.toDate();
+            const lastScheduledWatchMessageSent = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : user.createdAt.toDate();
 
-            let notificationNeeded = false;
-            let notificationType = '';
-            let reminderMessage = '';
             let updateData = {};
+            let shouldSendInitialMessage = false;
+            let shouldSendFirstReminder = false;
+            let shouldSendEmergencyNotification = false;
 
-            // 29時間返信なし（初回リマインダー）
-            if (!user.firstReminderSent && lastOkResponse < twentyNineHoursAgo) {
-                reminderMessage = "こころちゃんだよ🌸\n元気にしてるかな？\nもしかして、忙しいのかな？\n短い時間でいいから、一言「OKだよ💖」って教えてくれると安心するな😊";
-                updateData.firstReminderSent = true;
-                console.log(`ユーザー ${userId}: 29時間経過 - 初回リマインダーを送信`);
-                await safePushMessage(userId, { type: 'text', text: reminderMessage });
-                logToDb(userId, `（29時間未応答リマインダー）`, reminderMessage, 'こころちゃん（見守り）', 'watch_service_reminder_29h', true);
+            // 1. 3日経過チェック：初回見守りメッセージを送信
+            // lastOkResponseから3日以上経過している AND (前回定期メッセージが送られていない OR 前回定期メッセージから3日以上経過している)
+            if ((now.toDate().getTime() - lastOkResponse.getTime()) >= (3 * 24 * 60 * 60 * 1000) &&
+                (!user.lastScheduledWatchMessageSent || (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= (3 * 24 * 60 * 60 * 1000))) {
+                shouldSendInitialMessage = true;
             }
-            // 3日（72時間）返信なし（定期見守りメッセージ or リマインダー）
-            else if (lastOkResponse < threeDaysAgo && !user.scheduledMessageSent) {
+
+            // 2. 24時間経過チェック：初回リマインダーを送信
+            // lastScheduledWatchMessageSentから24時間経過している AND firstReminderSentがfalse
+            if (user.lastScheduledWatchMessageSent && 
+                (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= (24 * 60 * 60 * 1000) &&
+                !user.firstReminderSent) {
+                shouldSendFirstReminder = true;
+            }
+
+            // 3. さらに5時間経過チェック：緊急通知を送信
+            // lastScheduledWatchMessageSentから24時間+5時間経過している AND emergencyNotificationSentがfalse
+            if (user.lastScheduledWatchMessageSent && 
+                (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= ((24 + 5) * 60 * 60 * 1000) &&
+                !user.emergencyNotificationSent) {
+                shouldSendEmergencyNotification = true;
+            }
+
+
+            if (shouldSendInitialMessage) {
                 const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)];
-                // ⭐修正: 見守り応答もgetAIModelForUser関数を使い、ユーザーの会員タイプとメッセージ長でモデルを決定 ⭐
-                const aiModelForWatch = getAIModelForUser(user, randomMessage); // ここでモデルを動的に選択
-                const aiReply = await (aiModelForWatch.startsWith("gpt") ? generateGPTReply(randomMessage, aiModelForWatch, userId, user) : generateGeminiReply(randomMessage, aiModelForWatch, userId, user));
-
-                await safePushMessage(userId, { type: 'text', text: aiReply });
-                updateData.scheduledMessageSent = true;
-                console.log(`ユーザー ${userId}: 3日経過 - 定期見守りメッセージを送信 (モデル: ${aiModelForWatch})`);
-                logToDb(userId, `（3日未応答定期見守り）`, aiReply, `こころちゃん（見守りAI: ${aiModelForWatch}）`, 'watch_service_scheduled_message', true);
-            }
-            // 7日返信なし（二回目のリマインダー）
-            else if (lastOkResponse < sevenDaysAgo && !user.secondReminderSent) {
-                reminderMessage = "こころちゃんだよ🌸\n最近、お話できてなくて少し心配してるんだ💦\n元気にしてるかな？\n何かあったら無理しないで、いつでも話してね。返信が難しい時でも、「OKだよ💖」って一言くれると嬉しいな😊";
-                updateData.secondReminderSent = true;
-                console.log(`ユーザー ${userId}: 7日経過 - 二回目のリマインダーを送信`);
+                const messages = [
+                    { type: 'text', text: randomMessage },
+                    {
+                        type: 'flex',
+                        altText: '元気？ボタン',
+                        contents: {
+                            "type": "bubble",
+                            "body": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "contents": [
+                                    { "type": "text", "text": "元気？🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+                                    { "type": "text", "text": "こころちゃん、あなたのことが心配だよ…！", "wrap": true, "margin": "md", "size": "sm" }
+                                ]
+                            },
+                            "footer": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "spacing": "sm",
+                                "contents": [
+                                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "postback", "label": "OKだよ💖", "data": "action=watch_ok" }, "color": "#d63384" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "ちょっと元気ないかも…", "data": "action=watch_somewhat" }, "color": "#808080" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "疲れたよ…", "data": "action=watch_tired" }, "color": "#808080" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "お話したいな…", "data": "action=watch_talk" }, "color": "#808080" }
+                                ]
+                            }
+                        }
+                    }
+                ];
+                await safePushMessage(userId, messages);
+                updateData.lastScheduledWatchMessageSent = now;
+                updateData.firstReminderSent = false; // 新しいサイクルなのでリセット
+                updateData.emergencyNotificationSent = false; // 新しいサイクルなのでリセット
+                console.log(`ユーザー ${userId}: 3日経過 - 初回見守りメッセージを送信`);
+                logToDb(userId, `（3日未応答初回見守り）`, randomMessage, 'こころちゃん（見守り）', 'watch_service_initial_message', true);
+            } else if (shouldSendFirstReminder) {
+                reminderMessage = "こころちゃんだよ🌸\n元気にしてるかな？\nもしかして、忙しいのかな？\n短い時間でいいから、一言「OKだよ💖」って教えてくれると安心するな😊";
                 await safePushMessage(userId, { type: 'text', text: reminderMessage });
-                logToDb(userId, `（7日未応答リマインダー）`, reminderMessage, 'こころちゃん（見守り）', 'watch_service_reminder_7d', true);
-            }
-            // 14日返信なし（最終リマインダー & 緊急連絡先への通知準備）
-            else if (lastOkResponse < fourteenDaysAgo && !user.thirdReminderSent) {
-                reminderMessage = "こころちゃんだよ🌸\nもう2週間も連絡がないから、とても心配だよ…💦\nもしもの時、あなたの安全を確認するために、ご家族や緊急連絡先にご連絡してもいいかな？\nすぐに「OKだよ💖」って返事くれると安心するんだけど…\nもし返事がなかったら、ご家族の方に連絡することになるからね。";
-                updateData.thirdReminderSent = true;
-                notificationNeeded = true;
-                notificationType = '14日未応答';
-                console.log(`ユーザー ${userId}: 14日経過 - 最終リマインダーを送信（緊急通知準備）`);
-                await safePushMessage(userId, { type: 'text', text: reminderMessage });
-                logToDb(userId, `（14日未応答リマインダー）`, reminderMessage, 'こころちゃん（見守り）', 'watch_service_reminder_14d', true);
-            }
-            // 21日返信なし（最終通知 - 緊急連絡先への通知）
-            else if (lastOkResponse < twentyOneDaysAgo && !user.finalNotificationSent) {
-                notificationNeeded = true;
-                notificationType = '21日未応答';
-                updateData.finalNotificationSent = true;
-                console.log(`ユーザー ${userId}: 21日経過 - 最終緊急通知をトリガー`);
-                logToDb(userId, `（21日未応答最終通知）`, `緊急連絡先へ通知をトリガー`, 'こころちゃん（見守り）', 'watch_service_final_notification', true);
-            }
-
-            // 必要な場合に通知を送信
-            if (notificationNeeded) {
+                updateData.firstReminderSent = true;
+                console.log(`ユーザー ${userId}: 24時間経過 - 初回リマインダーを送信`);
+                logToDb(userId, `（24時間未応答リマインダー）`, reminderMessage, 'こころちゃん（見守り）', 'watch_service_reminder_24h', true);
+            } else if (shouldSendEmergencyNotification) {
                 const userInfo = user.registeredInfo || {};
                 const userName = userInfo.name || '不明なユーザー';
-                const subject = `🚨見守りサービス最終緊急通知: ${userName} 様が${notificationType}未応答です`;
-                const text = `ユーザーID: ${userId}\n氏名: ${userName}\n電話番号: ${userInfo.phoneNumber || 'N/A'}\n保護者名: ${userInfo.guardianName || 'N/A'}\n緊急連絡先: ${userInfo.emergencyContact || 'N/A'}\n続柄: ${userInfo.relationship || 'N/A'}\n\n最終応答日時: ${lastOkResponse.toLocaleString()}\n\nこのユーザーの安否確認をしてください。緊急性が非常に高いです。`;
-                await sendEmailNotification(subject, text);
-                await notifyOfficerGroup(`ユーザー ${userName} (${userId}) が見守りサービスで${notificationType}未応答です。緊急対応が必要です。`, userId, userInfo, "watch_unresponsive", notificationType);
+                const notificationDetailType = '緊急';
+                const messageForOfficer = `ユーザー ${userName} (${userId}) が見守りサービスで${notificationDetailType}未応答です。緊急対応が必要です。`;
+                await notifyOfficerGroup(messageForOfficer, userId, userInfo, "watch_unresponsive", notificationDetailType);
+                updateData.emergencyNotificationSent = true;
+                console.log(`ユーザー ${userId}: 5時間経過 - 緊急通知をトリガー`);
+                logToDb(userId, `（緊急未応答最終通知）`, `緊急連絡先へ通知をトリガー`, 'こころちゃん（見守り）', 'watch_service_final_notification', true);
             }
 
             // ユーザーデータの更新を反映
@@ -1454,7 +1521,7 @@ async function sendScheduledWatchMessage() {
  * @param {string} userId - 通知対象のユーザーID
  * @param {Object} userInfo - ユーザーの登録情報
  * @param {string} type - 通知の種類 (例: "danger", "scam", "watch_unresponsive")
- * @param {string} [notificationDetailType=''] - 見守りサービス未応答時の詳細タイプ (例: "14日未応答", "21日未応答")
+ * @param {string} [notificationDetailType=''] - 見守りサービス未応答時の詳細タイプ (例: "緊急")
  */
 async function notifyOfficerGroup(message, userId, userInfo, type, notificationDetailType = '') {
     const userName = userInfo.name || '不明なユーザー';
@@ -1539,7 +1606,7 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
                         { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "🧬 続柄：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": relationship, "flex": 5, "size": "sm", "wrap": true } ] }
                     ] },
                     { "type": "separator", "margin": "md" },
-                    { "type": "text", "text": `ユーザーが${notificationDetailType}未応答です。安否確認をお願いします。`, "margin": "md", "wrap": true, "size": "sm" }
+                    { "type": "text", "text": message, "margin": "md", "wrap": true, "size": "sm" } // メッセージを動的に表示
                 ]
             },
             "footer": {
@@ -1874,54 +1941,116 @@ async function handlePostbackEvent(event) {
 
     let replyText = "";
     let logType = "postback_action";
+    let user = await getUserData(userId); // 最新のユーザーデータを取得
+
+    // OKボタン応答と状態リセット
+    if (['watch_ok', 'watch_somewhat', 'watch_tired', 'watch_talk'].includes(action)) {
+        if (user && user.watchServiceEnabled) {
+            try {
+                await db.collection('users').doc(userId).update(
+                    { 
+                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                        lastScheduledWatchMessageSent: null, // 定期メッセージ送信状態をリセット
+                        firstReminderSent: false, // 24時間リマインダー状態をリセット
+                        emergencyNotificationSent: false // 緊急通知状態をリセット
+                    }
+                );
+                switch (action) {
+                    case 'watch_ok':
+                        replyText = "OKありがとう！元気そうで安心したよ💖";
+                        logType = 'watch_service_ok_response';
+                        break;
+                    case 'watch_somewhat':
+                        replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
+                        logType = 'watch_service_status_somewhat';
+                        break;
+                    case 'watch_tired':
+                        replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
+                        logType = 'watch_service_status_tired';
+                        break;
+                    case 'watch_talk':
+                        replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
+                        logType = 'watch_service_status_talk';
+                        break;
+                }
+                await safePushMessage(userId, { type: 'text', text: replyText });
+                await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+                return Promise.resolve(null);
+            } catch (error) {
+                console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
+                await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId: userId });
+                return Promise.resolve(null);
+            }
+        }
+    }
+
 
     switch (action) {
         case 'watch_unregister':
-            await updateUserData(userId, { watchServiceEnabled: false });
-            replyText = "見守りサービスを解除したよ。またいつでも登録できるからね🌸";
-            logType = 'watch_service_unregister';
-            break;
-        case 'watch_ok':
-            await updateUserData(userId, { lastWatchServiceCheck: admin.firestore.FieldValue.serverTimestamp() });
-            replyText = "OKありがとう！元気そうで安心したよ💖";
-            logType = 'watch_service_ok_response';
-            break;
-        case 'watch_somewhat':
-            await updateUserData(userId, { lastWatchServiceCheck: admin.firestore.FieldValue.serverTimestamp() });
-            replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
-            logType = 'watch_service_status_somewhat';
-            break;
-        case 'watch_tired':
-            await updateUserData(userId, { lastWatchServiceCheck: admin.firestore.FieldValue.serverTimestamp() });
-            replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
-            logType = 'watch_service_status_tired';
-            break;
-        case 'watch_talk':
-            await updateUserData(userId, { lastWatchServiceCheck: admin.firestore.FieldValue.serverTimestamp() });
-            replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
-            logType = 'watch_service_status_talk';
+            if (user && user.watchServiceEnabled) {
+                try {
+                    await db.collection('users').doc(userId).update({ 
+                        watchServiceEnabled: false, 
+                        emergencyContact: null, 
+                        lastScheduledWatchMessageSent: null,
+                        firstReminderSent: false,
+                        emergencyNotificationSent: false,
+                        // registeredInfo内の連絡先もクリアするべきか検討
+                        'registeredInfo.phoneNumber': admin.firestore.FieldValue.delete(),
+                        'registeredInfo.guardianName': admin.firestore.FieldValue.delete(),
+                        'registeredInfo.emergencyContact': admin.firestore.FieldValue.delete(),
+                        'registeredInfo.relationship': admin.firestore.FieldValue.delete()
+                    });
+                    replyText = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖";
+                    logType = 'watch_service_unregister';
+                } catch (error) {
+                    console.error("❌ 見守りサービス解除処理エラー:", error.message);
+                    logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId: userId });
+                    replyText = "ごめんね、解除処理中にエラーが起きたみたい…💦 もう一度試してみてくれるかな？";
+                    logType = 'watch_service_unregister_error';
+                }
+            } else {
+                replyText = "見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖";
+                logType = 'watch_service_not_registered_on_unregister';
+            }
             break;
         case 'watch_register': // Postbackから見守り登録をトリガーするケース
-            const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
-            await safePushMessage(userId, {
-                type: 'flex',
-                altText: '緊急連絡先登録のご案内',
-                contents: {
-                    type: 'bubble',
-                    body: {
-                        type: 'box',
-                        layout: 'vertical',
-                        contents: [
-                            { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
-                            { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
-                            { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
-                        ]
+            if (user && user.watchServiceEnabled) { // 既に有効な場合は登録済みと返答
+                replyText = 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖';
+                logType = 'watch_service_already_registered';
+            } else if (user && user.registrationStep === 'awaiting_contact_form') { // フォーム入力中の場合
+                replyText = 'まだ緊急連絡先フォームの入力を待ってるよ🌸 フォームを完了してくれるかな？💖';
+                logType = 'watch_service_awaiting_form';
+            } else { // 新規登録フロー開始
+                const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
+                await safePushMessage(userId, {
+                    type: 'flex',
+                    altText: '緊急連絡先登録のご案内',
+                    contents: {
+                        type: 'bubble',
+                        body: {
+                            type: 'box',
+                            layout: 'vertical',
+                            contents: [
+                                { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
+                                { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
+                                { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                            ]
+                        }
                     }
-                }
-            });
-            await updateUserData(userId, { registrationStep: 'awaiting_contact_form' });
-            logToDb(userId, `Postback: ${event.postback.data}`, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
-            return Promise.resolve(null); // ここで処理を終了
+                });
+                await db.collection('users').doc(userId).update({
+                    registrationStep: 'awaiting_contact_form',
+                    watchServiceEnabled: true, // 登録開始時に有効化
+                    lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 初期登録日時
+                    lastScheduledWatchMessageSent: null,
+                    firstReminderSent: false,
+                    emergencyNotificationSent: false
+                });
+                logToDb(userId, `Postback: ${event.postback.data}`, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
+                return Promise.resolve(null); // ここで処理を終了
+            }
+            break;
         default:
             replyText = "ごめんね、その操作はまだできないみたい…💦";
             logType = 'unknown_postback_action';
@@ -1944,8 +2073,11 @@ async function handleFollowEvent(event) {
         lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
         isUrgent: false,
         isInConsultationMode: false,
-        lastWatchServiceCheck: null,
+        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 新規フォロー時にも設定
         watchServiceEnabled: false,
+        lastScheduledWatchMessageSent: null, // 新規追加
+        firstReminderSent: false, // 新規追加
+        emergencyNotificationSent: false, // 新規追加
         registeredInfo: {},
         createdAt: admin.firestore.FieldValue.serverTimestamp()
     };
