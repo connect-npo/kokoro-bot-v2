@@ -197,7 +197,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 5,
         isChildAI: true,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！�",
+        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！🌸",
         systemInstructionModifier: ""
     },
     "free": {
@@ -346,7 +346,7 @@ const REGISTRATION_BUTTONS_FLEX = {
 
 // --- 固定応答 (SpecialRepliesMap) ---
 const specialRepliesMap = new Map([
-    [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
+    [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です�　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんなさい💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
@@ -464,6 +464,46 @@ async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'syste
     } catch (dbError) {
         console.error(`❌ エラーログ記録中にさらなるエラーが発生しました: ${dbError.message}`);
     }
+}
+
+/**
+ * ユーザーの会員情報をFirestoreから取得する関数。
+ * @param {string} userId - LINEユーザーID
+ * @returns {Promise<Object>} ユーザー情報オブジェクト
+ */
+async function getUserData(userId) {
+    const userRef = db.collection('users').doc(userId);
+    const doc = await userRef.get();
+    if (!doc.exists) {
+        // 新規ユーザーの場合、ゲストとして初期化
+        const initialUserData = {
+            membershipType: "guest",
+            messageCount: 0,
+            lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
+            isUrgent: false,
+            isInConsultationMode: false,
+            lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 新規フォロー時にも設定
+            watchServiceEnabled: false,
+            lastScheduledWatchMessageSent: null, // 新規追加
+            firstReminderSent: false, // 新規追加
+            emergencyNotificationSent: false, // 新規追加
+            registeredInfo: {}, // 登録情報（氏名、電話番号など）
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        await userRef.set(initialUserData);
+        return initialUserData;
+    }
+    return doc.data();
+}
+
+/**
+ * ユーザーの会員情報をFirestoreに保存する関数。
+ * @param {string} userId - LINEユーザーID
+ * @param {Object} data - 更新するユーザーデータ
+ */
+async function updateUserData(userId, data) {
+    const userRef = db.collection('users').doc(userId);
+    await userRef.update(data);
 }
 
 // --- ユーザー情報取得関数 ---
@@ -1340,7 +1380,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     }
                 }
             });
-            await usersCollection.doc(userId).update({
+            await db.collection('users').doc(userId).update({
                 registrationStep: 'awaiting_contact_form',
                 watchServiceEnabled: true, // 登録開始時に有効化
                 lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 初期登録日時
@@ -1368,26 +1408,21 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     'registeredInfo.emergencyContact': admin.firestore.FieldValue.delete(),
                     'registeredInfo.relationship': admin.firestore.FieldValue.delete()
                 });
-                if (event.replyToken) {
-                    await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録してね💖' });
-                } else {
-                    await safePushMessage(userId, { type: 'text', text: '見守りサービスを解除したよ🌸 またいつでも登録してね💖' });
-                }
-                logToDb(userId, userMessage, '見守りサービスを解除しました。', 'こころちゃん（見守り解除）', 'watch_service_unregistered', true);
-                return true;
+                replyText = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖";
+                logType = 'watch_service_unregister';
             } catch (error) {
                 console.error("❌ 見守りサービス解除処理エラー:", error.message);
                 logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId: userId });
-                return false;
+                replyText = "ごめんね、解除処理中にエラーが起きたみたい…💦 もう一度試してみてくれるかな？";
+                logType = 'watch_service_unregister_error';
             }
         } else {
-            if (event.replyToken) {
-                await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖' });
-            } else {
-                await safePushMessage(userId, { type: 'text', text: '見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖' });
-            }
-            return true;
+            replyText = "見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖";
+            logType = 'watch_service_not_registered_on_unregister';
         }
+        await safePushMessage(userId, { type: 'text', text: replyText });
+        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+        return Promise.resolve(null);
     }
     return false; // どの見守り関連ロジックにも該当しない場合はfalseを返す
 }
