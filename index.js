@@ -197,7 +197,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 5,
         isChildAI: true,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！🌸",
+        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！ ",
         systemInstructionModifier: ""
     },
     "free": {
@@ -316,7 +316,7 @@ const watchServiceGuideFlexTemplate = {
         "layout": "vertical",
         "contents": [
             { "type": "text", "text": "💖見守りサービス案内💖", "weight": "bold", "color": "#FF69B4", "size": "lg" },
-            { "type": "text", "text": "💖こころちゃんから大切なあなたへ�\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、ご登録の緊急連絡先へご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
+            { "type": "text", "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、ご登録の緊急連絡先へご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
         ]
     },
     "footer": {
@@ -1175,7 +1175,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
 async function handleWatchServiceRegistration(event, userId, userMessage, user) {
     const usersCollection = db.collection("users");
 
-    const lowerUserMessage = (typeof userMessage === 'string') ? userMessage.toLowerCase() : ''; // ⭐ 修正: typeofチェックを追加 ⭐
+    const lowerUserMessage = userMessage.toLowerCase();
     let handled = false;
 
     if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep === 'awaiting_contact_form') {
@@ -1250,7 +1250,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     // OKボタン応答と状態リセット
-    if (typeof lowerUserMessage === 'string' && (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫"))) { // ⭐ 修正: typeofチェックを追加 ⭐
+    if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.watchServiceEnabled) { // 見守りサービスが有効な場合のみ応答
             try {
                 await usersCollection.doc(userId).update(
@@ -1283,7 +1283,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         return false;
     }
 
-    if (typeof lowerUserMessage === 'string' && lowerUserMessage.includes("まあまあかな")) { // ⭐ 修正: typeofチェックを追加 ⭐
+    if (lowerUserMessage.includes("まあまあかな")) {
         if (user && user.watchServiceEnabled) {
             try {
                 // OK応答と同様に、状態をリセット
@@ -1317,7 +1317,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         return false;
     }
 
-    if (typeof lowerUserMessage === 'string' && lowerUserMessage.includes("少し疲れた…")) { // ⭐ 修正: typeofチェックを追加 ⭐
+    if (lowerUserMessage.includes("少し疲れた…")) {
         if (user && user.watchServiceEnabled) {
             try {
                 // OK応答と同様に、状態をリセット
@@ -1351,7 +1351,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         return false;
     }
 
-    if (typeof lowerUserMessage === 'string' && lowerUserMessage.includes("話を聞いて")) { // ⭐ 修正: typeofチェックを追加 ⭐
+    if (lowerUserMessage.includes("話を聞いて")) {
         if (user && user.watchServiceEnabled) {
             try {
                 // OK応答と同様に、状態をリセット
@@ -1459,7 +1459,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         }
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
-        return true; // ⭐ ここで処理を終了 ⭐
+        return Promise.resolve(null);
     }
     return false; // どの見守り関連ロジックにも該当しない場合はfalseを返す
 }
@@ -1725,30 +1725,7 @@ async function handleEvent(event) {
         return Promise.resolve(null);
     }
 
-    // ⭐ 2. Webhookイベントの重複処理防止（デデュープリケーション） ⭐
-    // LINEのWebhookイベントには一意のIDが含まれることが期待されるが、bot-sdkは直接提供しないため、
-    // event.source.userId (または event.source.groupId), event.timestamp, event.replyToken を組み合わせて簡易的なユニークIDを生成
-    // より堅牢にするには、LINEのX-Line-Webhook-Idヘッダーを利用すべきだが、bot-sdkのイベントオブジェクトからは直接取得できない
-    const eventUniqueId = `${event.source.userId || event.source.groupId}-${event.timestamp}-${event.replyToken}`;
-    const deduplicationRef = db.collection('webhookDeduplication').doc(eventUniqueId);
-    const doc = await deduplicationRef.get();
-    const nowMillis = admin.firestore.Timestamp.now().toMillis();
-    const DEDUPLICATION_COOLDOWN_MILLIS = 10 * 1000; // 10秒間のクールダウン
-
-    if (doc.exists && (nowMillis - doc.data().timestamp) < DEDUPLICATION_COOLDOWN_MILLIS) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.log(`⚠️ 重複Webhookイベントを検出しました。スキップします: ${eventUniqueId}`);
-        }
-        return Promise.resolve(null); // 重複イベントはスキップ
-    } else {
-        // 新しいイベントとして記録
-        await deduplicationRef.set({ timestamp: nowMillis });
-        // 古い重複防止エントリをクリーンアップする（任意だが推奨）
-        // 例: cronジョブで定期的に古いエントリを削除
-    }
-
-
-    // ⭐ 3. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
+    // ⭐ 2. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
     let userId;   // メッセージの送信者（ユーザー）のID
     let sourceId; // メッセージの返信先（ユーザーまたはグループ）のID
 
@@ -1770,7 +1747,7 @@ async function handleEvent(event) {
     const lowerUserMessage = userMessage.toLowerCase();
     const isAdmin = isBotAdmin(userId); // メッセージ送信者が管理者かどうか
 
-    // ⭐ 4. 管理者コマンドの処理 (個人/グループ問わず最優先) ⭐
+    // ⭐ 3. 管理者コマンドの処理 (個人/グループ問わず最優先) ⭐
     if (isAdmin && userMessage.startsWith('!')) {
         const command = userMessage.substring(1).split(' ')[0];
         const args = userMessage.substring(command.length + 1).trim();
