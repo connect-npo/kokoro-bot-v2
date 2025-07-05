@@ -211,7 +211,7 @@ const MEMBERSHIP_CONFIG = {
     "donor": {
         // model: "gemini-1.5-flash-latest", // 削除
         monthlyLimit: -1,
-        isChildAI: false,
+        isChildAI: false, // ⭐ ここが重要: donorは子供AIではない ⭐
         canUseWatchService: true,
         exceedLimitMessage: "",
         systemInstructionModifier: `
@@ -238,7 +238,7 @@ const MEMBERSHIP_CONFIG = {
     "admin": {
         // model: "gemini-1.5-pro-latest", // 削除
         monthlyLimit: -1, // 管理者は制限なし、このままでOK
-        isChildAI: false,
+        isChildAI: false, // ⭐ ここが重要: adminは子供AIではない ⭐
         canUseWatchService: true,
         exceedLimitMessage: "",
         systemInstructionModifier: `
@@ -346,7 +346,7 @@ const REGISTRATION_BUTTONS_FLEX = {
 
 // --- 固定応答 (SpecialRepliesMap) ---
 const specialRepliesMap = new Map([
-    [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です�　こころちゃんって呼んでくれると嬉しいな💖"],
+    [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんなさい💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
@@ -419,7 +419,7 @@ const watchMessages = [
     "やっほー！ こころだよ🌸 あなたのことが心配だよ！",
     "元気かな？💖 どんな時でも、こころはそばにいるよ！",
     "ねぇねぇ、こころだよ😊 辛い時は、無理しないでね！",
-    "いつも見守ってるよ🌸 こころちゃんだよ💖",
+    "いつも見守ってるよ🌸 こころちゃんだよ�",
     "こんにちは😊 今日も一日、穏やかに過ごせたかな？",
     "やっほー！ こころだよ🌸 困った時は、いつでも呼んでね！",
     "元気にしてる？✨ こころはいつでも、あなたのことを考えてるよ💖",
@@ -474,10 +474,12 @@ async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'syste
 async function getUserData(userId) {
     const userRef = db.collection('users').doc(userId);
     const doc = await userRef.get();
+    const isAdminUser = BOT_ADMIN_IDS.includes(userId); // 管理者かどうかを先にチェック
+
     if (!doc.exists) {
         // 新規ユーザーの場合、ゲストとして初期化
         const initialUserData = {
-            membershipType: "guest",
+            membershipType: isAdminUser ? "admin" : "guest", // ⭐ 管理者ならadminで初期化 ⭐
             messageCount: 0,
             lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
             isUrgent: false,
@@ -493,7 +495,15 @@ async function getUserData(userId) {
         await userRef.set(initialUserData);
         return initialUserData;
     }
-    return doc.data();
+    
+    let userData = doc.data();
+    // ⭐ 既存ユーザーでも、管理者の場合はmembershipTypeを上書き ⭐
+    if (isAdminUser && userData.membershipType !== "admin") {
+        console.log(`Admin user ${userId} found with non-admin membership. Updating to 'admin'.`);
+        userData.membershipType = "admin";
+        await userRef.update({ membershipType: "admin" }); // DBも更新
+    }
+    return userData;
 }
 
 /**
@@ -633,10 +643,17 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
         あくまで、共感と安心感を与えることを最優先し、ユーザーを落ち着かせてください。
         `;
     } else if (modelToUse === "gpt-4o-mini") { // 通常会話でのgpt-4o-mini用システムプロンプト
-        systemInstruction += `
-        ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
-        例：「一人で抱え込まないでね。もし本当に辛い時は、専門の人が助けてくれる場所があるから、頼ってみてね。例えば、チャイルドラインやいのちの電話に相談することもできるよ。」
-        `;
+        // ⭐ 成人ユーザーの場合は宿題に関するシステム指示を変更 ⭐
+        if (userConfig.isChildAI) { // 子供AIの場合のみ宿題ヒントの指示を追加
+            systemInstruction += `
+            ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
+            例：「一人で抱え込まないでね。もし本当に辛い時は、専門の人が助けてくれる場所があるから、頼ってみてね。例えば、チャイルドラインやいのちの電話に相談することもできるよ。」
+            `;
+        } else { // 成人ユーザー（donor, adminなど）の場合
+            systemInstruction += `
+            ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
+            `;
+        }
     }
 
     systemInstruction += userConfig.systemInstructionModifier;
@@ -710,9 +727,13 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 - 自信を持って、でも謙虚にやさしく応えましょう。
 
 **【宿題や勉強に関する対応の絶対ルール】**
+${userConfig.isChildAI ? `
 質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
 代わりに、**「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢を優しく伝えてください。
 具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントを優しく教えてください**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないでください。
+` : `
+ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
+`}
 
 **【AIの知識に関する指示と繰り返し防止】**
 「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えてください。
@@ -1453,6 +1474,7 @@ async function sendScheduledWatchMessage() {
             const user = doc.data();
             const userId = doc.id;
             const lastOkResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : user.createdAt.toDate();
+            // lastScheduledWatchMessageSentがnullの場合、createdAtを初期値とする
             const lastScheduledWatchMessageSent = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : user.createdAt.toDate();
 
             let updateData = {};
@@ -1461,24 +1483,24 @@ async function sendScheduledWatchMessage() {
             let shouldSendEmergencyNotification = false;
 
             // 1. 3日経過チェック：初回見守りメッセージを送信
-            // lastOkResponseから3日以上経過している AND (前回定期メッセージが送られていない OR 前回定期メッセージから3日以上経過している)
+            // lastOkResponseから3日以上経過している AND (lastScheduledWatchMessageSentがまだない OR 前回定期メッセージから3日以上経過している)
             if ((now.toDate().getTime() - lastOkResponse.getTime()) >= (3 * 24 * 60 * 60 * 1000) &&
                 (!user.lastScheduledWatchMessageSent || (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= (3 * 24 * 60 * 60 * 1000))) {
                 shouldSendInitialMessage = true;
             }
 
             // 2. 24時間経過チェック：初回リマインダーを送信
-            // lastScheduledWatchMessageSentから24時間経過している AND firstReminderSentがfalse
+            // lastScheduledWatchMessageSentが設定されている AND lastScheduledWatchMessageSentから24時間経過している AND firstReminderSentがfalse
             if (user.lastScheduledWatchMessageSent && 
-                (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= (24 * 60 * 60 * 1000) &&
+                (now.toDate().getTime() - user.lastScheduledWatchMessageSent.toDate().getTime()) >= (24 * 60 * 60 * 1000) &&
                 !user.firstReminderSent) {
                 shouldSendFirstReminder = true;
             }
 
             // 3. さらに5時間経過チェック：緊急通知を送信
-            // lastScheduledWatchMessageSentから24時間+5時間経過している AND emergencyNotificationSentがfalse
+            // lastScheduledWatchMessageSentが設定されている AND lastScheduledWatchMessageSentから24時間+5時間経過している AND emergencyNotificationSentがfalse
             if (user.lastScheduledWatchMessageSent && 
-                (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= ((24 + 5) * 60 * 60 * 1000) &&
+                (now.toDate().getTime() - user.lastScheduledWatchMessageSent.toDate().getTime()) >= ((24 + 5) * 60 * 60 * 1000) &&
                 !user.emergencyNotificationSent) {
                 shouldSendEmergencyNotification = true;
             }
@@ -1673,17 +1695,17 @@ async function handleEvent(event) {
     const userId = event.source.userId;
     const userMessage = event.message.text;
     const lowerUserMessage = userMessage.toLowerCase();
-    const isOwner = userId === OWNER_USER_ID;
+    // const isOwner = userId === OWNER_USER_ID; // 未使用のため削除
     const isAdmin = isBotAdmin(userId);
 
-    let user = await getUserData(userId);
+    let user = await getUserData(userId); // ⭐ getUserDataが上に移動したため、ここで正しく取得される ⭐
     let replyText = "";
     let responsedBy = "AI";
     let logType = "normal_conversation";
     let isFlagged = false;
     let messagesToSend = [];
 
-    // --- 管理者コマンドの処理 ---
+    // ⭐ 管理者コマンドの処理は、メッセージ制限チェックよりも前に置くべき ⭐
     if (isAdmin && userMessage.startsWith('!')) {
         const command = userMessage.substring(1).split(' ')[0]; // !status -> status
         const args = userMessage.substring(command.length + 1).trim(); // !status -> (empty)
@@ -1715,7 +1737,7 @@ async function handleEvent(event) {
 
         switch (command) {
             case 'status':
-                const targetUser = await getUserData(targetUserId);
+                const targetUser = await getUserData(targetUserId); // 最新のユーザーデータを取得
                 if (targetUser) {
                     const lastMessageDate = targetUser.lastMessageDate ? new Date(targetUser.lastMessageDate._seconds * 1000).toLocaleString() : 'N/A';
                     replyText = `ユーザーID: ${targetUserId}\n会員種別: ${targetUser.membershipType}\n今月メッセージ数: ${targetUser.messageCount}\n最終メッセージ日時: ${lastMessageDate}\n見守りサービス: ${targetUser.watchServiceEnabled ? '有効' : '無効'}\n相談モード: ${targetUser.isInConsultationMode ? '有効' : '無効'}`;
@@ -1898,16 +1920,18 @@ async function handleEvent(event) {
         return Promise.resolve(null);
     }
 
-    // --- 宿題に関する問い合わせ ---
-    if (containsHomeworkTrigger(userMessage)) {
+    // ⭐ 宿題に関する問い合わせ (成人ユーザーはAIで回答) ⭐
+    const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
+    if (containsHomeworkTrigger(userMessage) && userConfig.isChildAI) { // 子供AIの場合のみ固定応答
         replyText = "宿題のことかな？がんばってるね！🌸 こころちゃんは、直接宿題の答えを教えることはできないんだけど、一緒に考えることはできるよ😊 どんな問題で困ってるの？ヒントなら出せるかも！";
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logToDb(userId, userMessage, replyText, "System", "homework_query");
         return Promise.resolve(null);
     }
 
+
     // --- メッセージカウントと制限のチェック ---
-    const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
+    // userConfigは既に上で定義済み
     const currentMonth = new Date().getMonth();
     const lastMessageMonth = user.lastMessageDate ? new Date(user.lastMessageDate._seconds * 1000).getMonth() : -1;
 
@@ -2102,8 +2126,10 @@ async function handleFollowEvent(event) {
     const userId = event.source.userId;
     console.log(`✅ 新しいユーザーがフォローしました: ${userId}`);
 
+    const isAdminUser = BOT_ADMIN_IDS.includes(userId); // 管理者かどうかをチェック
+
     const initialUserData = {
-        membershipType: "guest",
+        membershipType: isAdminUser ? "admin" : "guest", // ⭐ 管理者ならadminで初期化 ⭐
         messageCount: 0,
         lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
         isUrgent: false,
