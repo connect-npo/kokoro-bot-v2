@@ -845,9 +845,9 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             } else {
                 if (event.replyToken) {
-                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生～大学生」「成人」のいずれかで教えてくれるかな？💦' });
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生」「成人」のいずれかで教えてくれるかな？💦' });
                 } else {
-                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生～大学生」「成人」のいずれかで教えてくれるかな？💦' });
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生」「成人」のいずれかで教えてくれるかな？💦' });
                 }
                 handled = true;
             }
@@ -1389,6 +1389,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     lastScheduledWatchMessageSent: null,
                     firstReminderSent: false,
                     emergencyNotificationSent: false,
+                    // registeredInfo内の連絡先もクリアするべきか検討
                     'registeredInfo.phoneNumber': admin.firestore.FieldValue.delete(),
                     'registeredInfo.guardianName': admin.firestore.FieldValue.delete(),
                     'registeredInfo.emergencyContact': admin.firestore.FieldValue.delete(),
@@ -1642,19 +1643,17 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
         flexContent.body.contents[0].text = `🚨【見守りサービス未応答 (${notificationDetailType})】🚨`;
     }
 
-    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタンを追加 ⭐
+    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタンを追加 (改善版) ⭐
     // このボタンは、理事会グループへの通知でのみ表示される
-    // ボタンの正しい使い方を説明するテキストを追加
-    // 改良版: LINEアプリの `line://msg/text/` スキームを使用して、直接メッセージ入力欄にテキストを事前入力
-    const contactMessageText = `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖`;
-    const encodedContactMessage = encodeURIComponent(contactMessageText);
+    const contactMessageTemplate = `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖`;
+    const encodedContactMessage = encodeURIComponent(contactMessageTemplate);
 
     flexContent.footer.contents.push(
         { "type": "text", "text": "---", "margin": "md", "align": "center", "color": "#AAAAAA" },
-        { "type": "text", "text": "👇「チャットを促すメッセージ作成」ボタンをクリックすると、メッセージ入力欄にテンプレートが自動で表示されます。内容を編集後、ユーザーの個人チャットに送信してください。", "wrap": true, "size": "xs", "color": "#666666", "margin": "sm" },
-        // LINEアプリに直接メッセージを事前入力するURIアクション
-        // 注意: このURIはLINEアプリ外からは動作しない場合があります。
-        { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "チャットを促すメッセージ作成", "uri": `https://line.me/R/msg/text/?${encodedContactMessage}` }, "color": "#FF69B4" }
+        { "type": "text", "text": "👇このボタンをクリックすると、メッセージ入力欄にテンプレートが自動で表示されます。内容を編集後、ユーザーの個人チャットに**コピー＆ペーストして送信**してください。", "wrap": true, "size": "xs", "color": "#666666", "margin": "sm" },
+        // LINEアプリにメッセージを事前入力するURIアクション
+        // 注意: このURIはLINEアプリ外からは動作しない場合があります。タップするとLINEアプリの汎用的なメッセージ作成画面が開かれ、メッセージが事前入力されます。
+        { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "メッセージテンプレートをコピー", "uri": `https://line.me/R/msg/text/?${encodedContactMessage}` }, "color": "#FF69B4" }
     );
 
     // Send the message to the officer group
@@ -1716,11 +1715,11 @@ async function handleEvent(event) {
                 const newMembershipType = parts[2]; // membershipTypeは3番目の要素
                 if (MEMBERSHIP_CONFIG[newMembershipType]) {
                     await updateUserData(targetUserId, { membershipType: newMembershipType });
-                    await safePushMessage(sourceId, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
                     await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
                     return Promise.resolve(null); // 処理終了
                 } else {
-                    await safePushMessage(sourceId, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
                     await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
                     return Promise.resolve(null); // 処理終了
                 }
@@ -1738,17 +1737,17 @@ async function handleEvent(event) {
                         const targetUserDisplayName = await getUserDisplayName(replyTargetUserId);
                         // ユーザーにこころちゃんからのメッセージとして送信
                         await safePushMessage(replyTargetUserId, { type: 'text', text: `🌸 こころだよ！理事会からのメッセージだよ😊\n\n「${replyMessageContent}」\n\n何か困ったことがあったら、また私に話しかけてね💖` });
-                        await safePushMessage(sourceId, { type: 'text', text: `${targetUserDisplayName} (${replyTargetUserId}) さんにメッセージを送信しました。\n内容: 「${replyMessageContent}」` });
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `${targetUserDisplayName} (${replyTargetUserId}) さんにメッセージを送信しました。\n内容: 「${replyMessageContent}」` });
                         await logToDb(userId, userMessage, `Re: ${replyMessageContent}`, "AdminCommand", 'admin_reply_to_user');
                         return Promise.resolve(null); // 処理終了
                     } catch (error) {
                         console.error(`Admin reply to user failed: ${error.message}`);
-                        await safePushMessage(sourceId, { type: 'text', text: `メッセージ送信に失敗しました: ${error.message}` });
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `メッセージ送信に失敗しました: ${error.message}` });
                         await logErrorToDb(userId, `Admin reply to user failed`, { error: error.message, targetUserId: replyTargetUserId, userMessage: userMessage });
                         return Promise.resolve(null);
                     }
                 } else {
-                    await safePushMessage(sourceId, { type: 'text', text: `!reply user [userId] [メッセージ] の形式で入力してください。` });
+                    await client.replyMessage(event.replyToken, { type: 'text', text: `!reply user [userId] [メッセージ] の形式で入力してください。` });
                     return Promise.resolve(null);
                 }
             }
@@ -1801,7 +1800,7 @@ async function handleEvent(event) {
                 replyText = `不明な管理者コマンドです。利用可能なコマンド: !status, !reset, !set user [userId] [membershipType], !myid, !history, !error_history, !reply user [userId] [message]`;
                 break;
         }
-        await safePushMessage(sourceId, { type: 'text', text: replyText }); // ⭐ sourceIdを使用 ⭐
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText }); // ⭐ sourceIdではなくevent.replyTokenを使用 ⭐
         await logToDb(userId, userMessage, replyText, "AdminCommand", `admin_command_${command}`);
         return Promise.resolve(null); // 管理者コマンド処理終了
     }
@@ -1816,9 +1815,6 @@ async function handleEvent(event) {
     let replyText = "";
     let responsedBy = "AI";
     let logType = "normal_conversation";
-    // let isFlagged = false; // isFlaggedはlogToDbの引数で直接渡すため、ここで定義不要
-    // let messagesToSend = []; // replyMessage/safePushMessageに直接渡すため、配列としてここで定義不要
-
 
     // --- 登録フローが進行中の場合、登録フローハンドラを呼び出す ---
     if (user.registrationStep) {
@@ -1829,8 +1825,8 @@ async function handleEvent(event) {
     }
 
     // --- 見守りサービス登録フロー、または見守り応答が進行中の場合、ハンドラを呼び出す ---
-    // ここでの条件は、handleWatchServiceRegistration内部の条件と重複しないよう注意
     // handleWatchServiceRegistration がtrueを返したら、そのイベントはそこで処理終了
+    // handleWatchServiceRegistration 内の返信は replyMessage で行うため、ここでは safePushMessage を使用しない
     if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
         return Promise.resolve(null);
     }
@@ -1853,19 +1849,6 @@ async function handleEvent(event) {
         await client.replyMessage(event.replyToken, { type: 'text', text: 'すでに会員登録は完了しているよ🌸 いつでもお話ししてね💖' });
         await logToDb(userId, userMessage, '会員登録済み', 'System', 'registration_already_completed');
         return Promise.resolve(null); // 処理終了
-    }
-
-    // --- 見守りサービス関連の処理 (初回トリガー) ---
-    // handleWatchServiceRegistration でフォームを出すロジックがあるので、そちらに任せる
-    if (userMessage.includes("見守りサービス") || userMessage.includes("見守り登録")) {
-        // handleWatchServiceRegistration が true を返せば、このブロックで処理は終了済み
-        // ここに到達したということは、handleWatchServiceRegistration が false を返した（つまり未処理）
-        // ただし、既にhandleWatchServiceRegistrationを上で呼び出しているので、ここでは不要
-        // 念のためロジックをシンプルに保つため削除またはコメントアウト
-        // const watchServiceHandled = await handleWatchServiceRegistration(event, userId, userMessage, user);
-        // if (watchServiceHandled) {
-        // return Promise.resolve(null);
-        // }
     }
 
     // --- 登録情報変更の処理 ---
@@ -1906,20 +1889,33 @@ async function handleEvent(event) {
             // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
             const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
 
-            // 応答はreplyMessageで一括送信
-            await client.replyMessage(event.replyToken, [
-                { type: 'text', text: empatheticReply }, // まず寄り添いメッセージ
-                { type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE } // 次にFlex Message
-            ]);
-
-            await logToDb(userId, userMessage, "緊急時連絡先表示", "System", "danger_word_triggered", true);
-            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "danger");
+            // 応答はreplyMessageで一括送信し、成功/失敗に関わらずここで処理を終了
+            try {
+                await client.replyMessage(event.replyToken, [
+                    { type: 'text', text: empatheticReply }, // まず寄り添いメッセージ
+                    { type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE } // 次にFlex Message
+                ]);
+                await logToDb(userId, userMessage, "緊急時連絡先表示", "System", "danger_word_triggered", true);
+            } catch (replyError) {
+                console.error(`❌ Danger word replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+                await safePushMessage(userId, [
+                    { type: 'text', text: empatheticReply },
+                    { type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE }
+                ]);
+                await logErrorToDb(userId, `Danger word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+            }
+            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "danger"); // 管理者通知は常にsafePushMessage
         } else {
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`ユーザー ${userId}: 危険ワード通知はクールダウン中のためスキップされました。`);
             }
-            // クールダウン中はAI応答なしで終了
-            await client.replyMessage(event.replyToken, { type: 'text', text: "ごめんね、いまはもう少し待ってくれるかな？💖" });
+            // クールダウン中はAI応答なしで終了、ユーザーには返信しておく
+            try {
+                await client.replyMessage(event.replyToken, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
+            } catch (replyError) {
+                 await safePushMessage(userId, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
+                 await logErrorToDb(userId, `Danger cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+            }
         }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
@@ -1932,20 +1928,33 @@ async function handleEvent(event) {
             // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
             const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
 
-            // 応答はreplyMessageで一括送信
-            await client.replyMessage(event.replyToken, [
-                { type: 'text', text: empatheticReply }, // まず寄り添いメッセージ
-                { type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE } // 次にFlex Message
-            ]);
-
-            await logToDb(userId, userMessage, "詐欺注意喚起表示", "System", "scam_word_triggered", true);
-            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "scam");
+            // 応答はreplyMessageで一括送信し、成功/失敗に関わらずここで処理を終了
+            try {
+                await client.replyMessage(event.replyToken, [
+                    { type: 'text', text: empatheticReply }, // まず寄り添いメッセージ
+                    { type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE } // 次にFlex Message
+                ]);
+                await logToDb(userId, userMessage, "詐欺注意喚起表示", "System", "scam_word_triggered", true);
+            } catch (replyError) {
+                console.error(`❌ Scam word replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+                await safePushMessage(userId, [
+                    { type: 'text', text: empatheticReply },
+                    { type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE }
+                ]);
+                await logErrorToDb(userId, `Scam word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+            }
+            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "scam"); // 管理者通知は常にsafePushMessage
         } else {
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`ユーザー ${userId}: 詐欺ワード通知はクールダウン中のためスキップされました。`);
             }
-            // クールダウン中はAI応答なしで終了
-            await client.replyMessage(event.replyToken, { type: 'text', text: "ごめんね、いまはもう少し待ってくれるかな？💖" });
+            // クールダウン中はAI応答なしで終了、ユーザーには返信しておく
+            try {
+                await client.replyMessage(event.replyToken, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
+            } catch (replyError) {
+                await safePushMessage(userId, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
+                await logErrorToDb(userId, `Scam cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+            }
         }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
@@ -1953,8 +1962,13 @@ async function handleEvent(event) {
     // --- 不適切ワード検知 ---
     if (checkContainsInappropriateWords(userMessage)) {
         replyText = "ごめんね、その言葉はこころちゃんには理解できないの…💦　別の言葉で話しかけてくれると嬉しいな💖";
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, "System", "inappropriate_word_triggered", true);
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+            await logToDb(userId, userMessage, replyText, "System", "inappropriate_word_triggered", true);
+        } catch (replyError) {
+            await safePushMessage(userId, { type: 'text', text: replyText });
+            await logErrorToDb(userId, `Inappropriate word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
@@ -1964,39 +1978,62 @@ async function handleEvent(event) {
         // ⭐ ClariSの曲に関する固定応答で、団体名について聞かれた場合の特殊処理 ⭐
         // このロジックは、AI応答生成に進むべきか、固定応答で完結すべきかを判断するために残します。
         // ただし、直接的な「関係あるか」の質問はAIに委ねるため、ここではreturnしません。
-        if ((userMessage.toLowerCase().includes("claris") && userMessage.toLowerCase().includes("関係ある")) ||
-            (userMessage.toLowerCase().includes("コネクト") && userMessage.toLowerCase().includes("関係ない"))) {
-            // このケースはAIに柔軟な応答をさせるため、ここではreturnせず、AI応答生成に進む
-            // ログはAI応答後に記録される
-        } else if (userMessage.toLowerCase().includes("相談したい")) {
+        // 「相談したい」以外の固定応答はここで完了
+        if (userMessage.toLowerCase().includes("相談したい")) {
             await updateUserData(userId, { isInConsultationMode: true });
             logType = "consultation_mode_start";
-            await client.replyMessage(event.replyToken, { type: 'text', text: specialReply }); // replyMessageで即時応答
-            await logToDb(userId, userMessage, specialReply, "System", logType);
+            try {
+                await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
+                await logToDb(userId, userMessage, specialReply, "System", logType);
+            } catch (replyError) {
+                await safePushMessage(userId, { type: 'text', text: specialReply });
+                await logErrorToDb(userId, `Consultation mode replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+            }
             return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
-        } else {
+        } else if (
+            !(userMessage.toLowerCase().includes("claris") && userMessage.toLowerCase().includes("関係ある")) &&
+            !(userMessage.toLowerCase().includes("コネクト") && userMessage.toLowerCase().includes("関係ない"))
+        ) {
+            // 「ClariS関係」と「コネクト関係ない」以外の固定応答はここで完結
             logType = "special_reply";
-            await client.replyMessage(event.replyToken, { type: 'text', text: specialReply }); // replyMessageで即時応答
-            await logToDb(userId, userMessage, specialReply, "System", logType);
+            try {
+                await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
+                await logToDb(userId, userMessage, specialReply, "System", logType);
+            } catch (replyError) {
+                await safePushMessage(userId, { type: 'text', text: specialReply });
+                await logErrorToDb(userId, `Special replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+            }
             return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
         }
+        // ここに到達した場合は、AI応答生成に進む（ClariS/コネクト関連の特殊な固定応答）
     }
 
     // --- 組織に関する問い合わせ ---
     if (isOrganizationInquiry(userMessage)) {
-        await client.replyMessage(event.replyToken, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
-        await logToDb(userId, userMessage, ORGANIZATION_REPLY_MESSAGE, "System", "organization_inquiry_fixed");
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
+            await logToDb(userId, userMessage, ORGANIZATION_REPLY_MESSAGE, "System", "organization_inquiry_fixed");
+        } catch (replyError) {
+            await safePushMessage(userId, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
+            await logErrorToDb(userId, `Organization inquiry replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
     // ⭐ 宿題に関する問い合わせ (成人ユーザーはAIで回答) ⭐
-    const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
+    // userConfigは既に上で定義済み
     if (containsHomeworkTrigger(userMessage) && userConfig.isChildAI) { // 子供AIの場合のみ固定応答
         replyText = "宿題のことかな？がんばってるね！🌸 こころちゃんは、直接宿題の答えを教えることはできないんだけど、一緒に考えることはできるよ😊 どんな問題で困ってるの？ヒントなら出せるかも！";
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, "System", "homework_query");
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+            await logToDb(userId, userMessage, replyText, "System", "homework_query");
+        } catch (replyError) {
+            await safePushMessage(userId, { type: 'text', text: replyText });
+            await logErrorToDb(userId, `Homework query replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
+
 
     // --- メッセージカウントと制限のチェック ---
     // userConfigは既に上で定義済み
@@ -2009,8 +2046,13 @@ async function handleEvent(event) {
 
     if (userConfig.monthlyLimit !== -1 && user.messageCount >= userConfig.monthlyLimit) {
         replyText = userConfig.exceedLimitMessage;
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, "System", "exceed_limit");
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+            await logToDb(userId, userMessage, replyText, "System", "exceed_limit");
+        } catch (replyError) {
+            await safePushMessage(userId, { type: 'text', text: replyText });
+            await logErrorToDb(userId, `Exceed limit replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
@@ -2019,15 +2061,18 @@ async function handleEvent(event) {
     let aiType = "";
 
     // 相談モードが有効な場合、Gemini 1.5 Proを使用し、1回でモード解除
+    // isUrgentは危険/詐欺ワード検知時のみtrueになるので、通常会話ではfalseに戻す
     if (user.isInConsultationMode) {
         modelToUse = "gemini-1.5-pro-latest";
         aiType = "Gemini";
-        await updateUserData(userId, { isInConsultationMode: false }); // 1回使用したらモード解除
+        await updateUserData(userId, { isInConsultationMode: false, isUrgent: false }); // 1回使用したらモード解除, 緊急状態もリセット
         logType = "consultation_message";
     } else if (modelToUse.startsWith("gpt")) {
         aiType = "OpenAI";
+        await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
     } else {
         aiType = "Gemini";
+        await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
     }
 
     // --- AI応答生成 ---
@@ -2042,18 +2087,28 @@ async function handleEvent(event) {
         await updateUserData(userId, {
             messageCount: admin.firestore.FieldValue.increment(1),
             lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
-            // isUrgentは危険/詐欺ワード検知時のみtrueになるので、通常会話ではfalseに戻す
-            isUrgent: false
         });
 
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText }); // replyMessageで即時応答
-        await logToDb(userId, userMessage, replyText, aiType, logType);
+        // 最後の応答をclient.replyMessageで返す
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+            await logToDb(userId, userMessage, replyText, aiType, logType);
+        } catch (replyError) {
+            console.error(`❌ AI応答 replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+            await safePushMessage(userId, { type: 'text', text: replyText });
+            await logErrorToDb(userId, `AI応答 replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
 
     } catch (error) {
         console.error(`AI応答生成中にエラーが発生しました: ${error.message}`);
         await logErrorToDb(userId, `AI応答生成エラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
         replyText = "ごめんね、ちょっと今うまくお話できなかったの…💦　またあとで試してみてくれると嬉しいな💖";
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText }); // replyMessageで即時応答
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        } catch (replyError) {
+            await safePushMessage(userId, { type: 'text', text: replyText });
+            await logErrorToDb(userId, `AI応答エラーメッセージ replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
         await logToDb(userId, userMessage, replyText, "System", "ai_generation_error");
     }
 
@@ -2108,8 +2163,13 @@ async function handlePostbackEvent(event) {
                         logType = 'watch_service_status_talk';
                         break;
                 }
-                await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-                await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+                try {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+                    await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+                } catch (replyError) {
+                    await safePushMessage(userId, { type: 'text', text: replyText });
+                    await logErrorToDb(userId, `Watch service postback replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
+                }
                 return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
             } catch (error) {
                 console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
@@ -2159,22 +2219,43 @@ async function handlePostbackEvent(event) {
             } else { // 新規登録フロー開始
                 const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
                 // safePushMessageではなくclient.replyMessageを使用
-                await client.replyMessage(event.replyToken, {
-                    type: 'flex',
-                    altText: '緊急連絡先登録のご案内',
-                    contents: {
-                        type: 'bubble',
-                        body: {
-                            type: 'box',
-                            layout: 'vertical',
-                            contents: [
-                                { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
-                                { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
-                                { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
-                            ]
+                try {
+                    await client.replyMessage(event.replyToken, {
+                        type: 'flex',
+                        altText: '緊急連絡先登録のご案内',
+                        contents: {
+                            type: 'bubble',
+                            body: {
+                                type: 'box',
+                                layout: 'vertical',
+                                contents: [
+                                    { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
+                                    { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
+                                    { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                                ]
+                            }
                         }
-                    }
-                });
+                    });
+                } catch (replyError) {
+                    await safePushMessage(userId, {
+                        type: 'flex',
+                        altText: '緊急連絡先登録のご案内',
+                        contents: {
+                            type: 'bubble',
+                            body: {
+                                type: 'box',
+                                layout: 'vertical',
+                                contents: [
+                                    { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
+                                    { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
+                                    { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                                ]
+                            }
+                        }
+                    });
+                    await logErrorToDb(userId, `Watch register flex replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
+                }
+
                 await db.collection('users').doc(userId).update({
                     registrationStep: 'awaiting_contact_form',
                     watchServiceEnabled: true, // 登録開始時に有効化
@@ -2193,8 +2274,13 @@ async function handlePostbackEvent(event) {
             break;
     }
 
-    await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-    await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+    try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+    } catch (replyError) {
+        await safePushMessage(userId, { type: 'text', text: replyText });
+        await logErrorToDb(userId, `Default postback replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
+    }
     return Promise.resolve(null);
 }
 
@@ -2241,8 +2327,13 @@ async function handleFollowEvent(event) {
         contents: REGISTRATION_BUTTONS_FLEX
     };
 
-    await client.replyMessage(event.replyToken, [welcomeMessage, registrationFlex]); // replyMessageで一括送信
-    await logToDb(userId, "フォローイベント", "初回メッセージと登録メニュー表示", "System", "system_follow");
+    try {
+        await client.replyMessage(event.replyToken, [welcomeMessage, registrationFlex]); // replyMessageで一括送信
+        await logToDb(userId, "フォローイベント", "初回メッセージと登録メニュー表示", "System", "system_follow");
+    } catch (replyError) {
+        await safePushMessage(userId, [welcomeMessage, registrationFlex]);
+        await logErrorToDb(userId, `Follow event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userId: userId });
+    }
     return Promise.resolve(null);
 }
 
@@ -2278,8 +2369,13 @@ async function handleJoinEvent(event) {
     if (process.env.NODE_ENV !== 'production') {
         console.log(`✅ ボットがグループに参加しました: ${groupId}`);
     }
-    await client.replyMessage(event.replyToken, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' }); // replyMessageで即時応答
-    await logToDb(groupId, "グループ参加イベント", "グループ参加メッセージ", "System", "system_join");
+    try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' }); // replyMessageで即時応答
+        await logToDb(groupId, "グループ参加イベント", "グループ参加メッセージ", "System", "system_join");
+    } catch (replyError) {
+        await safePushMessage(groupId, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
+        await logErrorToDb(groupId, `Join event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, groupId: groupId });
+    }
     return Promise.resolve(null);
 }
 
