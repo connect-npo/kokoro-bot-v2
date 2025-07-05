@@ -444,7 +444,10 @@ async function logToDb(userId, message, replyText, responsedBy, logType, isFlagg
             logType: logType,
             isFlagged: isFlagged
         });
-        console.log(`✅ Logged to Firestore: Type=${logType}, UserId=${userId}`);
+        // 開発環境でのみ詳細ログを出力
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`✅ Logged to Firestore: Type=${logType}, UserId=${userId}`);
+        }
     } catch (dbError) {
         console.error(`❌ Firestoreへのログ書き込み中にエラーが発生しました: ${dbError.message}`);
     }
@@ -501,7 +504,9 @@ async function getUserData(userId) {
     let userData = doc.data();
     // ⭐ 既存ユーザーでも、管理者の場合はmembershipTypeを上書き ⭐
     if (isAdminUser && userData.membershipType !== "admin") {
-        console.log(`Admin user ${userId} found with non-admin membership. Updating to 'admin'.`);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`Admin user ${userId} found with non-admin membership. Updating to 'admin'.`);
+        }
         userData.membershipType = "admin";
         await userRef.update({ membershipType: "admin" }); // DBも更新
     }
@@ -613,11 +618,15 @@ function getAIModelForUser(user, messageText) {
     
     // 長文（50文字以上）の場合はGPT-4o miniを使用
     if (messageText && messageText.length >= 50) {
-        console.log("AI Model Selected: gpt-4o-mini (Long message)");
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("AI Model Selected: gpt-4o-mini (Long message)");
+        }
         return "gpt-4o-mini";
     }
     // それ以外（50文字未満）の場合はGemini 1.5 Flashを使用
-    console.log("AI Model Selected: gemini-1.5-flash-latest (Short message)");
+    if (process.env.NODE_ENV !== 'production') {
+        console.log("AI Model Selected: gemini-1.5-flash-latest (Short message)");
+    }
     return "gemini-1.5-flash-latest";
 }
 
@@ -660,7 +669,9 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
     systemInstruction += userConfig.systemInstructionModifier;
 
     try {
-        console.log(`💡 OpenAI: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`💡 OpenAI: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
+        }
         const completion = await openai.chat.completions.create({
             model: modelToUse,  // ⭐ これを明示 ⭐
             messages: [
@@ -778,7 +789,9 @@ ${userConfig.isChildAI ? `
     }
 
     try {
-        console.log(`💡 Gemini: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`💡 Gemini: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
+        }
         const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings: AI_SAFETY_SETTINGS });
 
         const generateContentPromise = new Promise((resolve, reject) => {
@@ -812,7 +825,9 @@ ${userConfig.isChildAI ? `
         if (result.response && result.response.candidates && result.response.candidates.length > 0) {
             return result.response.candidates[0].content.parts[0].text;
         } else {
-            console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
+            if (process.env.NODE_ENV !== 'production') {
+                console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
+            }
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
     } catch (error) {
@@ -1411,7 +1426,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                 emergencyNotificationSent: false
             });
             logToDb(userId, `Postback: ${event.postback.data}`, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
-            return Promise.resolve(null); // ここで処理を終了
+            return true; // ここで処理を終了
         }
     }
 
@@ -1452,7 +1467,9 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
 
 // --- 定期見守りメッセージ送信 Cronジョブ (毎日15時にトリガー) ---
 cron.schedule('0 15 * * *', () => { // 毎日15時に実行
-    console.log('cron: 定期見守りメッセージ送信処理をトリガーします。');
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('cron: 定期見守りメッセージ送信処理をトリガーします。');
+    }
     sendScheduledWatchMessage();
 }, {
     timezone: "Asia/Tokyo"
@@ -1542,13 +1559,17 @@ async function sendScheduledWatchMessage() {
                 updateData.lastScheduledWatchMessageSent = now;
                 updateData.firstReminderSent = false; // 新しいサイクルなのでリセット
                 updateData.emergencyNotificationSent = false; // 新しいサイクルなのでリセット
-                console.log(`ユーザー ${userId}: 3日経過 - 初回見守りメッセージを送信`);
+                if (process.env.NODE_ENV !== 'production') {
+                    console.log(`ユーザー ${userId}: 3日経過 - 初回見守りメッセージを送信`);
+                }
                 logToDb(userId, `（3日未応答初回見守り）`, randomMessage, 'こころちゃん（見守り）', 'watch_service_initial_message', true);
             } else if (shouldSendFirstReminder) {
                 reminderMessage = "こころちゃんだよ🌸\n元気にしてるかな？\nもしかして、忙しいのかな？\n短い時間でいいから、一言「OKだよ💖」って教えてくれると安心するな😊";
                 await safePushMessage(userId, { type: 'text', text: reminderMessage });
                 updateData.firstReminderSent = true;
-                console.log(`ユーザー ${userId}: 24時間経過 - 初回リマインダーを送信`);
+                if (process.env.NODE_ENV !== 'production') {
+                    console.log(`ユーザー ${userId}: 24時間経過 - 初回リマインダーを送信`);
+                }
                 logToDb(userId, `（24時間未応答リマインダー）`, reminderMessage, 'こころちゃん（見守り）', 'watch_service_reminder_24h', true);
             } else if (shouldSendEmergencyNotification) {
                 const userInfo = user.registeredInfo || {};
@@ -1557,7 +1578,9 @@ async function sendScheduledWatchMessage() {
                 const messageForOfficer = `ユーザー ${userName} (${userId}) が見守りサービスで${notificationDetailType}未応答です。緊急対応が必要です。`;
                 await notifyOfficerGroup(messageForOfficer, userId, userInfo, "watch_unresponsive", notificationDetailType);
                 updateData.emergencyNotificationSent = true;
-                console.log(`ユーザー ${userId}: 5時間経過 - 緊急通知をトリガー`);
+                if (process.env.NODE_ENV !== 'production') {
+                    console.log(`ユーザー ${userId}: 5時間経過 - 緊急通知をトリガー`);
+                }
                 logToDb(userId, `（緊急未応答最終通知）`, `緊急連絡先へ通知をトリガー`, 'こころちゃん（見守り）', 'watch_service_final_notification', true);
             }
 
@@ -1566,7 +1589,9 @@ async function sendScheduledWatchMessage() {
                 await usersCollection.doc(userId).update(updateData);
             }
         }
-        console.log('✅ 見守りサービス定期チェックが完了しました。');
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('✅ 見守りサービス定期チェックが完了しました。');
+        }
     } catch (error) {
         console.error("❌ 見守りサービス Cron ジョブ実行中にエラーが発生しました:", error.message);
         await logErrorToDb(null, "見守りサービス Cron ジョブエラー", { error: error.message, stack: error.stack });
@@ -1589,104 +1614,62 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
     const relationship = userInfo.relationship || '不明';
 
     let flexContent;
+    // 基本のFlex Message構造を定義
+    const baseFlexContent = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                { "type": "text", "text": "", "weight": "bold", "color": "#DD0000", "size": "xl" }, // タイトル
+                { "type": "separator", "margin": "md" },
+                { "type": "box", "layout": "vertical", "margin": "md", "spacing": "sm", "contents": [
+                    { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👤 氏名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userName, "flex": 5, "size": "sm", "wrap": true } ] },
+                    { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📱 電話番号：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userPhone, "flex": 5, "size": "sm", "wrap": true } ] },
+                    { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👨‍👩‍👧‍👦 保護者名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": guardianName, "flex": 5, "size": "sm", "wrap": true } ] },
+                    { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📞 緊急連絡先：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": emergencyContact, "flex": 5, "size": "sm", "wrap": true } ] },
+                    { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "🧬 続柄：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": relationship, "flex": 5, "size": "sm", "wrap": true } ] }
+                ] },
+                { "type": "separator", "margin": "md" },
+                { "type": "text", "text": `メッセージ: 「${message}」`, "margin": "md", "wrap": true, "size": "sm" }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" },
+            ]
+        }
+    };
+
     if (type === "danger") {
-        flexContent = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    { "type": "text", "text": "🚨【危険ワード検知】🚨", "weight": "bold", "color": "#DD0000", "size": "xl" },
-                    { "type": "separator", "margin": "md" },
-                    { "type": "box", "layout": "vertical", "margin": "md", "spacing": "sm", "contents": [
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👤 氏名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userName, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📱 電話番号：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userPhone, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👨‍👩‍👧‍👦 保護者名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": guardianName, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📞 緊急連絡先：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": emergencyContact, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "🧬 続柄：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": relationship, "flex": 5, "size": "sm", "wrap": true } ] }
-                    ] },
-                    { "type": "separator", "margin": "md" },
-                    { "type": "text", "text": `メッセージ: 「${message}」`, "margin": "md", "wrap": true, "size": "sm" }
-                ]
-            },
-            "footer": {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "sm",
-                "contents": [
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" },
-                    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタン ⭐
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "message", "label": "ユーザーにチャットを促すメッセージ作成", "text": `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖` }, "color": "#FF69B4" }
-                ]
-            }
-        };
+        flexContent = JSON.parse(JSON.stringify(baseFlexContent)); // ディープコピー
+        flexContent.body.contents[0].text = "🚨【危険ワード検知】🚨";
     } else if (type === "scam") {
-        flexContent = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    { "type": "text", "text": "🚨【詐欺注意】🚨", "weight": "bold", "color": "#DD0000", "size": "xl" },
-                    { "type": "separator", "margin": "md" },
-                    { "type": "box", "layout": "vertical", "margin": "md", "spacing": "sm", "contents": [
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👤 氏名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userName, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📱 電話番号：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userPhone, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👨‍👩‍👧‍👦 保護者名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": guardianName, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📞 緊急連絡先：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": emergencyContact, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "🧬 続柄：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": relationship, "flex": 5, "size": "sm", "wrap": true } ] }
-                    ] },
-                    { "type": "separator", "margin": "md" },
-                    { "type": "text", "text": `メッセージ: 「${message}」`, "margin": "md", "wrap": true, "size": "sm" }
-                ]
-            },
-            "footer": {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "sm",
-                "contents": [
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" },
-                    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタン ⭐
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "message", "label": "ユーザーにチャットを促すメッセージ作成", "text": `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖` }, "color": "#FF69B4" }
-                ]
-            }
-        };
+        flexContent = JSON.parse(JSON.stringify(baseFlexContent)); // ディープコピー
+        flexContent.body.contents[0].text = "🚨【詐欺注意】🚨";
     } else if (type === "watch_unresponsive") {
-        flexContent = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    { "type": "text", "text": `🚨【見守りサービス未応答 (${notificationDetailType})】🚨`, "weight": "bold", "color": "#DD0000", "size": "xl" },
-                    { "type": "separator", "margin": "md" },
-                    { "type": "box", "layout": "vertical", "margin": "md", "spacing": "sm", "contents": [
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👤 氏名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userName, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📱 電話番号：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": userPhone, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "👨‍👩‍👧‍👦 保護者名：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": guardianName, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "📞 緊急連絡先：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": emergencyContact, "flex": 5, "size": "sm", "wrap": true } ] },
-                        { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "🧬 続柄：", "flex": 2, "size": "sm", "color": "#555555" }, { "type": "text", "text": relationship, "flex": 5, "size": "sm", "wrap": true } ] }
-                    ] },
-                    { "type": "separator", "margin": "md" },
-                    { "type": "text", "text": message, "margin": "md", "wrap": true, "size": "sm" } // メッセージを動的に表示
-                ]
-            },
-            "footer": {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "sm",
-                "contents": [
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" },
-                    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタン ⭐
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "message", "label": "ユーザーにチャットを促すメッセージ作成", "text": `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖` }, "color": "#FF69B4" }
-                ]
-            }
-        };
+        flexContent = JSON.parse(JSON.stringify(baseFlexContent)); // ディープコピー
+        flexContent.body.contents[0].text = `🚨【見守りサービス未応答 (${notificationDetailType})】🚨`;
     }
+
+    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタンを追加 ⭐
+    // このボタンは、理事会グループへの通知でのみ表示される
+    // ボタンの正しい使い方を説明するテキストを追加
+    flexContent.footer.contents.push(
+        { "type": "text", "text": "---", "margin": "md", "align": "center", "color": "#AAAAAA" },
+        { "type": "text", "text": "👇このボタンをクリックすると、メッセージが入力欄に自動で表示されます。内容を編集後、対象ユーザーの個人チャットにコピーして送信してください。", "wrap": true, "size": "xs", "color": "#666666", "margin": "sm" },
+        { "type": "button", "style": "primary", "height": "sm", "action": { "type": "message", "label": "ユーザーにチャットを促すメッセージ作成", "text": `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖` }, "color": "#FF69B4" }
+    );
+
     // Send the message to the officer group
     if (OFFICER_GROUP_ID) {
         await safePushMessage(OFFICER_GROUP_ID, { type: 'flex', altText: `緊急通知: ${type}検知`, contents: flexContent });
-        console.log(`✅ 管理者グループに${type}通知を送信しました。`);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`✅ 管理者グループに${type}通知を送信しました。`);
+        }
     } else {
         console.warn("⚠️ OFFICER_GROUP_ID が設定されていないため、管理者グループへの通知は送信されません。");
     }
@@ -1695,30 +1678,30 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
 
 // --- LINEイベントハンドラ ---
 async function handleEvent(event) {
-    // ⭐ 1. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
+    // ⭐ 1. イベントの基本的な健全性チェック ⭐
+    // event.source, event.message が存在しない、またはメッセージがテキストタイプではない場合は無視
+    if (!event || !event.source || !event.message || event.message.type !== 'text') {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("Non-text message or malformed event received. Ignoring:", event);
+        }
+        return Promise.resolve(null);
+    }
+
+    // ⭐ 2. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
     let userId;   // メッセージの送信者（ユーザー）のID
     let sourceId; // メッセージの返信先（ユーザーまたはグループ）のID
 
-    // メッセージイベント以外のタイプはここで無視（例: Follow, Join, Leaveなど）
-    if (event.type !== 'message') {
-        return Promise.resolve(null);
-    }
-    
-    // ⭐ event.message が undefined の可能性も考慮 ⭐
-    if (!event.message || event.message.type !== 'text') {
-        // テキストメッセージ以外のメッセージは無視
-        return Promise.resolve(null);
-    }
-
-    if (event.source && event.source.type === 'user') {
+    if (event.source.type === 'user') {
         userId = event.source.userId;
         sourceId = event.source.userId; // 個人チャットへの返信はユーザーIDへ
-    } else if (event.source && event.source.type === 'group') {
+    } else if (event.source.type === 'group') {
         userId = event.source.userId; // グループ内でメッセージを送ったユーザーのID
         sourceId = event.source.groupId; // グループへの返信はグループIDへ
     } else {
-        // userIdやsource.typeが取得できないイベントは無視して終了
-        console.log("Unsupported event source type or missing userId. Ignoring event:", event);
+        // サポートされていないsource.typeは無視
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("Unsupported event source type. Ignoring event:", event);
+        }
         return Promise.resolve(null);
     }
 
@@ -1833,7 +1816,7 @@ async function handleEvent(event) {
         return Promise.resolve(null); // 管理者コマンド処理終了
     }
 
-    // ⭐ 4. グループチャットからの非管理者メッセージは無視 ⭐
+    // ⭐ 6. グループチャットからの非管理者メッセージは無視 ⭐
     if (event.source.type === 'group') {
         return Promise.resolve(null);
     }
@@ -2061,7 +2044,9 @@ async function handleEvent(event) {
 async function handlePostbackEvent(event) {
     // ⭐ userIdを安全に取得 ⭐
     if (!event.source || !event.source.userId) {
-        console.log("userIdが取得できないPostbackイベントでした。無視します。", event);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("userIdが取得できないPostbackイベントでした。無視します。", event);
+        }
         return Promise.resolve(null);
     }
 
@@ -2194,8 +2179,17 @@ async function handlePostbackEvent(event) {
 
 // --- Followイベントハンドラ ---
 async function handleFollowEvent(event) {
+    // userIdが取得できない場合は無視
+    if (!event.source || !event.source.userId) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("userIdが取得できないFollowイベントでした。無視します。", event);
+        }
+        return Promise.resolve(null);
+    }
     const userId = event.source.userId;
-    console.log(`✅ 新しいユーザーがフォローしました: ${userId}`);
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`✅ 新しいユーザーがフォローしました: ${userId}`);
+    }
 
     const isAdminUser = BOT_ADMIN_IDS.includes(userId); // 管理者かどうかをチェック
 
@@ -2204,3 +2198,127 @@ async function handleFollowEvent(event) {
         messageCount: 0,
         lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
         isUrgent: false,
+        isInConsultationMode: false,
+        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 新規フォロー時にも設定
+        watchServiceEnabled: false,
+        lastScheduledWatchMessageSent: null, // 新規追加
+        firstReminderSent: false, // 新規追加
+        emergencyNotificationSent: false, // 新規追加
+        registeredInfo: {},
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection('users').doc(userId).set(initialUserData);
+
+    const welcomeMessage = {
+        type: 'text',
+        text: 'はじめまして！わたしは皆守こころ（みなもりこころ）だよ🌸\n\n困ったことがあったら、いつでもお話聞かせてね😊\n\nまずは、会員登録をしてみてくれると嬉しいな💖'
+    };
+
+    const registrationFlex = {
+        type: "flex",
+        altText: "会員登録メニュー",
+        contents: REGISTRATION_BUTTONS_FLEX
+    };
+
+    await safePushMessage(userId, [welcomeMessage, registrationFlex]);
+    await logToDb(userId, "フォローイベント", "初回メッセージと登録メニュー表示", "System", "system_follow");
+    return Promise.resolve(null);
+}
+
+// --- Unfollowイベントハンドラ ---
+async function handleUnfollowEvent(event) {
+    // userIdが取得できない場合は無視
+    if (!event.source || !event.source.userId) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("userIdが取得できないUnfollowイベントでした。無視します。", event);
+        }
+        return Promise.resolve(null);
+    }
+    const userId = event.source.userId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`❌ ユーザーがブロック/アンフォローしました: ${userId}`);
+    }
+    // ユーザーデータを削除する代わりに、ステータスを更新するなどの処理を検討
+    // 例: await db.collection('users').doc(userId).update({ isActive: false });
+    await logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォロー", "System", "system_unfollow");
+    return Promise.resolve(null);
+}
+
+// --- Joinイベントハンドラ (グループ参加時) ---
+async function handleJoinEvent(event) {
+    // groupIdが取得できない場合は無視
+    if (!event.source || !event.source.groupId) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("groupIdが取得できないJoinイベントでした。無視します。", event);
+        }
+        return Promise.resolve(null);
+    }
+    const groupId = event.source.groupId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`✅ ボットがグループに参加しました: ${groupId}`);
+    }
+    await safePushMessage(groupId, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
+    await logToDb(groupId, "グループ参加イベント", "グループ参加メッセージ", "System", "system_join");
+    return Promise.resolve(null);
+}
+
+// --- Leaveイベントハンドラ (グループ退出時) ---
+async function handleLeaveEvent(event) {
+    // groupIdが取得できない場合は無視
+    if (!event.source || !event.source.groupId) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("groupIdが取得できないLeaveイベントでした。無視します。", event);
+        }
+        return Promise.resolve(null);
+    }
+    const groupId = event.source.groupId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`❌ ボットがグループから退出しました: ${groupId}`);
+    }
+    await logToDb(groupId, "グループ退出イベント", "ボットがグループから退出", "System", "system_leave");
+    return Promise.resolve(null);
+}
+
+// --- LINE Webhook ---
+app.post('/webhook', async (req, res) => {
+    const events = req.body.events;
+    if (!events || events.length === 0) {
+        return res.status(200).send('No events to process.');
+    }
+
+    try {
+        const results = await Promise.all(
+            events.map(async (event) => {
+                // 各イベントハンドラでuserIdの安全な取得と処理終了を行うため、ここではイベントタイプで分岐するのみ
+                if (event.type === 'message') {
+                    await handleEvent(event);
+                } else if (event.type === 'postback') {
+                    await handlePostbackEvent(event);
+                } else if (event.type === 'follow') {
+                    await handleFollowEvent(event);
+                } else if (event.type === 'unfollow') {
+                    await handleUnfollowEvent(event);
+                } else if (event.type === 'join') {
+                    await handleJoinEvent(event);
+                } else if (event.type === 'leave') {
+                    await handleLeaveEvent(event);
+                } else {
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.log("Unhandled event type:", event.type, event);
+                    }
+                    return Promise.resolve(null);
+                }
+            })
+        );
+        res.json(results);
+    } catch (err) {
+        console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err);
+        res.status(500).end();
+    }
+});
+
+// --- サーバー起動 ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+});
