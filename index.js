@@ -1476,6 +1476,36 @@ cron.schedule('0 15 * * *', () => { // 毎日15時に実行
 });
 
 /**
+ * Firestoreに通知クールダウン情報を記録・確認する関数
+ * @param {string} userId - ユーザーID
+ * @param {string} alertType - 通知の種類 (danger, scam, watch_unresponsive)
+ * @param {number} cooldownMinutes - クールダウン期間（分）
+ * @returns {Promise<boolean>} 通知を送信すべきならtrue、クールダウン中ならfalse
+ */
+async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
+    const cooldownRef = db.collection('alertCooldowns').doc(userId);
+    const doc = await cooldownRef.get();
+    const now = admin.firestore.Timestamp.now().toMillis();
+    const cooldownMillis = cooldownMinutes * 60 * 1000;
+
+    if (doc.exists) {
+        const data = doc.data();
+        if (data[alertType] && (now - data[alertType]) < cooldownMillis) {
+            // クールダウン中
+            if (process.env.NODE_ENV !== 'production') {
+                console.log(`⚠️ クールダウン中: ${userId} - ${alertType} (残り: ${Math.ceil((data[alertType] + cooldownMillis - now) / 1000 / 60)}分)`);
+            }
+            return false;
+        }
+    }
+
+    // 通知を送信できるので、タイムスタンプを更新
+    await cooldownRef.set({ [alertType]: now }, { merge: true });
+    return true;
+}
+
+
+/**
  * 見守りサービス利用者への定期メッセージ送信と未応答時の緊急連絡通知
  * 新しいロジック: 3日 -> 24時間 -> 5時間
  */
@@ -1572,16 +1602,24 @@ async function sendScheduledWatchMessage() {
                 }
                 logToDb(userId, `（24時間未応答リマインダー）`, reminderMessage, 'こころちゃん（見守り）', 'watch_service_reminder_24h', true);
             } else if (shouldSendEmergencyNotification) {
-                const userInfo = user.registeredInfo || {};
-                const userName = userInfo.name || '不明なユーザー';
-                const notificationDetailType = '緊急';
-                const messageForOfficer = `ユーザー ${userName} (${userId}) が見守りサービスで${notificationDetailType}未応答です。緊急対応が必要です。`;
-                await notifyOfficerGroup(messageForOfficer, userId, userInfo, "watch_unresponsive", notificationDetailType);
-                updateData.emergencyNotificationSent = true;
-                if (process.env.NODE_ENV !== 'production') {
-                    console.log(`ユーザー ${userId}: 5時間経過 - 緊急通知をトリガー`);
+                // クールダウンチェック
+                const canNotify = await checkAndSetAlertCooldown(userId, 'watch_unresponsive', 5); // 5分間のクールダウン
+                if (canNotify) {
+                    const userInfo = user.registeredInfo || {};
+                    const userName = userInfo.name || '不明なユーザー';
+                    const notificationDetailType = '緊急';
+                    const messageForOfficer = `ユーザー ${userName} (${userId}) が見守りサービスで${notificationDetailType}未応答です。緊急対応が必要です。`;
+                    await notifyOfficerGroup(messageForOfficer, userId, userInfo, "watch_unresponsive", notificationDetailType);
+                    updateData.emergencyNotificationSent = true;
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.log(`ユーザー ${userId}: 5時間経過 - 緊急通知をトリガー`);
+                    }
+                    logToDb(userId, `（緊急未応答最終通知）`, `緊急連絡先へ通知をトリガー`, 'こころちゃん（見守り）', 'watch_service_final_notification', true);
+                } else {
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.log(`ユーザー ${userId}: 見守り緊急通知はクールダウン中のためスキップされました。`);
+                    }
                 }
-                logToDb(userId, `（緊急未応答最終通知）`, `緊急連絡先へ通知をトリガー`, 'こころちゃん（見守り）', 'watch_service_final_notification', true);
             }
 
             // ユーザーデータの更新を反映
@@ -1816,7 +1854,7 @@ async function handleEvent(event) {
         return Promise.resolve(null); // 管理者コマンド処理終了
     }
 
-    // ⭐ 6. グループチャットからの非管理者メッセージは無視 ⭐
+    // ⭐ 5. グループチャットからの非管理者メッセージは無視 ⭐
     if (event.source.type === 'group') {
         return Promise.resolve(null);
     }
@@ -1903,29 +1941,43 @@ async function handleEvent(event) {
 
     // --- 危険ワード検知 ---
     if (checkContainsDangerWords(userMessage)) {
-        await updateUserData(userId, { isUrgent: true });
-        // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
-        const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
-        await safePushMessage(userId, { type: 'text', text: empatheticReply }); // まず寄り添いメッセージ
-        
-        messagesToSend.push({ type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE });
-        await safePushMessage(userId, messagesToSend); // 次にFlex Message
-        await logToDb(userId, userMessage, "緊急時連絡先表示", "System", "danger_word_triggered", true);
-        await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "danger");
+        const canNotify = await checkAndSetAlertCooldown(userId, 'danger', 5); // 5分間のクールダウン
+        if (canNotify) {
+            await updateUserData(userId, { isUrgent: true });
+            // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
+            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+            await safePushMessage(userId, { type: 'text', text: empatheticReply }); // まず寄り添いメッセージ
+            
+            messagesToSend.push({ type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE });
+            await safePushMessage(userId, messagesToSend); // 次にFlex Message
+            await logToDb(userId, userMessage, "緊急時連絡先表示", "System", "danger_word_triggered", true);
+            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "danger");
+        } else {
+            if (process.env.NODE_ENV !== 'production') {
+                console.log(`ユーザー ${userId}: 危険ワード通知はクールダウン中のためスキップされました。`);
+            }
+        }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
     // --- 詐欺ワード検知 ---
     if (checkContainsScamWords(userMessage)) {
-        await updateUserData(userId, { isUrgent: true }); // 詐欺ワードも緊急扱い
-        // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
-        const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
-        await safePushMessage(userId, { type: 'text', text: empatheticReply }); // まず寄り添いメッセージ
+        const canNotify = await checkAndSetAlertCooldown(userId, 'scam', 5); // 5分間のクールダウン
+        if (canNotify) {
+            await updateUserData(userId, { isUrgent: true }); // 詐欺ワードも緊急扱い
+            // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
+            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+            await safePushMessage(userId, { type: 'text', text: empatheticReply }); // まず寄り添いメッセージ
 
-        messagesToSend.push({ type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE });
-        await safePushMessage(userId, messagesToSend); // 次にFlex Message
-        await logToDb(userId, userMessage, "詐欺注意喚起表示", "System", "scam_word_triggered", true);
-        await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "scam");
+            messagesToSend.push({ type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE });
+            await safePushMessage(userId, messagesToSend); // 次にFlex Message
+            await logToDb(userId, userMessage, "詐欺注意喚起表示", "System", "scam_word_triggered", true);
+            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "scam");
+        } else {
+            if (process.env.NODE_ENV !== 'production') {
+                console.log(`ユーザー ${userId}: 詐欺ワード通知はクールダウン中のためスキップされました。`);
+            }
+        }
         return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
     }
 
