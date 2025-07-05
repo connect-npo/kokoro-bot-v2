@@ -121,7 +121,7 @@ async function startMessageQueueWorker() {
     while (messageQueue.length > 0) {
         const { to, messages } = messageQueue.shift();
         const maxRetries = 3;
-        const initialDelayMs = MESSAGE_SEND_INTERVAL_INTERVAL_MS;
+        const initialDelayMs = MESSAGE_SEND_INTERVAL_MS; // ⭐ 修正: MESSAGE_SEND_INTERVAL_INTERVAL_MS -> MESSAGE_SEND_INTERVAL_MS ⭐
 
         for (let i = 0; i <= maxRetries; i++) {
             const currentDelay = initialDelayMs * (2 ** i);
@@ -226,7 +226,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 20, // Gemini Proの回数制限として維持
         isChildAI: false,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、今月のGemini 1.5 Proでの会話回数（20回）を超えちゃったみたい💦 これからはGemini 1.5 Flashモデルでの応答になるけど、引き続きお話できるから安心してね！🌸",
+        exceedLimitMessage: "ごめんね、今月のGemini 1.5 Proでの会話回数（20回）を超えちゃったみたい💦 これからはGemini 1.5 Flashモデルでの応答になるけど、引き続きお話できるから安心してね！�",
         fallbackModel: "gemini-1.5-flash-latest",
         systemInstructionModifier: `
         # サブスク会員（成人）向け応答強化指示
@@ -362,7 +362,7 @@ const specialRepliesMap = new Map([
     [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/ya-ho-|ヤッホー|やっほー/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんにちは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
-    [/こんばんわ/i, "やっほー！今日はどうしたの？� 何か話したいことあるかな？😊"],
+    [/こんばんわ/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/おはよう/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんばんは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
@@ -1614,7 +1614,9 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
                 "layout": "vertical",
                 "spacing": "sm",
                 "contents": [
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" }
+                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" },
+                    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタン ⭐
+                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "message", "label": "ユーザーにチャットを促すメッセージ作成", "text": `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖` }, "color": "#FF69B4" }
                 ]
             }
         };
@@ -1643,7 +1645,9 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
                 "layout": "vertical",
                 "spacing": "sm",
                 "contents": [
-                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" }
+                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" },
+                    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタン ⭐
+                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "message", "label": "ユーザーにチャットを促すメッセージ作成", "text": `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖` }, "color": "#FF69B4" }
                 ]
             }
         };
@@ -1691,103 +1695,112 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
 
 // --- LINEイベントハンドラ ---
 async function handleEvent(event) {
-    // グループチャットからのメッセージの場合、個人への返信は行わない
-    if (event.source.type === 'group' && event.type === 'message' && event.message.type !== 'text') {
-        // グループからのテキスト以外のメッセージは無視
+    // ⭐ 1. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
+    let userId;   // メッセージの送信者（ユーザー）のID
+    let sourceId; // メッセージの返信先（ユーザーまたはグループ）のID
+
+    if (event.source && event.source.type === 'user') {
+        userId = event.source.userId;
+        sourceId = event.source.userId; // 個人チャットへの返信はユーザーIDへ
+    } else if (event.source && event.source.type === 'group') {
+        userId = event.source.userId; // グループ内でメッセージを送ったユーザーのID
+        sourceId = event.source.groupId; // グループへの返信はグループIDへ
+    } else {
+        // userIdやsource.typeが取得できないイベントは無視して終了
+        console.log("Unsupported event source type or missing userId. Ignoring event:", event);
         return Promise.resolve(null);
     }
-    if (event.source.type === 'group' && event.type === 'message' && event.message.type === 'text') {
-        const userId = event.source.userId; // グループ内でのユーザーID
-        const groupId = event.source.groupId; // グループID
-        const userMessage = event.message.text;
-        const lowerUserMessage = userMessage.toLowerCase();
-        const isAdmin = isBotAdmin(userId);
 
-        // 管理者コマンドのみグループ内で処理
-        if (isAdmin && userMessage.startsWith('!')) {
-            // 管理者コマンドの処理ロジック（個人チャットと同様）
-            const command = userMessage.substring(1).split(' ')[0];
-            const args = userMessage.substring(command.length + 1).trim();
-            let targetUserId = userId; // デフォルトは自分自身
-
-            if (args.startsWith('user ')) {
-                const parts = args.split(' ');
-                if (parts.length >= 2) {
-                    targetUserId = parts[1];
-                    const remainingArgs = parts.slice(2).join(' ').trim();
-                    if (command === "set" && remainingArgs) {
-                        const newMembershipType = remainingArgs.split(' ')[0];
-                        if (MEMBERSHIP_CONFIG[newMembershipType]) {
-                            await updateUserData(targetUserId, { membershipType: newMembershipType });
-                            await safePushMessage(groupId, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
-                            await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
-                            return Promise.resolve(null);
-                        } else {
-                            await safePushMessage(groupId, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
-                            await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
-                            return Promise.resolve(null);
-                        }
-                    }
-                }
-            }
-
-            let replyText = "";
-            switch (command) {
-                case 'status':
-                    const targetUser = await getUserData(targetUserId);
-                    if (targetUser) {
-                        const lastMessageDate = targetUser.lastMessageDate ? new Date(targetUser.lastMessageDate._seconds * 1000).toLocaleString() : 'N/A';
-                        replyText = `ユーザーID: ${targetUserId}\n会員種別: ${targetUser.membershipType}\n今月メッセージ数: ${targetUser.messageCount}\n最終メッセージ日時: ${lastMessageDate}\n見守りサービス: ${targetUser.watchServiceEnabled ? '有効' : '無効'}\n相談モード: ${targetUser.isInConsultationMode ? '有効' : '無効'}`;
-                    } else {
-                        replyText = `ユーザー ${targetUserId} は見つかりませんでした。`;
-                    }
-                    break;
-                case 'reset':
-                    await updateUserData(targetUserId, { messageCount: 0, isInConsultationMode: false });
-                    replyText = `ユーザー ${targetUserId} のメッセージカウントと相談モードをリセットしました。`;
-                    break;
-                case 'myid':
-                    replyText = `あなたのユーザーIDは:\n${userId}`;
-                    break;
-                case 'history':
-                    const historyUserId = args.split(' ')[0] || userId;
-                    const limit = parseInt(args.split(' ')[1]) || 10;
-                    const logsRef = db.collection('logs').where('userId', '==', historyUserId).orderBy('timestamp', 'desc').limit(limit);
-                    const snapshot = await logsRef.get();
-                    let historyMessages = [];
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
-                        historyMessages.push(`[${timestamp}] ${data.logType}: ${data.message} -> ${data.replyText}`);
-                    });
-                    replyText = historyMessages.length > 0 ? historyMessages.join('\n\n') : '履歴はありません。';
-                    break;
-                case 'error_history':
-                    const errorHistoryUserId = args.split(' ')[0] || userId;
-                    const errorLimit = parseInt(args.split(' ')[1]) || 10;
-                    const errorLogsRef = db.collection('error_logs').where('userId', '==', errorHistoryUserId).orderBy('timestamp', 'desc').limit(errorLimit);
-                    const errorSnapshot = await errorLogsRef.get();
-                    let errorHistoryMessages = [];
-                    errorSnapshot.forEach(doc => {
-                        const data = doc.data();
-                        const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
-                        errorHistoryMessages.push(`[${timestamp}] ${data.message} (Details: ${data.errorDetails})`);
-                    });
-                    replyText = errorHistoryMessages.length > 0 ? errorHistoryMessages.join('\n\n') : 'エラー履歴はありません。';
-                    break;
-                default:
-                    replyText = `不明な管理者コマンドです。利用可能なコマンド: !status, !reset, !set user [userId] [membershipType], !myid, !history, !error_history`;
-                    break;
-            }
-            await safePushMessage(groupId, { type: 'text', text: replyText });
-            await logToDb(userId, userMessage, replyText, "AdminCommand", `admin_command_${command}`);
-            return Promise.resolve(null); // グループ内の管理者コマンドはここで処理終了
-        }
-        return Promise.resolve(null); // グループ内の非管理者メッセージは無視
+    // ⭐ 2. テキストメッセージ以外のイベントはここで終了 ⭐
+    if (event.type !== 'message' || event.message.type !== 'text') {
+        // テキストメッセージ以外のメッセージはログに記録せず無視
+        return Promise.resolve(null);
     }
 
-    // 個人チャットからのメッセージの場合のみ、以下の処理を実行
-    if (event.source.type !== 'user' || event.type !== 'message' || event.message.type !== 'text') {
+    const userMessage = event.message.text;
+    const lowerUserMessage = userMessage.toLowerCase();
+    const isAdmin = isBotAdmin(userId); // メッセージ送信者が管理者かどうか
+
+    // ⭐ 3. 管理者コマンドの処理 (個人/グループ問わず最優先) ⭐
+    if (isAdmin && userMessage.startsWith('!')) {
+        const command = userMessage.substring(1).split(' ')[0];
+        const args = userMessage.substring(command.length + 1).trim();
+        let targetUserId = userId; // デフォルトはコマンド実行者自身
+
+        // !set user [userId] [membershipType] コマンドの特殊処理
+        if (command === "set" && args.startsWith('user ')) {
+            const parts = args.split(' ');
+            if (parts.length >= 2) {
+                targetUserId = parts[1];
+                const newMembershipType = parts[2]; // membershipTypeは3番目の要素
+                if (MEMBERSHIP_CONFIG[newMembershipType]) {
+                    await updateUserData(targetUserId, { membershipType: newMembershipType });
+                    await safePushMessage(sourceId, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
+                    await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
+                    return Promise.resolve(null); // 処理終了
+                } else {
+                    await safePushMessage(sourceId, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
+                    await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
+                    return Promise.resolve(null); // 処理終了
+                }
+            }
+        }
+
+        let replyText = "";
+        switch (command) {
+            case 'status':
+                const targetUser = await getUserData(targetUserId);
+                if (targetUser) {
+                    const lastMessageDate = targetUser.lastMessageDate ? new Date(targetUser.lastMessageDate._seconds * 1000).toLocaleString() : 'N/A';
+                    replyText = `ユーザーID: ${targetUserId}\n会員種別: ${targetUser.membershipType}\n今月メッセージ数: ${targetUser.messageCount}\n最終メッセージ日時: ${lastMessageDate}\n見守りサービス: ${targetUser.watchServiceEnabled ? '有効' : '無効'}\n相談モード: ${targetUser.isInConsultationMode ? '有効' : '無効'}`;
+                } else {
+                    replyText = `ユーザー ${targetUserId} は見つかりませんでした。`;
+                }
+                break;
+            case 'reset':
+                await updateUserData(targetUserId, { messageCount: 0, isInConsultationMode: false });
+                replyText = `ユーザー ${targetUserId} のメッセージカウントと相談モードをリセットしました。`;
+                break;
+            case 'myid':
+                replyText = `あなたのユーザーIDは:\n${userId}`;
+                break;
+            case 'history':
+                const historyUserId = args.split(' ')[0] || userId;
+                const limit = parseInt(args.split(' ')[1]) || 10;
+                const logsRef = db.collection('logs').where('userId', '==', historyUserId).orderBy('timestamp', 'desc').limit(limit);
+                const snapshot = await logsRef.get();
+                let historyMessages = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
+                    historyMessages.push(`[${timestamp}] ${data.logType}: ${data.message} -> ${data.replyText}`);
+                });
+                replyText = historyMessages.length > 0 ? historyMessages.join('\n\n') : '履歴はありません。';
+                break;
+            case 'error_history':
+                const errorHistoryUserId = args.split(' ')[0] || userId;
+                const errorLimit = parseInt(args.split(' ')[1]) || 10;
+                const errorLogsRef = db.collection('error_logs').where('userId', '==', errorHistoryUserId).orderBy('timestamp', 'desc').limit(errorLimit);
+                const errorSnapshot = await errorLogsRef.get();
+                let errorHistoryMessages = [];
+                errorSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
+                    errorHistoryMessages.push(`[${timestamp}] ${data.message} (Details: ${data.errorDetails})`);
+                });
+                replyText = errorHistoryMessages.length > 0 ? errorHistoryMessages.join('\n\n') : 'エラー履歴はありません。';
+                break;
+            default:
+                replyText = `不明な管理者コマンドです。利用可能なコマンド: !status, !reset, !set user [userId] [membershipType], !myid, !history, !error_history`;
+                break;
+        }
+        await safePushMessage(sourceId, { type: 'text', text: replyText }); // ⭐ sourceIdを使用 ⭐
+        await logToDb(userId, userMessage, replyText, "AdminCommand", `admin_command_${command}`);
+        return Promise.resolve(null); // 管理者コマンド処理終了
+    }
+
+    // ⭐ 4. グループチャットからの非管理者メッセージは無視 ⭐
+    if (event.source.type === 'group') {
         return Promise.resolve(null);
     }
 
@@ -1911,15 +1924,13 @@ async function handleEvent(event) {
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
         // ⭐ ClariSの曲に関する固定応答で、団体名について聞かれた場合の特殊処理 ⭐
+        // このロジックは、AI応答生成に進むべきか、固定応答で完結すべきかを判断するために残します。
+        // ただし、直接的な「関係あるか」の質問はAIに委ねるため、ここではreturnしません。
         if (userMessage.toLowerCase().includes("コネクト") && userMessage.toLowerCase().includes("関係ある") && specialReply.includes("ClariSさんの音楽は、わたしにたくさんの元気と勇気をくれるんだ")) {
-             // 既にClariSとNPOコネクトは関係ないと説明済みの場合、AIに委ねるか、より詳細な固定応答を検討
-             // 今回は、AIに委ねることで柔軟な応答を試みる
-             // 何もしないで次のAI応答生成に進むか、別の固定応答を返す
-             // ここでは、AI応答生成に進むためにreturnしない
+            // このケースはAIに柔軟な応答をさせるため、ここではreturnせず、AI応答生成に進む
         } else if (userMessage.toLowerCase().includes("コネクトの歌とは関係ないのね") && specialReply.includes("わたしの活動はNPO法人コネクトのイメージキャラクターとして")) {
-            // この場合もAI応答生成に進むためにreturnしない
-        }
-        else if (userMessage.toLowerCase().includes("相談したい")) {
+            // このケースもAIに柔軟な応答をさせるため、ここではreturnせず、AI応答生成に進む
+        } else if (userMessage.toLowerCase().includes("相談したい")) {
             await updateUserData(userId, { isInConsultationMode: true });
             logType = "consultation_mode_start";
             await safePushMessage(userId, { type: 'text', text: specialReply });
@@ -2014,6 +2025,12 @@ async function handleEvent(event) {
 
 // --- Postbackイベントハンドラ ---
 async function handlePostbackEvent(event) {
+    // ⭐ userIdを安全に取得 ⭐
+    if (!event.source || !event.source.userId) {
+        console.log("userIdが取得できないPostbackイベントでした。無視します。", event);
+        return Promise.resolve(null);
+    }
+
     const userId = event.source.userId;
     const data = new URLSearchParams(event.postback.data);
     const action = data.get('action');
