@@ -197,7 +197,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 5,
         isChildAI: true,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！�",
+        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！🌸",
         systemInstructionModifier: ""
     },
     "free": {
@@ -226,7 +226,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 20, // Gemini Proの回数制限として維持
         isChildAI: false,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、今月のGemini 1.5 Proでの会話回数（20回）を超えちゃったみたい💦 これからはGemini 1.5 Flashモデルでの応答になるけど、引き続きお話できるから安心してね！🌸",
+        exceedLimitMessage: "ごめんね、今月のGemini 1.5 Proでの会話回数（20回）を超えちゃったみたい💦 これからはGemini 1.5 Flashモデルでの応答になるけど、引き続きお話できるから安心してね！�",
         fallbackModel: "gemini-1.5-flash-latest",
         systemInstructionModifier: `
         # サブスク会員（成人）向け応答強化指示
@@ -1250,7 +1250,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     // OKボタン応答と状態リセット
-    if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
+    if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.Message.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.watchServiceEnabled) { // 見守りサービスが有効な場合のみ応答
             try {
                 await usersCollection.doc(userId).update(
@@ -1261,18 +1261,26 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                         emergencyNotificationSent: false // 緊急通知状態をリセット
                     }
                 );
-                if (event.replyToken) {
-                    await client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
-                    });
-                } else {
-                    await safePushMessage(userId, {
-                        type: 'text',
-                        text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
-                    });
+                switch (action) {
+                    case 'watch_ok':
+                        replyText = "OKありがとう！元気そうで安心したよ💖";
+                        logType = 'watch_service_ok_response';
+                        break;
+                    case 'watch_somewhat':
+                        replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
+                        logType = 'watch_service_status_somewhat';
+                        break;
+                    case 'watch_tired':
+                        replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
+                        logType = 'watch_service_status_tired';
+                        break;
+                    case 'watch_talk':
+                        replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
+                        logType = 'watch_service_status_talk';
+                        break;
                 }
-                logToDb(userId, userMessage, 'ありがとう🌸 元気そうで安心したよ💖 またね！', 'こころちゃん（見守り応答）', 'watch_service_ok_response', true);
+                await safePushMessage(userId, { type: 'text', text: replyText });
+                await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
                 return true;
             } catch (error) {
                 console.error("❌ 見守りサービスOK応答処理エラー:", error.message);
@@ -1459,7 +1467,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         }
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
-        return Promise.resolve(null);
+        return true; // ⭐ ここで処理を終了 ⭐
     }
     return false; // どの見守り関連ロジックにも該当しない場合はfalseを返す
 }
@@ -1725,7 +1733,30 @@ async function handleEvent(event) {
         return Promise.resolve(null);
     }
 
-    // ⭐ 2. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
+    // ⭐ 2. Webhookイベントの重複処理防止（デデュープリケーション） ⭐
+    // LINEのWebhookイベントには一意のIDが含まれることが期待されるが、bot-sdkは直接提供しないため、
+    // event.timestampとevent.source.userId (または replyToken) を組み合わせて簡易的な重複チェックを行う
+    // より堅牢にするには、LINEのX-Line-Webhook-Idヘッダーを利用すべきだが、bot-sdkのイベントオブジェクトからは直接取得できない
+    const eventUniqueId = `${event.source.userId || event.source.groupId}-${event.timestamp}-${event.replyToken}`;
+    const deduplicationRef = db.collection('webhookDeduplication').doc(eventUniqueId);
+    const doc = await deduplicationRef.get();
+    const nowMillis = admin.firestore.Timestamp.now().toMillis();
+    const DEDUPLICATION_COOLDOWN_MILLIS = 10 * 1000; // 10秒間のクールダウン
+
+    if (doc.exists && (nowMillis - doc.data().timestamp) < DEDUPLICATION_COOLDOWN_MILLIS) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`⚠️ 重複Webhookイベントを検出しました。スキップします: ${eventUniqueId}`);
+        }
+        return Promise.resolve(null); // 重複イベントはスキップ
+    } else {
+        // 新しいイベントとして記録
+        await deduplicationRef.set({ timestamp: nowMillis });
+        // 古い重複防止エントリをクリーンアップする（任意だが推奨）
+        // 例: cronジョブで定期的に古いエントリを削除
+    }
+
+
+    // ⭐ 3. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
     let userId;   // メッセージの送信者（ユーザー）のID
     let sourceId; // メッセージの返信先（ユーザーまたはグループ）のID
 
@@ -1747,7 +1778,7 @@ async function handleEvent(event) {
     const lowerUserMessage = userMessage.toLowerCase();
     const isAdmin = isBotAdmin(userId); // メッセージ送信者が管理者かどうか
 
-    // ⭐ 3. 管理者コマンドの処理 (個人/グループ問わず最優先) ⭐
+    // ⭐ 4. 管理者コマンドの処理 (個人/グループ問わず最優先) ⭐
     if (isAdmin && userMessage.startsWith('!')) {
         const command = userMessage.substring(1).split(' ')[0];
         const args = userMessage.substring(command.length + 1).trim();
@@ -1854,7 +1885,7 @@ async function handleEvent(event) {
         return Promise.resolve(null); // 管理者コマンド処理終了
     }
 
-    // ⭐ 5. グループチャットからの非管理者メッセージは無視 ⭐
+    // ⭐ 6. グループチャットからの非管理者メッセージは無視 ⭐
     if (event.source.type === 'group') {
         return Promise.resolve(null);
     }
