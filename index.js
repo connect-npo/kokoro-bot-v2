@@ -121,7 +121,7 @@ async function startMessageQueueWorker() {
     while (messageQueue.length > 0) {
         const { to, messages } = messageQueue.shift();
         const maxRetries = 3;
-        const initialDelayMs = MESSAGE_SEND_INTERVAL_MS; // ⭐ 修正: MESSAGE_SEND_INTERVAL_INTERVAL_MS -> MESSAGE_SEND_INTERVAL_MS ⭐
+        const initialDelayMs = MESSAGE_SEND_INTERVAL_MS; 
 
         for (let i = 0; i <= maxRetries; i++) {
             const currentDelay = initialDelayMs * (2 ** i);
@@ -197,7 +197,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 5,
         isChildAI: true,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！🌸",
+        exceedLimitMessage: "ごめんね、お試し期間中（5回まで）の会話回数を超えちゃったみたい💦 もっとお話したい場合は、無料会員登録をしてみてね！�",
         systemInstructionModifier: ""
     },
     "free": {
@@ -226,7 +226,7 @@ const MEMBERSHIP_CONFIG = {
         monthlyLimit: 20, // Gemini Proの回数制限として維持
         isChildAI: false,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、今月のGemini 1.5 Proでの会話回数（20回）を超えちゃったみたい💦 これからはGemini 1.5 Flashモデルでの応答になるけど、引き続きお話できるから安心してね！�",
+        exceedLimitMessage: "ごめんね、今月のGemini 1.5 Proでの会話回数（20回）を超えちゃったみたい💦 これからはGemini 1.5 Flashモデルでの応答になるけど、引き続きお話できるから安心してね！🌸",
         fallbackModel: "gemini-1.5-flash-latest",
         systemInstructionModifier: `
         # サブスク会員（成人）向け応答強化指示
@@ -1699,6 +1699,17 @@ async function handleEvent(event) {
     let userId;   // メッセージの送信者（ユーザー）のID
     let sourceId; // メッセージの返信先（ユーザーまたはグループ）のID
 
+    // メッセージイベント以外のタイプはここで無視（例: Follow, Join, Leaveなど）
+    if (event.type !== 'message') {
+        return Promise.resolve(null);
+    }
+    
+    // ⭐ event.message が undefined の可能性も考慮 ⭐
+    if (!event.message || event.message.type !== 'text') {
+        // テキストメッセージ以外のメッセージは無視
+        return Promise.resolve(null);
+    }
+
     if (event.source && event.source.type === 'user') {
         userId = event.source.userId;
         sourceId = event.source.userId; // 個人チャットへの返信はユーザーIDへ
@@ -1708,12 +1719,6 @@ async function handleEvent(event) {
     } else {
         // userIdやsource.typeが取得できないイベントは無視して終了
         console.log("Unsupported event source type or missing userId. Ignoring event:", event);
-        return Promise.resolve(null);
-    }
-
-    // ⭐ 2. テキストメッセージ以外のイベントはここで終了 ⭐
-    if (event.type !== 'message' || event.message.type !== 'text') {
-        // テキストメッセージ以外のメッセージはログに記録せず無視
         return Promise.resolve(null);
     }
 
@@ -1745,6 +1750,35 @@ async function handleEvent(event) {
                 }
             }
         }
+        
+        // !reply [targetUserId] [message] コマンドの処理を追加
+        if (command === "reply" && args.startsWith('user ')) {
+            const parts = args.split(' ');
+            if (parts.length >= 3) { // !reply user [userId] [message]
+                const replyTargetUserId = parts[1];
+                const replyMessageContent = parts.slice(2).join(' ').trim();
+                
+                if (replyTargetUserId && replyMessageContent) {
+                    try {
+                        const targetUserDisplayName = await getUserDisplayName(replyTargetUserId);
+                        // ユーザーにこころちゃんからのメッセージとして送信
+                        await safePushMessage(replyTargetUserId, { type: 'text', text: `🌸 こころだよ！理事会からのメッセージだよ😊\n\n「${replyMessageContent}」\n\n何か困ったことがあったら、また私に話しかけてね💖` });
+                        await safePushMessage(sourceId, { type: 'text', text: `${targetUserDisplayName} (${replyTargetUserId}) さんにメッセージを送信しました。\n内容: 「${replyMessageContent}」` });
+                        await logToDb(userId, userMessage, `Re: ${replyMessageContent}`, "AdminCommand", 'admin_reply_to_user');
+                        return Promise.resolve(null); // 処理終了
+                    } catch (error) {
+                        console.error(`Admin reply to user failed: ${error.message}`);
+                        await safePushMessage(sourceId, { type: 'text', text: `メッセージ送信に失敗しました: ${error.message}` });
+                        await logErrorToDb(userId, `Admin reply to user failed`, { error: error.message, targetUserId: replyTargetUserId, userMessage: userMessage });
+                        return Promise.resolve(null);
+                    }
+                } else {
+                    await safePushMessage(sourceId, { type: 'text', text: `!reply user [userId] [メッセージ] の形式で入力してください。` });
+                    return Promise.resolve(null);
+                }
+            }
+        }
+
 
         let replyText = "";
         switch (command) {
@@ -1791,7 +1825,7 @@ async function handleEvent(event) {
                 replyText = errorHistoryMessages.length > 0 ? errorHistoryMessages.join('\n\n') : 'エラー履歴はありません。';
                 break;
             default:
-                replyText = `不明な管理者コマンドです。利用可能なコマンド: !status, !reset, !set user [userId] [membershipType], !myid, !history, !error_history`;
+                replyText = `不明な管理者コマンドです。利用可能なコマンド: !status, !reset, !set user [userId] [membershipType], !myid, !history, !error_history, !reply user [userId] [message]`;
                 break;
         }
         await safePushMessage(sourceId, { type: 'text', text: replyText }); // ⭐ sourceIdを使用 ⭐
@@ -2170,94 +2204,3 @@ async function handleFollowEvent(event) {
         messageCount: 0,
         lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
         isUrgent: false,
-        isInConsultationMode: false,
-        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 新規フォロー時にも設定
-        watchServiceEnabled: false,
-        lastScheduledWatchMessageSent: null, // 新規追加
-        firstReminderSent: false, // 新規追加
-        emergencyNotificationSent: false, // 新規追加
-        registeredInfo: {},
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-    };
-    await db.collection('users').doc(userId).set(initialUserData);
-
-    const welcomeMessage = {
-        type: 'text',
-        text: 'はじめまして！わたしは皆守こころ（みなもりこころ）だよ🌸\n\n困ったことがあったら、いつでもお話聞かせてね😊\n\nまずは、会員登録をしてみてくれると嬉しいな💖'
-    };
-
-    const registrationFlex = {
-        type: "flex",
-        altText: "会員登録メニュー",
-        contents: REGISTRATION_BUTTONS_FLEX
-    };
-
-    await safePushMessage(userId, [welcomeMessage, registrationFlex]);
-    await logToDb(userId, "フォローイベント", "初回メッセージと登録メニュー表示", "System", "system_follow");
-    return Promise.resolve(null);
-}
-
-// --- Unfollowイベントハンドラ ---
-async function handleUnfollowEvent(event) {
-    const userId = event.source.userId;
-    console.log(`❌ ユーザーがブロック/アンフォローしました: ${userId}`);
-    // ユーザーデータを削除する代わりに、ステータスを更新するなどの処理を検討
-    // 例: await db.collection('users').doc(userId).update({ isActive: false });
-    await logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォロー", "System", "system_unfollow");
-    return Promise.resolve(null);
-}
-
-// --- Joinイベントハンドラ (グループ参加時) ---
-async function handleJoinEvent(event) {
-    const groupId = event.source.groupId;
-    console.log(`✅ ボットがグループに参加しました: ${groupId}`);
-    await safePushMessage(groupId, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
-    await logToDb(groupId, "グループ参加イベント", "グループ参加メッセージ", "System", "system_join");
-    return Promise.resolve(null);
-}
-
-// --- Leaveイベントハンドラ (グループ退出時) ---
-async function handleLeaveEvent(event) {
-    const groupId = event.source.groupId;
-    console.log(`❌ ボットがグループから退出しました: ${groupId}`);
-    await logToDb(groupId, "グループ退出イベント", "ボットがグループから退出", "System", "system_leave");
-    return Promise.resolve(null);
-}
-
-// --- LINE Webhook ---
-app.post('/webhook', async (req, res) => {
-    const events = req.body.events;
-    if (!events || events.length === 0) {
-        return res.status(200).send('No events to process.');
-    }
-
-    try {
-        const results = await Promise.all(
-            events.map(async (event) => {
-                if (event.type === 'message') {
-                    await handleEvent(event);
-                } else if (event.type === 'postback') {
-                    await handlePostbackEvent(event);
-                } else if (event.type === 'follow') {
-                    await handleFollowEvent(event);
-                } else if (event.type === 'unfollow') {
-                    await handleUnfollowEvent(event);
-                } else if (event.type === 'join') {
-                    await handleJoinEvent(event);
-                } else if (event.type === 'leave') {
-                    await handleLeaveEvent(event);
-                }
-            })
-        );
-        res.json(results);
-    } catch (err) {
-        console.error(err);
-        res.status(500).end();
-    }
-});
-
-// --- サーバー起動 ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-});
