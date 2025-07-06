@@ -968,7 +968,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                                     contents: [
                                         { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
                                         { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
-                                        { type: 'button', style: 'primary', height: 'sm', action: { type: 'uri', label: '学生証提出フォームへ', uri: prefilledFormUrl }, margin: 'md', color: '#FFB6C1' }
+                                        { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "学生証提出フォームへ", uri: prefilledFormUrl }, margin: "md", color: "#FFB6C1" }
                                     ]
                                 }
                             }
@@ -985,7 +985,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                                     contents: [
                                         { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
                                         { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
-                                        { type: 'button', style: 'primary', height: 'sm', action: { type: 'uri', label: '学生証提出フォームへ', uri: prefilledFormUrl }, margin: 'md', color: '#FFB6C1' }
+                                        { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "学生証提出フォームへ", uri: prefilledFormUrl }, margin: "md", color: "#FFB6C1" }
                                     ]
                                 }
                             }
@@ -1289,9 +1289,9 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                         type: 'box',
                         layout: 'vertical',
                         contents: [
-                            { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
-                            { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
-                            { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                            { type: "text", text: "💖緊急連絡先登録💖", weight: "bold", size: "lg", color: "#FF69B4", align: "center" },
+                            { type: "text", text: "安全のために、緊急連絡先を登録してね！", wrap: true, margin: "md" },
+                            { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
                         ]
                     }
                 }
@@ -1585,7 +1585,7 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
         { "type": "text", "text": "👇このボタンをクリックすると、メッセージ入力欄にテンプレートが自動で表示されます。内容を編集後、ユーザーの個人チャットに**コピー＆ペーストして送信**してください。", "wrap": true, "size": "xs", "color": "#666666", "margin": "sm" },
         // LINEアプリにメッセージを事前入力するURIアクション
         // 注意: このURIはLINEアプリ外からは動作しない場合があります。タップするとLINEアプリの汎用的なメッセージ作成画面が開かれ、メッセージが事前入力されます。
-        { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "メッセージテンプレートをコピー", "uri": `https://line.me/R/msg/text/?${encodedContactMessage}` }, "color": "#FF69B4" }
+        { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "メッセージテンプレートをコピー", uri: `https://line.me/R/msg/text/?${encodedContactMessage}` }, "color": "#FF69B4" }
     );
 
     // Send the message to the officer group
@@ -1631,7 +1631,7 @@ async function handleEvent(event) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("Non-text message or malformed event received. Ignoring:", event);
         }
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // ⭐ 2. userIdとsourceIdをイベントタイプに応じて安全に取得 ⭐
@@ -1649,7 +1649,7 @@ async function handleEvent(event) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("Unsupported event source type. Ignoring event:", event);
         }
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // ⭐ 応答クールダウンチェックを最速で実施 ⭐
@@ -1657,7 +1657,7 @@ async function handleEvent(event) {
     // ここでクールダウンチェックをかける。ただし、管理者コマンドは除外。
     if (!isBotAdmin(userId)) { // 管理者以外のユーザーにのみ適用
         if (!(await shouldRespond(userId))) {
-            return Promise.resolve(null); // クールダウン中なので処理を終了
+            return; // クールダウン中なので処理を終了
         }
     }
 
@@ -1682,11 +1682,11 @@ async function handleEvent(event) {
                     await updateUserData(targetUserId, { membershipType: newMembershipType });
                     await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
                     await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
-                    return Promise.resolve(null); // 処理終了
+                    return; // Promise.resolve(null) の代わりに直接 return
                 } else {
                     await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
                     await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
-                    return Promise.resolve(null); // 処理終了
+                    return; // Promise.resolve(null) の代わりに直接 return
                 }
             }
         }
@@ -1704,16 +1704,16 @@ async function handleEvent(event) {
                         await safePushMessage(replyTargetUserId, { type: 'text', text: `🌸 こころだよ！理事会からのメッセージだよ😊\n\n「${replyMessageContent}」\n\n何か困ったことがあったら、また私に話しかけてね💖` });
                         await client.replyMessage(event.replyToken, { type: 'text', text: `${targetUserDisplayName} (${replyTargetUserId}) さんにメッセージを送信しました。\n内容: 「${replyMessageContent}」` });
                         await logToDb(userId, userMessage, `Re: ${replyMessageContent}`, "AdminCommand", 'admin_reply_to_user');
-                        return Promise.resolve(null); // 処理終了
+                        return; // Promise.resolve(null) の代わりに直接 return
                     } catch (error) {
                         console.error(`Admin reply to user failed: ${error.message}`);
                         await client.replyMessage(event.replyToken, { type: 'text', text: `メッセージ送信に失敗しました: ${error.message}` });
                         await logErrorToDb(userId, `Admin reply to user failed`, { error: error.message, targetUserId: replyTargetUserId, userMessage: userMessage });
-                        return Promise.resolve(null);
+                        return; // Promise.resolve(null) の代わりに直接 return
                     }
                 } else {
                     await client.replyMessage(event.replyToken, { type: 'text', text: `!reply user [userId] [メッセージ] の形式で入力してください。` });
-                    return Promise.resolve(null);
+                    return; // Promise.resolve(null) の代わりに直接 return
                 }
             }
         }
@@ -1767,12 +1767,12 @@ async function handleEvent(event) {
         }
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText }); // ⭐ sourceIdではなくevent.replyTokenを使用 ⭐
         await logToDb(userId, userMessage, replyText, "AdminCommand", `admin_command_${command}`);
-        return Promise.resolve(null); // 管理者コマンド処理終了
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // ⭐ 5. グループチャットからの非管理者メッセージは無視 ⭐
     if (event.source.type === 'group') {
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // ここから個人チャットの処理
@@ -1788,7 +1788,7 @@ async function handleEvent(event) {
     if (user.registrationStep) {
         const registrationHandled = await handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, db.collection('users'));
         if (registrationHandled) {
-            return Promise.resolve(null); // 登録フローで処理が完結した場合は、ここで終了
+            return; // 登録フローで処理が完結した場合は、ここで終了
         }
     }
 
@@ -1796,7 +1796,7 @@ async function handleEvent(event) {
     // handleWatchServiceRegistration がtrueを返したら、そのイベントはそこで処理終了
     // handleWatchServiceRegistration 内の返信は replyMessage で行うため、ここでは safePushMessage を使用しない
     if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
-        return Promise.resolve(null);
+        return;
     }
 
 
@@ -1805,48 +1805,66 @@ async function handleEvent(event) {
     if ((userMessage.includes("会員登録") || userMessage.includes("登録したい")) && !user.completedRegistration) {
         // ここで user.registrationStep = 'askingCategory' を設定する
         await updateUserData(userId, { registrationStep: 'askingCategory' }); // 新しいステップを設定
-        await client.replyMessage(event.replyToken, { // replyMessageで即時応答
-            type: "flex",
-            altText: "会員登録メニュー",
-            contents: REGISTRATION_BUTTONS_FLEX
-        });
-        await logToDb(userId, userMessage, "会員登録メニュー表示", "System", "registration_start");
-        return Promise.resolve(null); // 処理終了
+        try { // replyMessageで即時応答
+            await client.replyMessage(event.replyToken, {
+                type: "flex",
+                altText: "会員登録メニュー",
+                contents: REGISTRATION_BUTTONS_FLEX
+            });
+            await logToDb(userId, userMessage, "会員登録メニュー表示", "System", "registration_start");
+        } catch (replyError) {
+            console.error(`❌ 会員登録メニュー replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+            await safePushMessage(userId, { type: "flex", altText: "会員登録メニュー", contents: REGISTRATION_BUTTONS_FLEX });
+            await logErrorToDb(userId, `会員登録メニュー replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
+        return; // Promise.resolve(null) の代わりに直接 return
     } else if ((userMessage.includes("会員登録") || userMessage.includes("登録したい")) && user.completedRegistration) {
         // 既に登録済みの場合
-        await client.replyMessage(event.replyToken, { type: 'text', text: 'すでに会員登録は完了しているよ🌸 いつでもお話ししてね💖' });
-        await logToDb(userId, userMessage, '会員登録済み', 'System', 'registration_already_completed');
-        return Promise.resolve(null); // 処理終了
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: 'すでに会員登録は完了しているよ🌸 いつでもお話ししてね💖' });
+            await logToDb(userId, userMessage, '会員登録済み', 'System', 'registration_already_completed');
+        } catch (replyError) {
+            console.error(`❌ 会員登録済み replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+            await safePushMessage(userId, { type: 'text', text: 'すでに会員登録は完了しているよ🌸 いつでもお話ししてね💖' });
+            await logErrorToDb(userId, `会員登録済み replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // --- 登録情報変更の処理 ---
     if (userMessage.includes("登録情報変更") || userMessage.includes("情報変更")) {
         const changeInfoUrl = `${CHANGE_INFO_FORM_URL}?${CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
-        await client.replyMessage(event.replyToken, {
-            type: "flex",
-            altText: "登録情報変更",
-            contents: {
-                "type": "bubble",
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        { "type": "text", "text": "📝登録情報変更📝", "weight": "bold", "color": "#FF69B4", "size": "lg" },
-                        { "type": "text", "text": "登録情報の変更はこちらからできるよ！\n新しい情報で、こころちゃんともっと繋がろうね💖", "wrap": true, "margin": "md", "size": "sm" }
-                    ]
-                },
-                "footer": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "spacing": "sm",
-                    "contents": [
-                        { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "登録情報を変更する", "uri": changeInfoUrl }, "color": "#d63384" }
-                    ]
+        try {
+            await client.replyMessage(event.replyToken, {
+                type: "flex",
+                altText: "登録情報変更",
+                contents: {
+                    "type": "bubble",
+                    "body": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            { "type": "text", "text": "📝登録情報変更📝", "weight": "bold", "color": "#FF69B4", "size": "lg" },
+                            { "type": "text", "text": "登録情報の変更はこちらからできるよ！\n新しい情報で、こころちゃんともっと繋がろうね💖", "wrap": true, "margin": "md", "size": "sm" }
+                        ]
+                    },
+                    "footer": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "spacing": "sm",
+                        "contents": [
+                            { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "登録情報を変更する", uri: changeInfoUrl }, "color": "#d63384" }
+                        ]
+                    }
                 }
-            }
-        });
-        await logToDb(userId, userMessage, "登録情報変更メニュー表示", "System", "registration_change_info");
-        return Promise.resolve(null); // 処理終了
+            });
+            await logToDb(userId, userMessage, "登録情報変更メニュー表示", "System", "registration_change_info");
+        } catch (replyError) {
+            console.error(`❌ 登録情報変更 replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+            await safePushMessage(userId, { type: "flex", altText: "登録情報変更", contents: REGISTRATION_BUTTONS_FLEX }); // Fallback to a simpler message or a generic one if flex fails.
+            await logErrorToDb(userId, `登録情報変更 replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // --- 危険ワード検知 ---
@@ -1885,7 +1903,7 @@ async function handleEvent(event) {
                  await logErrorToDb(userId, `Danger cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
             }
         }
-        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // --- 詐欺ワード検知 ---
@@ -1924,7 +1942,7 @@ async function handleEvent(event) {
                 await logErrorToDb(userId, `Scam cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
             }
         }
-        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // --- 不適切ワード検知 ---
@@ -1937,7 +1955,7 @@ async function handleEvent(event) {
             await safePushMessage(userId, { type: 'text', text: replyText });
             await logErrorToDb(userId, `Inappropriate word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
         }
-        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // --- 固定応答のチェック ---
@@ -1957,7 +1975,7 @@ async function handleEvent(event) {
                 await safePushMessage(userId, { type: 'text', text: specialReply });
                 await logErrorToDb(userId, `Consultation mode replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
             }
-            return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+            return; // Promise.resolve(null) の代わりに直接 return
         } else if (
             !(userMessage.toLowerCase().includes("claris") && userMessage.toLowerCase().includes("関係ある")) &&
             !(userMessage.toLowerCase().includes("コネクト") && userMessage.toLowerCase().includes("関係ない"))
@@ -1971,7 +1989,7 @@ async function handleEvent(event) {
                 await safePushMessage(userId, { type: 'text', text: specialReply });
                 await logErrorToDb(userId, `Special replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
             }
-            return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+            return; // Promise.resolve(null) の代わりに直接 return
         }
         // ここに到達した場合は、AI応答生成に進む（ClariS/コネクト関連の特殊な固定応答）
     }
@@ -1985,7 +2003,7 @@ async function handleEvent(event) {
             await safePushMessage(userId, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
             await logErrorToDb(userId, `Organization inquiry replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
         }
-        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // ⭐ 宿題に関する問い合わせ (成人ユーザーはAIで回答) ⭐
@@ -1999,7 +2017,7 @@ async function handleEvent(event) {
             await safePushMessage(userId, { type: 'text', text: replyText });
             await logErrorToDb(userId, `Homework query replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
         }
-        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
 
@@ -2019,9 +2037,9 @@ async function handleEvent(event) {
             await logToDb(userId, userMessage, replyText, "System", "exceed_limit");
         } catch (replyError) {
             await safePushMessage(userId, { type: 'text', text: replyText });
-            await logErrorToDb(userId, `Exceed limit replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+            await logErrorToDb(userId, `Exceed limit replyMessage失敗、safePushMessageでフォールback`, { error: replyError.message, userMessage: userMessage });
         }
-        return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // --- AIモデルの選択 ---
@@ -2080,7 +2098,7 @@ async function handleEvent(event) {
         await logToDb(userId, userMessage, replyText, "System", "ai_generation_error");
     }
 
-    return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+    return; // Promise.resolve(null) の代わりに直接 return
 }
 
 // --- Postbackイベントハンドラ ---
@@ -2090,10 +2108,18 @@ async function handlePostbackEvent(event) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("userIdが取得できないPostbackイベントでした。無視します。", event);
         }
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
 
     const userId = event.source.userId;
+
+    // ⭐ 応答クールダウンチェックを最速で実施 ⭐
+    if (!isBotAdmin(userId)) { // 管理者以外のユーザーにのみ適用
+        if (!(await shouldRespond(userId))) {
+            return; // クールダウン中なので処理を終了
+        }
+    }
+
     const data = new URLSearchParams(event.postback.data);
     const action = data.get('action');
 
@@ -2138,11 +2164,11 @@ async function handlePostbackEvent(event) {
                     await safePushMessage(userId, { type: 'text', text: replyText });
                     await logErrorToDb(userId, `Watch service postback replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
                 }
-                return Promise.resolve(null); // ⭐ ここで処理を終了 ⭐
+                return; // Promise.resolve(null) の代わりに直接 return
             } catch (error) {
                 console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
                 await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId: userId });
-                return Promise.resolve(null);
+                return; // Promise.resolve(null) の代わりに直接 return
             }
         }
     }
@@ -2197,9 +2223,9 @@ async function handlePostbackEvent(event) {
                                 type: 'box',
                                 layout: 'vertical',
                                 contents: [
-                                    { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
-                                    { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
-                                    { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                                    { type: "text", text: "💖緊急連絡先登録💖", weight: "bold", size: "lg", color: "#FF69B4", align: "center" },
+                                    { type: "text", text: "安全のために、緊急連絡先を登録してね！", wrap: true, margin: "md" },
+                                    { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
                                 ]
                             }
                         }
@@ -2214,9 +2240,9 @@ async function handlePostbackEvent(event) {
                                 type: 'box',
                                 layout: 'vertical',
                                 contents: [
-                                    { type: 'text', text: '💖緊急連絡先登録💖', weight: 'bold', size: 'lg', color: "#FF69B4", align: 'center' },
-                                    { type: 'text', text: '安全のために、緊急連絡先を登録してね！', wrap: true, margin: 'md' },
-                                    { type: 'button', style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
+                                    { type: "text", text: "💖緊急連絡先登録💖", weight: "bold", size: "lg", color: "#FF69B4", align: "center" },
+                                    { type: "text", text: "安全のために、緊急連絡先を登録してね！", wrap: true, margin: "md" },
+                                    { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, margin: "md", color: "#d63384" }
                                 ]
                             }
                         }
@@ -2233,7 +2259,7 @@ async function handlePostbackEvent(event) {
                     emergencyNotificationSent: false
                 });
                 logToDb(userId, `Postback: ${event.postback.data}`, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
-                return Promise.resolve(null); // ここで処理を終了
+                return; // Promise.resolve(null) の代わりに直接 return
             }
             break;
         default:
@@ -2249,7 +2275,7 @@ async function handlePostbackEvent(event) {
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logErrorToDb(userId, `Default postback replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
     }
-    return Promise.resolve(null);
+    return; // Promise.resolve(null) の代わりに直接 return
 }
 
 // --- Followイベントハンドラ ---
@@ -2259,7 +2285,7 @@ async function handleFollowEvent(event) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("userIdが取得できないFollowイベントでした。無視します。", event);
         }
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
     const userId = event.source.userId;
     if (process.env.NODE_ENV !== 'production') {
@@ -2302,7 +2328,7 @@ async function handleFollowEvent(event) {
         await safePushMessage(userId, [welcomeMessage, registrationFlex]);
         await logErrorToDb(userId, `Follow event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userId: userId });
     }
-    return Promise.resolve(null);
+    return; // Promise.resolve(null) の代わりに直接 return
 }
 
 // --- Unfollowイベントハンドラ ---
@@ -2312,7 +2338,7 @@ async function handleUnfollowEvent(event) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("userIdが取得できないUnfollowイベントでした。無視します。", event);
         }
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
     const userId = event.source.userId;
     if (process.env.NODE_ENV !== 'production') {
@@ -2321,7 +2347,7 @@ async function handleUnfollowEvent(event) {
     // ユーザーデータを削除する代わりに、ステータスを更新するなどの処理を検討
     // 例: await db.collection('users').doc(userId).update({ isActive: false });
     await logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォロー", "System", "system_unfollow");
-    return Promise.resolve(null);
+    return; // Promise.resolve(null) の代わりに直接 return
 }
 
 // --- Joinイベントハンドラ (グループ参加時) ---
@@ -2331,7 +2357,7 @@ async function handleJoinEvent(event) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("groupIdが取得できないJoinイベントでした。無視します。", event);
         }
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
     const groupId = event.source.groupId;
     if (process.env.NODE_ENV !== 'production') {
@@ -2344,7 +2370,7 @@ async function handleJoinEvent(event) {
         await safePushMessage(groupId, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
         await logErrorToDb(groupId, `Join event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, groupId: groupId });
     }
-    return Promise.resolve(null);
+    return; // Promise.resolve(null) の代わりに直接 return
 }
 
 // --- Leaveイベントハンドラ (グループ退出時) ---
@@ -2354,14 +2380,14 @@ async function handleLeaveEvent(event) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("groupIdが取得できないLeaveイベントでした。無視します。", event);
         }
-        return Promise.resolve(null);
+        return; // Promise.resolve(null) の代わりに直接 return
     }
     const groupId = event.source.groupId;
     if (process.env.NODE_ENV !== 'production') {
         console.log(`❌ ボットがグループから退出しました: ${groupId}`);
     }
     await logToDb(groupId, "グループ退出イベント", "ボットがグループから退出", "System", "system_leave");
-    return Promise.resolve(null);
+    return; // Promise.resolve(null) の代わりに直接 return
 }
 
 // --- LINE Webhook ---
