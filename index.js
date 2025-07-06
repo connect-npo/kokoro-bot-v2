@@ -767,6 +767,7 @@ ${userConfig.isChildAI ? `
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
 「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
 `;
+
     systemInstruction += userConfig.systemInstructionModifier;
 
     const currentHour = new Date().getHours();
@@ -1698,10 +1699,33 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
 }
 
 
+// ⭐ メッセージ応答のクールダウンを管理する関数 ⭐
+async function shouldRespond(userId) {
+    const docRef = db.collection('replyLocks').doc(userId);
+    const doc = await docRef.get();
+    const now = admin.firestore.Timestamp.now().toMillis(); // Firestore Timestampからミリ秒を取得
+
+    // 5秒以内は無視
+    const COOLDOWN_PERIOD_MS = 5000; 
+
+    if (doc.exists) {
+        const lastTime = doc.data().lastRepliedAt || 0;
+        if (now - lastTime < COOLDOWN_PERIOD_MS) {
+            if (process.env.NODE_ENV !== 'production') {
+                console.log(`⚠️ ユーザー ${userId} への応答クールダウン中。`);
+            }
+            return false; 
+        }
+    }
+
+    // 応答可能なので、タイムスタンプを更新
+    await docRef.set({ lastRepliedAt: now }, { merge: true });
+    return true;
+}
+
 // --- LINEイベントハンドラ ---
 async function handleEvent(event) {
     // ⭐ 1. イベントの基本的な健全性チェック ⭐
-    // event.source, event.message が存在しない、またはメッセージがテキストタイプではない場合は無視
     if (!event || !event.source || !event.message || event.message.type !== 'text') {
         if (process.env.NODE_ENV !== 'production') {
             console.log("Non-text message or malformed event received. Ignoring:", event);
@@ -1726,6 +1750,16 @@ async function handleEvent(event) {
         }
         return Promise.resolve(null);
     }
+
+    // ⭐ 応答クールダウンチェックを最速で実施 ⭐
+    // PostbackイベントにはreplyTokenがあるが、messageイベントが高速で複数来ることがあるため、
+    // ここでクールダウンチェックをかける。ただし、管理者コマンドは除外。
+    if (!isBotAdmin(userId)) { // 管理者以外のユーザーにのみ適用
+        if (!(await shouldRespond(userId))) {
+            return Promise.resolve(null); // クールダウン中なので処理を終了
+        }
+    }
+
 
     const userMessage = event.message.text;
     const lowerUserMessage = userMessage.toLowerCase();
@@ -2319,7 +2353,7 @@ async function handlePostbackEvent(event) {
 
 // --- Followイベントハンドラ ---
 async function handleFollowEvent(event) {
-    // userIdが取得できない場合は無視
+    // ⭐ userIdを安全に取得 ⭐
     if (!event.source || !event.source.userId) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("userIdが取得できないFollowイベントでした。無視します。", event);
@@ -2372,7 +2406,7 @@ async function handleFollowEvent(event) {
 
 // --- Unfollowイベントハンドラ ---
 async function handleUnfollowEvent(event) {
-    // userIdが取得できない場合は無視
+    // ⭐ userIdを安全に取得 ⭐
     if (!event.source || !event.source.userId) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("userIdが取得できないUnfollowイベントでした。無視します。", event);
@@ -2391,7 +2425,7 @@ async function handleUnfollowEvent(event) {
 
 // --- Joinイベントハンドラ (グループ参加時) ---
 async function handleJoinEvent(event) {
-    // groupIdが取得できない場合は無視
+    // ⭐ groupIdを安全に取得 ⭐
     if (!event.source || !event.source.groupId) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("groupIdが取得できないJoinイベントでした。無視します。", event);
@@ -2414,7 +2448,7 @@ async function handleJoinEvent(event) {
 
 // --- Leaveイベントハンドラ (グループ退出時) ---
 async function handleLeaveEvent(event) {
-    // groupIdが取得できない場合は無視
+    // ⭐ groupIdを安全に取得 ⭐
     if (!event.source || !event.source.groupId) {
         if (process.env.NODE_ENV !== 'production') {
             console.log("groupIdが取得できないLeaveイベントでした。無視します。", event);
