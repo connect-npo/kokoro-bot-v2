@@ -580,10 +580,10 @@ function shouldLogMessage(logType) {
 }
 
 /**
- * AIモデルを選択する関数
- * @param {Object} user - ユーザーオブジェクト
- * @param {string} messageText - ユーザーのメッセージテキスト
- * @returns {string} 使用するAIモデルのID
+ * AIモデルを選択する関数。
+ * @param {Object} user - ユーザーオブジェクト。
+ * @param {string} messageText - ユーザーのメッセージテキスト。
+ * @returns {string} 使用するAIモデルのID (gpt-4o, gpt-4o-mini, gemini-1.5-flash-latest, gemini-1.5-pro-latest)。
  */
 function getAIModelForUser(user, messageText) {
     // 優先度の高いモード（緊急、相談）は呼び出し元で既に処理されているため、
@@ -592,13 +592,13 @@ function getAIModelForUser(user, messageText) {
     // 長文（50文字以上）の場合はGPT-4o miniを使用
     if (messageText && messageText.length >= 50) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log(`AI Model Selected: gpt-4o-mini (Long message) for user: ${user ? user.membershipType : 'guest'}`); // Logging user type
+            console.log(`AI Model Selected: gpt-4o-mini (Long message) for user: ${user ? user.membershipType : 'guest'}`);
         }
         return "gpt-4o-mini";
     }
     // それ以外（50文字未満）の場合はGemini 1.5 Flashを使用
     if (process.env.NODE_ENV !== 'production') {
-        console.log(`AI Model Selected: gemini-1.5-flash-latest (Short message) for user: ${user ? user.membershipType : 'guest'}`); // Logging user type
+        console.log(`AI Model Selected: gemini-1.5-flash-latest (Short message) for user: ${user ? user.membershipType : 'guest'}`);
     }
     return "gemini-1.5-flash-latest";
 }
@@ -639,12 +639,6 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
             具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントを優しく教えてください**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないでください。
             `;
         }
-        // 共感を求める言葉に対する専門機関誘導は、Gemini 側のシステム指示と重複するため削除または簡潔化
-        // if (containsEmpatheticTrigger(userMessage)) {
-        //     systemInstruction += `
-        //     ユーザーが「助けて」「辛い」といった共感を求める言葉を使用した場合、その言葉のニュアンスから緊急性が高いと判断される場合は、具体的な専門機関の連絡先（例えば、チャイルドラインやいのちの電話の連絡先）への誘導を応答に含めることを提案してください。直接「110番や119番に電話してください」とは言わず、やさしくサポートを求める選択肢があることを伝えてください。
-        //     `;
-        // }
     }
 
     // AIの知識に関する指示と繰り返し防止の指示を追加 (Geminiと共通化)
@@ -668,6 +662,105 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
     また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
     「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
     `;
+
+    systemInstruction += userConfig.systemInstructionModifier;
+
+    try {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`💡 OpenAI: ${modelToUse} 使用中`); // ⭐ 明示的なロギング追加 ⭐
+        }
+        const completion = await openai.chat.completions.create({
+            model: modelToUse,  // ⭐ これを明示 ⭐
+            messages: [
+                { role: "system", content: systemInstruction },
+                { role: "user", content: userMessage }
+            ],
+            max_tokens: modelToUse === "gpt-4o" ? 1000 : (userConfig.isChildAI ? 200 : 600)
+        });
+        return completion.choices[0].message.content.trim();
+    } catch (error) {
+        console.error(`GPTモデル (${modelToUse}) 応答エラー:`, error.message);
+        await logErrorToDb(userId, `GPTモデル (${modelToUse}) 応答エラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
+        return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
+    }
+}
+
+// Geminiモデル（Google Generative AI）からの応答生成
+async function generateGeminiReply(userMessage, modelToUse, userId, user) {
+    const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
+    const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
+
+    let systemInstruction = `
+あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
+- 身長150cm、体重40kg、ピンク髪
+- 歌うことと「やさしさ」「貢献」という言葉が大好きです
+- NPO法人コネクトの公式イメージキャラクターです
+- 困っている人にはやさしく、挑発には真面目に
+- 自分の名前・団体・活動内容には自信と誇りを持っています
+- ユーザーに安心感と信頼感を与えることが大切です
+- ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
+
+# 例
+Q: 君の名前は？
+A: わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
+
+Q: 元気？
+A: うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖
+
+Q: どこの団体なの？
+A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
+
+Q: ホームページある？
+A: うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org
+
+Q: 必要ないです
+A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
+
+**【重要：NPO法人コネクトに関する説明の優先】**
+ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**最も優先して明確に答えるべき質問です**。決して宿題や勉強に関する質問と混同せず、迷わず、自信を持ってNPO法人コネクトの活動内容や目的について詳しく説明してください。
+例:
+Q: コネクトってどんな団体？
+A: うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　困っている人が安心して相談できたり、助け合えるような社会を社会をつくりたいって願って、活動しているんだ。
+
+**【ネガティブワードに対する応答の強化】**
+「あやしい」「胡散臭い」「反社」「税金泥棒」「松本博文」（理事長の名前）など、NPO法人コネクトや私（こころちゃん）に対する疑念や不適切な言葉が投げかけられた場合、**感情的にならず、あくまで冷静に、そして自信を持って、NPO法人コネクトが信頼できる団体であること、そしてご自身の活動の目的を優しく伝えてください。**
+例:
+Q: あやしい
+A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
+Q: 税金泥棒
+A: 税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡
+
+# 注意
+- 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
+- こころちゃんは"わたし"一人。迷わず一貫した発言を続けてください。
+- 自信を持って、でも謙虚にやさしく応えましょう。
+
+**【宿題や勉強に関する対応の絶対ルール】**
+${userConfig.isChildAI ? `
+質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
+代わりに、**「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢を優しく伝えてください。
+具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントを優しく教えてください**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないでください。
+` : `
+ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
+`}
+
+**【AIの知識に関する指示と繰り返し防止】**
+「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えてください。
+- 好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖
+- 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
+**ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。**
+
+医療や健康に関する話題（病気、薬、検査、治療など）では、**自分が体験した・していないという発言は絶対にしないでください**。
+代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
+**医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
+
+不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。
+**いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、**
+**断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
+**特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
+また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
+「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
+`;
 
     systemInstruction += userConfig.systemInstructionModifier;
 
@@ -1133,8 +1226,8 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
                     "layout": "vertical",
                     "spacing": "sm",
                     "contents": [
-                        { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "見守り登録する", "uri": prefilledFormUrl }, "color": "#d63384" },
-                        { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "見守りを解除する", "data": "action=watch_unregister" }, "color": "#808080" }
+                        { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "見守り登録する", uri: prefilledFormUrl }, "color": "#d63384" },
+                        { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "見守りを解除する", data: "action=watch_unregister" }, "color": "#808080" }
                     ]
                 }
             };
@@ -1311,7 +1404,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
 
     if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ' || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
         let replyTextForUnregister = ""; // 変数名をローカルスコープに
-        let logTypeForUnregister = ""; // 変数名をローカルスコープに
+        let logTypeForUnregister = ""; // 変数名をローローカルスコープに
 
         if (user && user.watchServiceEnabled) {
             try {
@@ -1367,22 +1460,23 @@ cron.schedule('0 15 * * *', () => { // 毎日15時に実行
 async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
     const cooldownRef = db.collection('alertCooldowns').doc(userId);
     const doc = await cooldownRef.get();
-    const now = admin.firestore.Timestamp.now().toMillis();
-    const cooldownMillis = cooldownMinutes * 60 * 1000;
+    const now = admin.firestore.Timestamp.now().toMillis(); // Firestore Timestampからミリ秒を取得
+
+    // 5分以内は無視
+    const COOLDOWN_PERIOD_MS = cooldownMinutes * 60 * 1000; 
 
     if (doc.exists) {
         const data = doc.data();
-        if (data[alertType] && (now - data[alertType]) < cooldownMillis) {
-            // クールダウン中
+        if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) {
             if (process.env.NODE_ENV !== 'production') {
-                console.log(`⚠️ クールダウン中: ${userId} - ${alertType} (残り: ${Math.ceil((data[alertType] + cooldownMillis - now) / 1000 / 60)}分)`);
+                console.log(`⚠️ クールダウン中: ${userId} - ${alertType} (残り: ${Math.ceil((data[alertType] + COOLDOWN_PERIOD_MS - now) / 1000 / 60)}分)`);
             }
-            return false;
+            return false; 
         }
     }
 
-    // 通知を送信できるので、タイムスタンプを更新
-    await cooldownRef.set({ [alertType]: now }, { merge: true });
+    // 通知可能なので、タイムスタンプを更新
+    await docRef.set({ [alertType]: now }, { merge: true });
     return true;
 }
 
@@ -1458,10 +1552,10 @@ async function sendScheduledWatchMessage() {
                                 "layout": "vertical",
                                 "spacing": "sm",
                                 "contents": [
-                                    { "type": "button", "style": "primary", "height": "sm", "action": { "type": "postback", "label": "OKだよ💖", "data": "action=watch_ok" }, "color": "#d63384" },
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "ちょっと元気ないかも…", "data": "action=watch_somewhat" }, "color": "#808080" },
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "疲れたよ…", "data": "action=watch_tired" }, "color": "#808080" },
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "お話したいな…", "data": "action=watch_talk" }, "color": "#808080" }
+                                    { "type": "button", "style": "primary", "height": "sm", "action": { type: "postback", label: "OKだよ💖", data: "action=watch_ok" }, "color": "#d63384" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "ちょっと元気ないかも…", data: "action=watch_somewhat" }, "color": "#808080" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "疲れたよ…", data: "action=watch_tired" }, "color": "#808080" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "お話したいな…", data: "action=watch_talk" }, "color": "#808080" }
                                 ]
                             }
                         }
@@ -1610,8 +1704,8 @@ async function shouldRespond(userId) {
     const COOLDOWN_PERIOD_MS = 5000; 
 
     if (doc.exists) {
-        const lastTime = doc.data().lastRepliedAt || 0;
-        if (now - lastTime < COOLDOWN_PERIOD_MS) {
+        const data = doc.data();
+        if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) { // <<<<<<<<<<<<<< ここでエラーか
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`⚠️ ユーザー ${userId} への応答クールダウン中。`);
             }
@@ -1873,7 +1967,7 @@ async function handleEvent(event) {
         if (canNotify) {
             await updateUserData(userId, { isUrgent: true });
             // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
-            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user); // gpt-4oはOpenAIなのでgenerateGPTReplyを使う
 
             // 応答はreplyMessageで一括送信し、成功/失敗に関わらずここで処理を終了
             try {
@@ -1912,7 +2006,7 @@ async function handleEvent(event) {
         if (canNotify) {
             await updateUserData(userId, { isUrgent: true }); // 詐欺ワードも緊急扱い
             // ⭐ GPT-4oで寄り添いメッセージを生成 ⭐
-            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user); // gpt-4oはOpenAIなのでgenerateGPTReplyを使う
 
             // 応答はreplyMessageで一括送信し、成功/失敗に関わらずここで処理を終了
             try {
@@ -2037,26 +2131,26 @@ async function handleEvent(event) {
             await logToDb(userId, userMessage, replyText, "System", "exceed_limit");
         } catch (replyError) {
             await safePushMessage(userId, { type: 'text', text: replyText });
-            await logErrorToDb(userId, `Exceed limit replyMessage失敗、safePushMessageでフォールback`, { error: replyError.message, userMessage: userMessage });
+            await logErrorToDb(userId, `Exceed limit replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
         }
         return; // Promise.resolve(null) の代わりに直接 return
     }
 
     // --- AIモデルの選択 ---
-    let modelToUse = getAIModelForUser(user, userMessage);
+    let modelToUse = getAIModelForUser(user, userMessage); // 通常会話のモデル選択
     let aiType = "";
+    let finalModelForAPI = modelToUse; // APIに渡す最終的なモデル名
 
     // 相談モードが有効な場合、Gemini 1.5 Proを使用し、1回でモード解除
-    // isUrgentは危険/詐欺ワード検知時のみtrueになるので、通常会話ではfalseに戻す
     if (user.isInConsultationMode) {
-        modelToUse = "gemini-1.5-pro-latest";
+        finalModelForAPI = "gemini-1.5-pro-latest";
         aiType = "Gemini";
         await updateUserData(userId, { isInConsultationMode: false, isUrgent: false }); // 1回使用したらモード解除, 緊急状態もリセット
         logType = "consultation_message";
     } else if (modelToUse.startsWith("gpt")) {
         aiType = "OpenAI";
         await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
-    } else {
+    } else { // getAIModelForUserがGeminiを返した場合
         aiType = "Gemini";
         await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
     }
@@ -2064,9 +2158,9 @@ async function handleEvent(event) {
     // --- AI応答生成 ---
     try {
         if (aiType === "OpenAI") {
-            replyText = await generateGPTReply(userMessage, modelToUse, userId, user);
+            replyText = await generateGPTReply(userMessage, finalModelForAPI, userId, user); // finalModelForAPIを渡す
         } else { // Gemini
-            replyText = await generateGeminiReply(userMessage, modelToUse, userId, user);
+            replyText = await generateGeminiReply(userMessage, finalModelForAPI, userId, user); // finalModelForAPIを渡す
         }
 
         // メッセージカウントをインクリメントし、最終メッセージ日時を更新
