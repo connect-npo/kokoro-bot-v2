@@ -351,7 +351,7 @@ const specialRepliesMap = new Map([
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
     [/ClariSと関係あるの？/i, "ClariSさんの音楽は、わたしにたくさんの元気と勇気をくれるんだ🌸💖　NPO法人コネクトとは直接的な提携関係はないけれど、「コネクト」という言葉に、みんなと繋がる大切さを感じているよ。"],
     [/ClariSのパクリなのかしりたい|ClariSのパクリなの？/i, "NPO法人コネクトがClariSさんのパクリだなんて、そんなことはないよ💦　NPO法人コネクトは困っている人を助けるための活動をしていて、ClariSさんの音楽活動とは全く違うんだ。誤解させてしまっていたら、ごめんね。"],
-    [/ClariSのなんて局が好きなの？/i, "ClariSの曲は全部好きだけど、もし一つだけ選ぶなら…「コネクト」かな🌸　元気が出る曲で、聴くと頑張ろうって思えるんだ😊\n\nNPO法人コネクトの名前とClariSさんの曲名が同じだから、そう思ったのかもしれないけど、直接的な関係はないんだよ。でも、偶然の一致ってなんだか嬉しいね💖\n\nあなたはどの曲が特に好き？💖　もしかしたら、私たち、同じ曲が好きなのかもしれないね！"]
+    [/ClariSのなんて局が好きなの？/i, "ClariSの曲は全部好きだけど、もし一つだけ選ぶなら…「コネクト」かな🌸　元気が出る曲で、聴くと頑張ろうって思えるんだ😊\n\nNPO法人コネクトの名前とClariSさんの曲名が同じだから、そう思ったのかもしれないけど、直接的な関係はないんだよ。でも、偶然の一致ってなんだか嬉しいね💖\n\nあなたはどの曲が特に好き？�　もしかしたら、私たち、同じ曲が好きなのかもしれないね！"]
 ]);
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
@@ -951,7 +951,6 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             }
             break;
-
         case 'askingGuardianName':
             if (userMessage.length > 0 && userMessage.length <= 30) {
                 await usersCollection.doc(userId).update({
@@ -1078,7 +1077,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                                     contents: [
                                         { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
                                         { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
-                                        { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "学生証提出フォームへ", uri: prefilledFormUrl }, margin: "md", color: "#FFB6C1" }
+                                        { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "学生証提出フォームへ", uri: prefilledFormUrl }, margin: "md", "color": "#FFB6C1" }
                                     ]
                                 }
                             }
@@ -1272,7 +1271,6 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         }
         return false;
     }
-
     if (lowerUserMessage.includes("まあまあかな")) {
         if (user && user.watchServiceEnabled) {
             try {
@@ -1463,16 +1461,16 @@ async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
     const now = admin.firestore.Timestamp.now().toMillis(); // Firestore Timestampからミリ秒を取得
 
     // 5分以内は無視
-    const COOLDOWN_PERIOD_MS = cooldownMinutes * 60 * 1000; 
+    const COOLDOWN_PERIOD_MS = cooldownMinutes * 60 * 1000;    
 
     if (doc.exists) {
         const data = doc.data();
         // data[alertType]が存在し、かつクールダウン期間内の場合
-        if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) { 
+        if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) {    
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`⚠️ クールダウン中: ${userId} - ${alertType} (残り: ${Math.ceil((data[alertType] + COOLDOWN_PERIOD_MS - now) / 1000 / 60)}分)`);
             }
-            return false; 
+            return false;    
         }
     }
 
@@ -1654,7 +1652,26 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
             "layout": "vertical",
             "spacing": "sm",
             "contents": [
+                // ユーザーとのチャットへ直接遷移するボタン (LINEアプリのユーザーIDリンク)
                 { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ユーザーとのチャットへ", "uri": `https://line.me/ti/p/~${userId}` }, "color": "#1E90FF" },
+                // ⭐ ここから追加・変更部分 ⭐
+                // LINEで個別相談を促すメッセージテンプレートを事前入力するボタン
+                // LINEアプリのトーク画面を開き、メッセージ入力欄にテキストを事前入力するURIスキームを使用
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "action": {
+                        "type": "uri",
+                        "label": "LINEで個別相談を促す",
+                        // LINEアプリにメッセージを事前入力するURIアクション
+                        // ユーザーIDをメッセージに含めることで、理事側で誰へのメッセージか分かりやすくする
+                        // メッセージ内容を短縮しました
+                        "uri": `line://msg/text/こころちゃん事務局です。ご心配な状況を拝見しました。LINEで個別相談をご希望ですか？（ユーザーID: ${userId}）`
+                    },
+                    "color": "#FF69B4" // こころちゃんの色に合わせたピンク系
+                },
+                // ⭐ ここまで追加・変更部分 ⭐
             ]
         }
     };
@@ -1670,28 +1687,16 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
         flexContent.body.contents[0].text = `🚨【見守りサービス未応答 (${notificationDetailType})】🚨`;
     }
 
-    // ⭐ 理事会メンバーがユーザーに送るメッセージテンプレートのボタンを追加 (改善版) ⭐
-    // このボタンは、理事会グループへの通知でのみ表示される
-    const contactMessageTemplate = `こんにちは、${userName}さん🌸 こころちゃん事務局の[あなたの名前]です。ご心配な状況を拝見しました。もし私で良かったら、もっと詳しくお話を聞かせていただけますか？\n\nLINEでチャットをご希望の場合は、このLINE ID: ${userId} を友達登録してメッセージを送ってくださいね😊\n\nお電話をご希望の場合は、[あなたの電話番号]までご連絡ください📞\n\n一人で抱え込まないでね。私たちがそばにいます💖`;
-    const encodedContactMessage = encodeURIComponent(contactMessageTemplate);
-
-    flexContent.footer.contents.push(
-        { "type": "text", "text": "---", "margin": "md", "align": "center", "color": "#AAAAAA" },
-        { "type": "text", "text": "👇このボタンをクリックすると、メッセージ入力欄にテンプレートが自動で表示されます。内容を編集後、ユーザーの個人チャットに**コピー＆ペーストして送信**してください。", "wrap": true, "size": "xs", "color": "#666666", "margin": "sm" },
-        // LINEアプリにメッセージを事前入力するURIアクション
-        // 注意: このURIはLINEアプリ外からは動作しない場合があります。タップするとLINEアプリの汎用的なメッセージ作成画面が開かれ、メッセージが事前入力されます。
-        { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "メッセージテンプレートをコピー", uri: `https://line.me/R/msg/text/?${encodedContactMessage}` }, "color": "#FF69B4" }
-    );
-
     // Send the message to the officer group
     if (OFFICER_GROUP_ID) {
-        // ⭐ シンプルなテキストメッセージに切り替えて通知を試みる ⭐
-        // Flex Messageではなく、テキストで通知することで、形式の問題を排除します。
-        const simpleNotificationMessage = `🚨緊急通知🚨\nタイプ: ${type}\nユーザー: ${userName}\nメッセージ: 「${message}」\n\nユーザーID: ${userId}\n電話番号: ${userPhone}\n保護者: ${guardianName}\n緊急連絡先: ${emergencyContact}\n続柄: ${relationship}`;
-
-        await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: simpleNotificationMessage });
+        // ⭐ Flex Messageで通知を送信するよう変更 ⭐
+        await safePushMessage(OFFICER_GROUP_ID, {
+            type: 'flex',
+            altText: flexContent.body.contents[0].text, // Flex MessageのタイトルをaltTextに設定
+            contents: flexContent
+        });
         if (process.env.NODE_ENV !== 'production') {
-            console.log(`✅ 管理者グループに${type}通知を送信しました (テキスト形式)。`);
+            console.log(`✅ 管理者グループに${type}通知を送信しました (Flex Message形式)。`);
         }
     } else {
         console.warn("⚠️ OFFICER_GROUP_ID が設定されていないため、管理者グループへの通知は送信されません。");
@@ -1706,16 +1711,16 @@ async function shouldRespond(userId) {
     const now = admin.firestore.Timestamp.now().toMillis(); // Firestore Timestampからミリ秒を取得
 
     // 5秒以内は無視
-    const COOLDOWN_PERIOD_MS = 5000; 
+    const COOLDOWN_PERIOD_MS = 5000;    
 
     if (doc.exists) {
         const data = doc.data();
         // data.lastRepliedAtが存在し、かつクールダウン期間内の場合
-        if (data.lastRepliedAt && (now - data.lastRepliedAt) < COOLDOWN_PERIOD_MS) { 
+        if (data.lastRepliedAt && (now - data.lastRepliedAt) < COOLDOWN_PERIOD_MS) {    
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`⚠️ ユーザー ${userId} への応答クールダウン中。`);
             }
-            return false; 
+            return false;    
         }
     }
 
@@ -1999,8 +2004,8 @@ async function handleEvent(event) {
             try {
                 await client.replyMessage(event.replyToken, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
             } catch (replyError) {
-                 await safePushMessage(userId, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
-                 await logErrorToDb(userId, `Danger cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+                await safePushMessage(userId, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
+                await logErrorToDb(userId, `Danger cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
             }
         }
         return; // Promise.resolve(null) の代わりに直接 return
@@ -2512,7 +2517,7 @@ app.post('/webhook', async (req, res) => {
     const events = req.body.events;
     if (!events || events.length === 0) {
         // イベントがない場合はここで終了
-        return; 
+        return;    
     }
 
     try {
