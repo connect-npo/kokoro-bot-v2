@@ -592,13 +592,13 @@ function getAIModelForUser(user, messageText) {
     // 長文（50文字以上）の場合はGPT-4o miniを使用
     if (messageText && messageText.length >= 50) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log(`AI Model Selected: gpt-4o-mini (Long message) for user: ${user ? user.membershipType : 'guest'}`);
+            console.log(`AI Model Selected: gpt-4o-mini (Long message) for user: ${user ? user.membershipType : 'guest'}`); // Logging user type
         }
         return "gpt-4o-mini";
     }
     // それ以外（50文字未満）の場合はGemini 1.5 Flashを使用
     if (process.env.NODE_ENV !== 'production') {
-        console.log(`AI Model Selected: gemini-1.5-flash-latest (Short message) for user: ${user ? user.membershipType : 'guest'}`);
+        console.log(`AI Model Selected: gemini-1.5-flash-latest (Short message) for user: ${user ? user.membershipType : 'guest'}`); // Logging user type
     }
     return "gemini-1.5-flash-latest";
 }
@@ -1458,7 +1458,7 @@ cron.schedule('0 15 * * *', () => { // 毎日15時に実行
  * @returns {Promise<boolean>} 通知を送信すべきならtrue、クールダウン中ならfalse
  */
 async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
-    const cooldownRef = db.collection('alertCooldowns').doc(userId);
+    const cooldownRef = db.collection('alertCooldowns').doc(userId); // ⭐ docRefをここで定義 ⭐
     const doc = await cooldownRef.get();
     const now = admin.firestore.Timestamp.now().toMillis(); // Firestore Timestampからミリ秒を取得
 
@@ -1467,7 +1467,8 @@ async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
 
     if (doc.exists) {
         const data = doc.data();
-        if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) {
+        // data[alertType]が存在し、かつクールダウン期間内の場合
+        if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) { 
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`⚠️ クールダウン中: ${userId} - ${alertType} (残り: ${Math.ceil((data[alertType] + COOLDOWN_PERIOD_MS - now) / 1000 / 60)}分)`);
             }
@@ -1476,7 +1477,7 @@ async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
     }
 
     // 通知可能なので、タイムスタンプを更新
-    await docRef.set({ [alertType]: now }, { merge: true });
+    await cooldownRef.set({ [alertType]: now }, { merge: true });
     return true;
 }
 
@@ -1696,7 +1697,7 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
 
 // ⭐ メッセージ応答のクールダウンを管理する関数 ⭐
 async function shouldRespond(userId) {
-    const docRef = db.collection('replyLocks').doc(userId);
+    const docRef = db.collection('replyLocks').doc(userId); // docRefの定義を関数内へ移動
     const doc = await docRef.get();
     const now = admin.firestore.Timestamp.now().toMillis(); // Firestore Timestampからミリ秒を取得
 
@@ -1705,7 +1706,8 @@ async function shouldRespond(userId) {
 
     if (doc.exists) {
         const data = doc.data();
-        if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) { // <<<<<<<<<<<<<< ここでエラーか
+        // data.lastRepliedAtが存在し、かつクールダウン期間内の場合
+        if (data.lastRepliedAt && (now - data.lastRepliedAt) < COOLDOWN_PERIOD_MS) { 
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`⚠️ ユーザー ${userId} への応答クールダウン中。`);
             }
@@ -2149,18 +2151,34 @@ async function handleEvent(event) {
         logType = "consultation_message";
     } else if (modelToUse.startsWith("gpt")) {
         aiType = "OpenAI";
+        // generateGPTReplyに渡すモデルはmodelToUseで決定されている
         await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
     } else { // getAIModelForUserがGeminiを返した場合
         aiType = "Gemini";
+        // generateGeminiReplyに渡すモデルはmodelToUseで決定されている
         await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
     }
 
     // --- AI応答生成 ---
     try {
         if (aiType === "OpenAI") {
-            replyText = await generateGPTReply(userMessage, finalModelForAPI, userId, user); // finalModelForAPIを渡す
-        } else { // Gemini
-            replyText = await generateGeminiReply(userMessage, finalModelForAPI, userId, user); // finalModelForAPIを渡す
+            // modelToUseが'gpt-4o'または'gpt-4o-mini'であることを確認
+            if (finalModelForAPI.startsWith("gpt")) {
+                replyText = await generateGPTReply(userMessage, finalModelForAPI, userId, user);
+            } else {
+                // ここに来ることは基本ないが、念のためエラーハンドリング
+                console.error(`AIモデル選択エラー: OpenAIタイプなのにGeminiモデル名(${finalModelForAPI})が指定されました。`);
+                replyText = "ごめんね、AIモデルの選択で問題が起きたみたい…💦";
+            }
+        } else { // aiType === "Gemini"
+            // modelToUseが'gemini-1.5-flash-latest'または'gemini-1.5-pro-latest'であることを確認
+            if (finalModelForAPI.startsWith("gemini")) {
+                replyText = await generateGeminiReply(userMessage, finalModelForAPI, userId, user);
+            } else {
+                // ここに来ることは基本ないが、念のためエラーハンドリング
+                console.error(`AIモデル選択エラー: GeminiタイプなのにOpenAIモデル名(${finalModelForAPI})が指定されました。`);
+                replyText = "ごめんね、AIモデルの選択で問題が起きたみたい…💦";
+            }
         }
 
         // メッセージカウントをインクリメントし、最終メッセージ日時を更新
