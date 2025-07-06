@@ -297,8 +297,8 @@ const watchServiceGuideFlexTemplate = {
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "見守り登録する", "uri": WATCH_SERVICE_FORM_BASE_URL }, "color": "#d63384" },
-            { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "見守りを解除する", "data": "action=watch_unregister" }, "color": "#808080" }
+            { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "見守り登録する", uri: WATCH_SERVICE_FORM_BASE_URL }, "color": "#d63384" },
+            { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "見守りを解除する", data: "action=watch_unregister" }, "color": "#808080" }
         ]
     }
 };
@@ -1458,7 +1458,7 @@ cron.schedule('0 15 * * *', () => { // 毎日15時に実行
  * @returns {Promise<boolean>} 通知を送信すべきならtrue、クールダウン中ならfalse
  */
 async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
-    const cooldownRef = db.collection('alertCooldowns').doc(userId); // ⭐ docRefをここで定義 ⭐
+    const cooldownRef = db.collection('alertCooldowns').doc(userId); // ⭐ docRefの定義を関数内へ移動
     const doc = await cooldownRef.get();
     const now = admin.firestore.Timestamp.now().toMillis(); // Firestore Timestampからミリ秒を取得
 
@@ -1685,9 +1685,13 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
 
     // Send the message to the officer group
     if (OFFICER_GROUP_ID) {
-        await safePushMessage(OFFICER_GROUP_ID, { type: 'flex', altText: `緊急通知: ${type}検知`, contents: flexContent });
+        // ⭐ シンプルなテキストメッセージに切り替えて通知を試みる ⭐
+        // Flex Messageではなく、テキストで通知することで、形式の問題を排除します。
+        const simpleNotificationMessage = `🚨緊急通知🚨\nタイプ: ${type}\nユーザー: ${userName}\nメッセージ: 「${message}」\n\nユーザーID: ${userId}\n電話番号: ${userPhone}\n保護者: ${guardianName}\n緊急連絡先: ${emergencyContact}\n続柄: ${relationship}`;
+
+        await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: simpleNotificationMessage });
         if (process.env.NODE_ENV !== 'production') {
-            console.log(`✅ 管理者グループに${type}通知を送信しました。`);
+            console.log(`✅ 管理者グループに${type}通知を送信しました (テキスト形式)。`);
         }
     } else {
         console.warn("⚠️ OFFICER_GROUP_ID が設定されていないため、管理者グループへの通知は送信されません。");
@@ -2139,9 +2143,9 @@ async function handleEvent(event) {
     }
 
     // --- AIモデルの選択 ---
-    let modelToUse = getAIModelForUser(user, userMessage); // 通常会話のモデル選択
+    let modelToUseForGeneralChat = getAIModelForUser(user, userMessage); // 通常会話のモデル選択
     let aiType = "";
-    let finalModelForAPI = modelToUse; // APIに渡す最終的なモデル名
+    let finalModelForAPI = modelToUseForGeneralChat; // APIに渡す最終的なモデル名
 
     // 相談モードが有効な場合、Gemini 1.5 Proを使用し、1回でモード解除
     if (user.isInConsultationMode) {
@@ -2149,34 +2153,32 @@ async function handleEvent(event) {
         aiType = "Gemini";
         await updateUserData(userId, { isInConsultationMode: false, isUrgent: false }); // 1回使用したらモード解除, 緊急状態もリセット
         logType = "consultation_message";
-    } else if (modelToUse.startsWith("gpt")) {
+    } else if (modelToUseForGeneralChat.startsWith("gpt")) {
         aiType = "OpenAI";
-        // generateGPTReplyに渡すモデルはmodelToUseで決定されている
+        // generateGPTReplyに渡すモデルはmodelToUseForGeneralChatで決定されている
         await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
     } else { // getAIModelForUserがGeminiを返した場合
         aiType = "Gemini";
-        // generateGeminiReplyに渡すモデルはmodelToUseで決定されている
+        // generateGeminiReplyに渡すモデルはmodelToUseForGeneralChatで決定されている
         await updateUserData(userId, { isUrgent: false }); // 緊急状態もリセット
     }
 
     // --- AI応答生成 ---
     try {
         if (aiType === "OpenAI") {
-            // modelToUseが'gpt-4o'または'gpt-4o-mini'であることを確認
+            // finalModelForAPIが'gpt-4o'または'gpt-4o-mini'であることを確認してgenerateGPTReplyを呼び出す
             if (finalModelForAPI.startsWith("gpt")) {
                 replyText = await generateGPTReply(userMessage, finalModelForAPI, userId, user);
             } else {
-                // ここに来ることは基本ないが、念のためエラーハンドリング
-                console.error(`AIモデル選択エラー: OpenAIタイプなのにGeminiモデル名(${finalModelForAPI})が指定されました。`);
+                console.error(`AIモデル呼び出しエラー: OpenAIタイプなのにGeminiモデル名(${finalModelForAPI})が指定されました。`);
                 replyText = "ごめんね、AIモデルの選択で問題が起きたみたい…💦";
             }
         } else { // aiType === "Gemini"
-            // modelToUseが'gemini-1.5-flash-latest'または'gemini-1.5-pro-latest'であることを確認
+            // finalModelForAPIが'gemini-1.5-flash-latest'または'gemini-1.5-pro-latest'であることを確認してgenerateGeminiReplyを呼び出す
             if (finalModelForAPI.startsWith("gemini")) {
                 replyText = await generateGeminiReply(userMessage, finalModelForAPI, userId, user);
             } else {
-                // ここに来ることは基本ないが、念のためエラーハンドリング
-                console.error(`AIモデル選択エラー: GeminiタイプなのにOpenAIモデル名(${finalModelForAPI})が指定されました。`);
+                console.error(`AIモデル呼び出しエラー: GeminiタイプなのにOpenAIモデル名(${finalModelForAPI})が指定されました。`);
                 replyText = "ごめんね、AIモデルの選択で問題が起きたみたい…💦";
             }
         }
