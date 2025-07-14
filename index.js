@@ -289,7 +289,7 @@ const watchServiceGuideFlexTemplate = {
         "layout": "vertical",
         "contents": [
             { "type": "text", "text": "💖見守りサービス案内💖", "weight": "bold", "color": "#FF69B4", "size": "lg" },
-            { "type": "text", "text": "💖こころちゃんから大切なあなたへ�\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、ご登録の緊急連絡先へご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
+            { "type": "text", "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、ご登録の緊急連絡先へご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
         ]
     },
     "footer": {
@@ -303,19 +303,31 @@ const watchServiceGuideFlexTemplate = {
     }
 };
 
-const REGISTRATION_BUTTONS_FLEX = {
+// --- 会員登録と属性変更、退会を含む新しいFlex Messageテンプレート ---
+const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
     "type": "bubble",
     "body": {
         "type": "box",
         "layout": "vertical",
         "contents": [
-            { "type": "text", "text": "どの会員になるか選んでね🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
-            { "type": "button", "action": { "type": "uri", "label": "小学生の方はこちら", "uri": STUDENT_ELEMENTARY_FORM_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
-            { "type": "button", "action": { "type": "uri", "label": "中学生～大学生の方はこちら", "uri": STUDENT_MIDDLE_HIGH_UNI_FORM_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFB6C1" },
-            { "type": "button", "style": "primary", "height": "sm", "margin": "md", "action": { "type": "uri", "label": "成人の方はこちら", "uri": ADULT_FORM_URL }, "color": "#9370DB" }
+            { "type": "text", "text": "会員登録・情報変更メニュー🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+            { "type": "text", "text": "新しい会員登録、または登録情報の変更を選んでね！", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
+        ]
+    },
+    "footer": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [
+            // 新規登録ボタン
+            { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": ADULT_FORM_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" }, // デフォルトは成人用、ユーザーが選択肢を選ぶ形
+            // 属性変更ボタンは動的に生成されるため、ここでは含めないか、一般的なものに留める
+            // 退会ボタン
+            { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
         ]
     }
 };
+
 
 // ⭐ ClariSとNPOコネクトの繋がりに関する新しい固定応答 ⭐
 // より「わかる人にはわかる」ニュアンスに調整
@@ -487,7 +499,12 @@ async function getUserData(userId) {
             firstReminderSent: false, // 新規追加
             emergencyNotificationSent: false, // 新規追加
             registeredInfo: {}, // 登録情報（氏名、電話番号など）
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            // 新規ユーザーの場合、登録完了フラグとカテゴリは未設定
+            completedRegistration: false, 
+            category: null, 
+            registrationStep: null, // 新規登録フローのステップ
+            tempRegistrationData: {}, // 登録フロー中の一時データ
         };
         await userRef.set(initialUserData);
         return initialUserData;
@@ -506,6 +523,26 @@ async function getUserData(userId) {
     if (userData.dailyMessageCount === undefined) {
         userData.dailyMessageCount = 0;
         await userRef.update({ dailyMessageCount: 0 });
+    }
+    // ⭐ 既存ユーザーにcompletedRegistrationがない場合、初期化 ⭐
+    if (userData.completedRegistration === undefined) {
+        userData.completedRegistration = false;
+        await userRef.update({ completedRegistration: false });
+    }
+    // ⭐ 既存ユーザーにcategoryがない場合、初期化 ⭐
+    if (userData.category === undefined) {
+        userData.category = null;
+        await userRef.update({ category: null });
+    }
+    // ⭐ 既存ユーザーにregistrationStepがない場合、初期化 ⭐
+    if (userData.registrationStep === undefined) {
+        userData.registrationStep = null;
+        await userRef.update({ registrationStep: null });
+    }
+    // ⭐ 既存ユーザーにtempRegistrationDataがない場合、初期化 ⭐
+    if (userData.tempRegistrationData === undefined) {
+        userData.tempRegistrationData = {};
+        await userRef.update({ tempRegistrationData: {} });
     }
     return userData;
 }
@@ -594,7 +631,9 @@ function shouldLogMessage(logType) {
         'watch_service_emergency_notification',
         'consultation_mode_start', 'consultation_message', 'organization_inquiry_fixed',
         'special_reply', 'homework_query', 'system_follow', 'registration_buttons_display',
-        'registration_already_completed', 'watch_service_scheduled_message', 'user_suspended'
+        'registration_already_completed', 'watch_service_scheduled_message', 'user_suspended',
+        'withdrawal_request', 'withdrawal_confirm', 'withdrawal_cancel', 'withdrawal_complete',
+        'registration_info_change_guide', 'registration_info_change_unknown_category'
     ];
     if (defaultLogTypes.includes(logType)) {
         return true;
@@ -869,6 +908,41 @@ ${isUserChildCategory ? `
 async function handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection) {
     let handled = false;
 
+    // 退会フローを優先
+    if (user.registrationStep === 'confirm_withdrawal') {
+        if (lowerUserMessage === 'はい' || lowerUserMessage === 'yes') {
+            // ユーザーデータをFirestoreから削除
+            await usersCollection.doc(userId).delete();
+            // registrationStepをリセット（既にユーザーデータがないので厳密には不要だが念のため）
+            await usersCollection.doc(userId).set({ registrationStep: null, completedRegistration: false, membershipType: "guest" }, { merge: true }); // 新規ゲスト状態として初期化
+
+            if (event.replyToken) {
+                await client.replyMessage(event.replyToken, { type: 'text', text: '退会手続きが完了したよ🌸\nさみしいけど、いつでもまた会えるのを楽しみにしているね💖\nこのアカウントをブロックしても大丈夫だよ。' });
+            } else {
+                await safePushMessage(userId, { type: 'text', text: '退会手続きが完了したよ🌸\nさみしいけど、いつでもまた会えるのを楽しみにしているね💖\nこのアカウントをブロックしても大丈夫だよ。' });
+            }
+            logToDb(userId, userMessage, '退会完了', 'こころちゃん（退会フロー）', 'withdrawal_complete', true);
+            return true;
+        } else if (lowerUserMessage === 'いいえ' || lowerUserMessage === 'no') {
+            await usersCollection.doc(userId).update({ registrationStep: null });
+            if (event.replyToken) {
+                await client.replyMessage(event.replyToken, { type: 'text', text: '退会をキャンセルしたよ🌸 続けてお話しできるの嬉しいな💖' });
+            } else {
+                await safePushMessage(userId, { type: 'text', text: '退会をキャンセルしたよ🌸 続けてお話しできるの嬉しいな💖' });
+            }
+            logToDb(userId, userMessage, '退会キャンセル', 'こころちゃん（退会フロー）', 'withdrawal_cancel', true);
+            return true;
+        } else {
+            if (event.replyToken) {
+                await client.replyMessage(event.replyToken, { type: 'text', text: '「はい」か「いいえ」で答えてくれるかな？💦' });
+            } else {
+                await safePushMessage(userId, { type: 'text', text: '「はい」か「いいえ」で答えてくれるかな？💦' });
+            }
+            return true;
+        }
+    }
+
+
     if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep) {
         await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
         if (event.replyToken) {
@@ -895,9 +969,9 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             } else {
                 if (event.replyToken) {
-                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生」「成人」のいずれかで教えてくれるかな？💦' });
+                    await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生～大学生」「成人」のいずれかで教えてくれるかな？💦' });
                 } else {
-                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生」「成人」のいずれかで教えてくれるかな？💦' });
+                    await safePushMessage(userId, { type: 'text', text: 'ごめんね、区分は「小学生」「中学生～大学生」「成人」のいずれかで教えてくれるかな？💦' });
                 }
                 handled = true;
             }
@@ -997,7 +1071,6 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
                 handled = true;
             }
             break;
-
         case 'askingGuardianPhoneNumber':
             if (userMessage.match(/^0\d{9,10}$/)) {
                 await usersCollection.doc(userId).update({
@@ -1185,6 +1258,11 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
             }
             break;
 
+        case 'confirm_withdrawal': // 退会確認ステップを追加 (Postbackからも呼び出される)
+            // このケースはhandleRegistrationFlowの冒頭で処理されるため、ここには到達しないはず
+            handled = true;
+            break;
+
         default:
             handled = false;
             break;
@@ -1199,16 +1277,11 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     const lowerUserMessage = userMessage.toLowerCase();
     let handled = false;
 
-    if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep === 'awaiting_contact_form') {
-        await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
-        if (event.replyToken) {
-            await client.replyMessage(event.replyToken, { type: 'text', text: '見守りサービス登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
-        } else {
-            await safePushMessage(userId, { type: 'text', text: '見守りサービス登録をキャンセルしたよ🌸 またいつでも声をかけてね💖' });
-        }
-        logToDb(userId, userMessage, '見守りサービス登録キャンセル', 'こころちゃん（見守り登録）', 'watch_service_cancel', true);
-        return true;
-    }
+    // 退会フローはhandleRegistrationFlowで一元管理するため、ここでのキャンセルロジックは削除
+    // if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep === 'awaiting_contact_form') {
+    //     // ... (既存のキャンセル処理) ...
+    //     return true;
+    // }
 
     const currentUserConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
     if (!currentUserConfig.canUseWatchService) {
@@ -1323,7 +1396,6 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         }
         return false;
     }
-
     if (lowerUserMessage.includes("少し疲れた…")) {
         if (user && user.watchServiceEnabled) {
             try {
@@ -1380,51 +1452,13 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         return false;
     }
 
-    if (event.type === 'postback' && event.postback.data === 'action=watch_register') {
-        if (user && user.watchServiceEnabled) { // 既に有効な場合は登録済みと返答
-            await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖'
-            });
-            logToDb(userId, userMessage, '見守りサービス登録済み', 'こころちゃん（見守り登録）', 'watch_service_already_registered', true);
-            return true;
-        } else if (user && user.registrationStep === 'awaiting_contact_form') { // フォーム入力中の場合
-            await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: 'まだ緊急連絡先フォームの入力を待ってるよ🌸 フォームを完了してくれるかな？💖'
-            });
-            return true;
-        } else { // 新規登録フロー開始
-            const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
-            await client.replyMessage(event.replyToken, {
-                type: 'flex',
-                altText: '緊急連絡先登録のご案内',
-                contents: {
-                    type: 'bubble',
-                    body: {
-                        type: 'box',
-                        layout: 'vertical',
-                        contents: [
-                            { type: "text", text: "💖緊急連絡先登録💖", "weight": "bold", "size": "lg", "color": "#FF69B4", "align": "center" },
-                            { type: "text", text: "安全のために、緊急連絡先を登録してね！", "wrap": true, "margin": "md" },
-                            { type: "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, "margin": "md", "color": "#d63384" }
-                        ]
-                    }
-                }
-            });
-            await db.collection('users').doc(userId).update({
-                registrationStep: 'awaiting_contact_form',
-                watchServiceEnabled: true, // 登録開始時に有効化
-                lastOkResponse: admin.firestore.FieldValue.serverTimestamp(), // 初期登録日時
-                lastScheduledWatchMessageSent: null,
-                firstReminderSent: false,
-                emergencyNotificationSent: false
-            });
-            logToDb(userId, `Postback: ${event.postback.data}`, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
-            return true;
-        }
-    }
+    // ⭐ Postbackでwatch_registerが来た場合の処理 (会員登録フローの冒頭で処理されるため、ここはwatch_unregisterのみ残す) ⭐
+    // if (event.type === 'postback' && event.postback.data === 'action=watch_register') {
+    //     // ... 既存の処理 ...
+    //     return true;
+    // }
 
+    // ⭐ 見守りサービス解除はPostbackからも、メッセージからも可能にする ⭐
     if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ' || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
         let replyTextForUnregister = "";
         let logTypeForUnregister = "";
@@ -1433,7 +1467,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             try {
                 await usersCollection.doc(userId).update({
                     watchServiceEnabled: false,
-                    emergencyContact: null,
+                    emergencyContact: null, // 登録情報も削除
                     lastScheduledWatchMessageSent: null,
                     firstReminderSent: false,
                     emergencyNotificationSent: false,
@@ -1691,7 +1725,6 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
     } else if (type === "watch_unresponsive") {
         notificationTitle = `🚨【見守りサービス未応答 (${notificationDetailType})】🚨`;
     }
-
     const simpleNotificationMessage = `${notificationTitle}\n` +
                                       `👤 氏名：${userName}\n` +
                                       `📱 電話番号：${userPhone}\n` +
@@ -1772,6 +1805,11 @@ async function handleEvent(event) {
     const lowerUserMessage = userMessage.toLowerCase();
     const isAdmin = isBotAdmin(userId);
 
+    // ⭐ ユーザーデータを最初に取得し、常に最新の状態を保つ ⭐
+    let user = await getUserData(userId); 
+    const usersCollection = db.collection('users'); // usersCollectionもここで取得
+
+    // ⭐ 管理者コマンド処理 ⭐
     if (isAdmin && userMessage.startsWith('!')) {
         const command = userMessage.substring(1).split(' ')[0];
         const args = userMessage.substring(command.length + 1).trim();
@@ -1876,85 +1914,157 @@ async function handleEvent(event) {
         return;
     }
 
-    let user = await getUserData(userId);
     const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
 
     let replyText = "";
     let responsedBy = "AI";
     let logType = "normal_conversation";
 
+    // ⭐ 退会フローのハンドリングを最優先 ⭐
+    if (lowerUserMessage === '退会' || lowerUserMessage === 'たいかい') {
+        if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
+            await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
+            });
+            await logToDb(userId, userMessage, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+            return;
+        } else {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'まだ会員登録されていないみたいだよ🌸\n退会手続きは、会員登録済みの方のみ行えるんだ。'
+            });
+            await logToDb(userId, userMessage, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
+            return;
+        }
+    }
+    
+    // registrationStep が設定されている場合、登録フローを処理
     if (user.registrationStep) {
-        const registrationHandled = await handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, db.collection('users'));
+        const registrationHandled = await handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection);
         if (registrationHandled) {
+            // 登録フローが完了した場合は、最新のユーザー情報を再取得する
+            user = await getUserData(userId); 
             return;
         }
     }
 
+    // ⭐ 「会員登録」または「登録したい」の処理を強化 ⭐
+    if (userMessage.includes("会員登録") || userMessage.includes("登録したい")) {
+        let displayFlexMessage;
+        let altText;
+        let logMessage;
+        let logTypeDetail;
+
+        if (user.completedRegistration) {
+            // 登録済みの場合：属性変更用のFlex Messageを動的に生成
+            const changeButtons = [];
+            
+            // 現在のカテゴリに応じて、変更先の選択肢を生成
+            // 例: 小学生だったら「中学生～大学生」「成人」
+            // 中学生～大学生だったら「小学生」「成人」
+            // 成人だったら「小学生」「中学生～大学生」
+            
+            if (user.category !== '小学生') {
+                changeButtons.push({ "type": "button", "action": { "type": "uri", "label": "小学生向けに変更する", "uri": `${STUDENT_ELEMENTARY_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}` }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" });
+            }
+            if (user.category !== '中学生～大学生') {
+                changeButtons.push({ "type": "button", "action": { "type": "uri", "label": "中学生～大学生向けに変更する", "uri": `${STUDENT_MIDDLE_HIGH_UNI_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}` }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFB6C1" });
+            }
+            if (user.category !== '成人') {
+                changeButtons.push({ "type": "button", "action": { "type": "uri", "label": "成人向けに変更する", "uri": `${ADULT_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}` }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" });
+            }
+
+            displayFlexMessage = {
+                "type": "bubble",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        { "type": "text", "text": "📝登録情報変更・退会メニュー📝", "weight": "bold", "color": "#FF69B4", "size": "lg", "align": "center" },
+                        { "type": "text", "text": `現在のあなたの属性は「**${user.category || '未設定'}**」だね！\n\nもし属性が変わったり、登録情報を変更したい場合は、下のボタンから手続きできるよ💖`, "wrap": true, "margin": "md", "size": "sm" }
+                    ]
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "sm",
+                    "contents": [
+                        ...changeButtons, // 動的に生成された変更ボタン
+                        { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
+                    ]
+                }
+            };
+            altText = "登録情報変更・退会メニュー";
+            logMessage = `会員登録済み、属性変更・退会案内表示 (現在の属性: ${user.category})`;
+            logTypeDetail = 'registration_info_change_guide';
+
+        } else {
+            // 未登録の場合：新規登録と退会ボタンを含むFlex Message
+            displayFlexMessage = REGISTRATION_AND_CHANGE_BUTTONS_FLEX;
+            altText = "会員登録メニュー";
+            logMessage = "会員登録メニュー表示";
+            logTypeDetail = "registration_start";
+            await updateUserData(userId, { registrationStep: 'askingCategory' }); // 新規登録フロー開始
+        }
+
+        try {
+            await client.replyMessage(event.replyToken, {
+                type: "flex",
+                altText: altText,
+                contents: displayFlexMessage
+            });
+            await logToDb(userId, userMessage, logMessage, "System", logTypeDetail);
+        } catch (replyError) {
+            console.error(`❌ 会員登録/変更メニュー replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+            await safePushMessage(userId, { type: "flex", altText: altText, contents: displayFlexMessage });
+            await logErrorToDb(userId, `会員登録/変更メニュー replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
+        return;
+    }
+
+    // ⭐ 既存の「登録情報変更」キーワードによる処理を削除 (上記の「会員登録」に統合されたため) ⭐
+    // if (userMessage.includes("登録情報変更") || userMessage.includes("情報変更")) {
+    //     const changeInfoUrl = `${CHANGE_INFO_FORM_URL}?${CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
+    //     try {
+    //         await client.replyMessage(event.replyToken, {
+    //             type: "flex",
+    //             altText: "登録情報変更",
+    //             contents: {
+    //                 "type": "bubble",
+    //                 "body": {
+    //                     "type": "box",
+    //                     "layout": "vertical",
+    //                     "contents": [
+    //                         { "type": "text", "text": "📝登録情報変更📝", "weight": "bold", "color": "#FF69B4", "size": "lg" },
+    //                         { "type": "text", "text": "登録情報の変更はこちらからできるよ！\n新しい情報で、こころちゃんともっと繋がろうね💖", "wrap": true, "margin": "md", "size": "sm" }
+    //                     ]
+    //                 },
+    //                 "footer": {
+    //                     "type": "box",
+    //                     "layout": "vertical",
+    //                     "spacing": "sm",
+    //                     "contents": [
+    //                         { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "登録情報を変更する", uri: changeInfoUrl }, "color": "#d63384" }
+    //                     ]
+    //                 }
+    //             }
+    //         });
+    //         await logToDb(userId, userMessage, "登録情報変更メニュー表示", "System", "registration_change_info");
+    //     } catch (replyError) {
+    //         console.error(`❌ 登録情報変更 replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+    //         await safePushMessage(userId, { type: "flex", altText: "登録情報変更", contents: REGISTRATION_BUTTONS_FLEX });
+    //         await logErrorToDb(userId, `登録情報変更 replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+    //     }
+    //     return;
+    // }
+
+    // ⭐ 見守りサービス登録・解除のメッセージ処理は handleWatchServiceRegistration に移譲 ⭐
     if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
         return;
     }
 
-    if ((userMessage.includes("会員登録") || userMessage.includes("登録したい")) && !user.completedRegistration) {
-        await updateUserData(userId, { registrationStep: 'askingCategory' });
-        try {
-            await client.replyMessage(event.replyToken, {
-                type: "flex",
-                altText: "会員登録メニュー",
-                contents: REGISTRATION_BUTTONS_FLEX
-            });
-            await logToDb(userId, userMessage, "会員登録メニュー表示", "System", "registration_start");
-        } catch (replyError) {
-            console.error(`❌ 会員登録メニュー replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
-            await safePushMessage(userId, { type: "flex", altText: "会員登録メニュー", contents: REGISTRATION_BUTTONS_FLEX });
-            await logErrorToDb(userId, `会員登録メニュー replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return;
-    } else if ((userMessage.includes("会員登録") || userMessage.includes("登録したい")) && user.completedRegistration) {
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: 'すでに会員登録は完了しているよ🌸 いつでもお話ししてね💖' });
-            await logToDb(userId, userMessage, '会員登録済み', "System", 'registration_already_completed');
-        } catch (replyError) {
-            console.error(`❌ 会員登録済み replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
-            await safePushMessage(userId, { type: 'text', text: 'すでに会員登録は完了しているよ🌸 いつでもお話ししてね💖' });
-            await logErrorToDb(userId, `会員登録済み replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return;
-    }
-
-    if (userMessage.includes("登録情報変更") || userMessage.includes("情報変更")) {
-        const changeInfoUrl = `${CHANGE_INFO_FORM_URL}?${CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
-        try {
-            await client.replyMessage(event.replyToken, {
-                type: "flex",
-                altText: "登録情報変更",
-                contents: {
-                    "type": "bubble",
-                    "body": {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            { "type": "text", "text": "📝登録情報変更📝", "weight": "bold", "color": "#FF69B4", "size": "lg" },
-                            { "type": "text", "text": "登録情報の変更はこちらからできるよ！\n新しい情報で、こころちゃんともっと繋がろうね💖", "wrap": true, "margin": "md", "size": "sm" }
-                        ]
-                    },
-                    "footer": {
-                        "type": "box",
-                        "layout": "vertical",
-                        "spacing": "sm",
-                        "contents": [
-                            { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "登録情報を変更する", uri: changeInfoUrl }, "color": "#d63384" }
-                        ]
-                    }
-                }
-            });
-            await logToDb(userId, userMessage, "登録情報変更メニュー表示", "System", "registration_change_info");
-        } catch (replyError) {
-            console.error(`❌ 登録情報変更 replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
-            await safePushMessage(userId, { type: "flex", altText: "登録情報変更", contents: REGISTRATION_BUTTONS_FLEX });
-            await logErrorToDb(userId, `登録情報変更 replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return;
-    }
 
     if (checkContainsDangerWords(userMessage)) {
         const canNotify = await checkAndSetAlertCooldown(userId, 'danger', 5);
@@ -1996,7 +2106,6 @@ async function handleEvent(event) {
         if (canNotify) {
             await updateUserData(userId, { isUrgent: true });
             const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
-
             try {
                 await client.replyMessage(event.replyToken, [
                     { type: 'text', text: empatheticReply },
@@ -2075,7 +2184,7 @@ async function handleEvent(event) {
         return;
     }
 
-    if (containsHomeworkTrigger(userMessage) && isUserChildCategory) { // isUserChildCategoryを使用
+    if (containsHomeworkTrigger(userMessage) && user.category && (user.category === '小学生' || user.category === '中学生～大学生')) { // isUserChildCategoryを使用
         replyText = "宿題のことかな？がんばってるね！🌸 こころちゃんは、直接宿題の答えを教えることはできないんだけど、一緒に考えることはできるよ😊 どんな問題で困ってるの？ヒントなら出せるかも！";
         try {
             await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
@@ -2198,7 +2307,20 @@ async function handlePostbackEvent(event) {
 
     let replyText = "";
     let logType = "postback_action";
-    let user = await getUserData(userId);
+    let user = await getUserData(userId); // 最新のユーザーデータを取得
+
+    // ⭐ 退会リクエストPostbackの処理をhandleRegistrationFlowに委譲 ⭐
+    if (action === 'request_withdrawal') {
+        // handleRegistrationFlowで退会フローを開始するためのregistrationStepを設定
+        await db.collection('users').doc(userId).update({ registrationStep: 'confirm_withdrawal' });
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
+        });
+        await logToDb(userId, `Postback: ${event.postback.data}`, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+        return;
+    }
+
 
     if (['watch_ok', 'watch_somewhat', 'watch_tired', 'watch_talk'].includes(action)) {
         if (user && user.watchServiceEnabled) {
@@ -2247,91 +2369,14 @@ async function handlePostbackEvent(event) {
 
 
     switch (action) {
-        case 'watch_unregister':
-            if (user && user.watchServiceEnabled) {
-                try {
-                    await db.collection('users').doc(userId).update({
-                        watchServiceEnabled: false,
-                        emergencyContact: null,
-                        lastScheduledWatchMessageSent: null,
-                        firstReminderSent: false,
-                        emergencyNotificationSent: false,
-                        'registeredInfo.phoneNumber': admin.firestore.FieldValue.delete(),
-                        'registeredInfo.guardianName': admin.firestore.FieldValue.delete(),
-                        'registeredInfo.emergencyContact': admin.firestore.FieldValue.delete(),
-                        'registeredInfo.relationship': admin.firestore.FieldValue.delete()
-                    });
-                    replyText = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖";
-                    logType = 'watch_service_unregister';
-                } catch (error) {
-                    console.error("❌ 見守りサービス解除処理エラー:", error.message);
-                    logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId: userId });
-                    replyText = "ごめんね、解除処理中にエラーが起きたみたい…💦 もう一度試してみてくれるかな？";
-                    logType = 'watch_service_unregister_error';
-                }
-            } else {
-                replyText = "見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖";
-                logType = 'watch_service_not_registered_on_unregister';
-            }
-            break;
-        case 'watch_register':
-            if (user && user.watchServiceEnabled) {
-                replyText = 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖';
-                logType = 'watch_service_already_registered';
-            } else if (user && user.registrationStep === 'awaiting_contact_form') {
-                replyText = 'まだ緊急連絡先フォームの入力を待ってるよ🌸 フォームを完了してくれるかな？💖';
-                logType = 'watch_service_awaiting_form';
-            } else {
-                const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
-                try {
-                    await client.replyMessage(event.replyToken, {
-                        type: 'flex',
-                        altText: '緊急連絡先登録のご案内',
-                        contents: {
-                            type: 'bubble',
-                            body: {
-                                type: 'box',
-                                layout: 'vertical',
-                                contents: [
-                                    { type: "text", text: "💖緊急連絡先登録💖", "weight": "bold", "size": "lg", "color": "#FF69B4", "align": "center" },
-                                    { type: "text", text: "安全のために、緊急連絡先を登録してね！", "wrap": true, "margin": "md" },
-                                    { type: "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, "margin": "md", "color": "#d63384" }
-                                ]
-                            }
-                        }
-                    });
-                } catch (replyError) {
-                    await safePushMessage(userId, {
-                        type: 'flex',
-                        altText: '緊急連絡先登録のご案内',
-                        contents: {
-                            type: 'bubble',
-                            body: {
-                                type: 'box',
-                                layout: 'vertical',
-                                contents: [
-                                    { type: "text", text: "💖緊急連絡先登録💖", "weight": "bold", "size": "lg", "color": "#FF69B4", "align": "center" },
-                                    { type: "text", text: "安全のために、緊急連絡先を登録してね！", "wrap": true, "margin": "md" },
-                                    { type: "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "緊急連絡先を登録する", uri: prefilledFormUrl }, "margin": "md", "color": "#d63384" }
-                                ]
-                            }
-                        }
-                    });
-                    await logErrorToDb(userId, `Watch register flex replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
-                }
-
-                await db.collection('users').doc(userId).update({
-                    registrationStep: 'awaiting_contact_form',
-                    watchServiceEnabled: true,
-                    lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-                    lastScheduledWatchMessageSent: null,
-                    firstReminderSent: false,
-                    emergencyNotificationSent: false
-                });
-                logToDb(userId, `Postback: ${event.postback.data}`, '緊急連絡先フォームを案内しました。', 'こころちゃん（見守り登録開始）', 'watch_service_registration_start', true);
-                return;
-            }
-            break;
+        // ⭐ watch_unregister の処理は handleWatchServiceRegistration に移譲されたため、ここからは削除 ⭐
+        // case 'watch_unregister':
+        //     // ... 既存の処理 ...
+        //     break;
+        // ⭐ watch_register の処理は handleEvent の「会員登録」に統合されたため、ここからは削除 ⭐
+        // case 'watch_register':
+        //     // ... 既存の処理 ...
+        //     break;
         default:
             replyText = "ごめんね、その操作はまだできないみたい…💦";
             logType = 'unknown_postback_action';
@@ -2375,7 +2420,11 @@ async function handleFollowEvent(event) {
         firstReminderSent: false,
         emergencyNotificationSent: false,
         registeredInfo: {},
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        completedRegistration: false, // フォロー時は未登録
+        category: null, // フォロー時はカテゴリなし
+        registrationStep: null,
+        tempRegistrationData: {},
     };
     await db.collection('users').doc(userId).set(initialUserData);
 
@@ -2387,7 +2436,7 @@ async function handleFollowEvent(event) {
     const registrationFlex = {
         type: "flex",
         altText: "会員登録メニュー",
-        contents: REGISTRATION_BUTTONS_FLEX
+        contents: REGISTRATION_AND_CHANGE_BUTTONS_FLEX // 新しいFlexテンプレートを使用
     };
 
     try {
@@ -2412,7 +2461,14 @@ async function handleUnfollowEvent(event) {
     if (process.env.NODE_ENV !== 'production') {
         console.log(`❌ ユーザーがブロック/アンフォローしました: ${userId}`);
     }
-    await logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォロー", "System", "system_unfollow");
+    // ユーザーデータを削除 (退会と同じ処理)
+    try {
+        await db.collection('users').doc(userId).delete();
+        await logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォローによりデータ削除", "System", "system_unfollow");
+    } catch (error) {
+        console.error(`❌ アンフォロー時のユーザーデータ削除エラー: ${error.message}`);
+        await logErrorToDb(userId, `アンフォロー時のユーザーデータ削除エラー`, { error: error.message, userId: userId });
+    }
     return;
 }
 
