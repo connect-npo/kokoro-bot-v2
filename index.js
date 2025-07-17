@@ -36,94 +36,271 @@ const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 const STUDENT_ELEMENTARY_FORM_URL = process.env.STUDENT_ELEMENTARY_FORM_URL || "https://forms.gle/EwskTCCjj8KyV6368";
 const STUDENT_MIDDLE_HIGH_UNI_FORM_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_URL || "https://forms.gle/1b5sNtc6AtJvpF8D7";
 const ADULT_FORM_URL = process.env.ADULT_FORM_URL || "https://forms.gle/8EZs66r12jBDuiBn6";
-const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://forms.gle/9FJhpGtrxoSPZ1hm7";
+
+// ⭐ 修正箇所1: WATCH_SERVICE_FORM_BASE_URL を正しいURLに更新します ⭐
+// 環境変数で設定している場合は、環境変数の方をこのURLに更新してください。
+// ここではコード内のデフォルト値を修正しています。
+const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url";
+
 const STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID = 'entry.1022758253';
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
 const CHANGE_INFO_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform";
 const CHANGE_INFO_FORM_LINE_USER_ID_ENTRY_ID = "entry.743637502";
 
+// ... (中略) ...
 
-// --- Firebase Admin SDKの初期化 ---
-let db;
-try {
-    if (!FIREBASE_CREDENTIALS_BASE64) {
-        throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
+// --- Flex Message テンプレート ---
+// watchServiceGuideFlexTemplate を修正します
+const watchServiceGuideFlexTemplate = {
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+            { "type": "text", "text": "💖見守りサービス案内💖", "weight": "bold", "color": "#FF69B4", "size": "lg" },
+            { "type": "text", "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、ご登録の緊急連絡先へご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
+        ]
+    },
+    "footer": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [
+            // ⭐ 修正箇所2: 見守り登録ボタンのURIにプリフィルパラメータを追加します ⭐
+            // このテンプレートは `handleWatchServiceRegistration` 関数内で直接使われているので、
+            // その関数内で動的に `uri` を生成するように変更が必要です。
+            // ここでは `watchServiceGuideFlexTemplate` の直接使用を避けるため、後ほど `handleWatchServiceRegistration` 関数を修正します。
+            // 一時的にplaceholdにしておきます。
+            { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "見守り登録する", uri: "PLACEHOLDER_URI_WILL_BE_DYNAMICALLY_GENERATED" }, "color": "#d63384" },
+            { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "見守りを解除する", data: "action=watch_unregister" }, "color": "#808080" }
+        ]
     }
-    const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        storageBucket: serviceAccount.project_id + '.appspot.com'
-    });
-    db = admin.firestore();
-    console.log("✅ Firebase Admin SDKを初期化しました。");
-} catch (error) {
-    console.error("❌ Firebase Admin SDKの初期化エラー:", error);
-    console.error("FIREBASE_CREDENTIALS_BASE64が正しく設定されているか、またはJSON形式に問題がないか確認してください。");
-    process.exit(1);
-}
+};
 
-const client = new Client({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
-});
+// ... (中略) ...
 
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+// ⭐ handleWatchServiceRegistration関数内の修正箇所 ⭐
+// この関数内で `watchServiceGuideFlexWithUriButton` が定義されている部分を探します
+async function handleWatchServiceRegistration(event, userId, userMessage, user) {
+    const usersCollection = db.collection("users");
+    const lowerUserMessage = userMessage.toLowerCase();
+    let handled = false;
 
-// --- メッセージキュー関連 ---
-const messageQueue = [];
-let isProcessingQueue = false;
-const MESSAGE_SEND_INTERVAL_MS = 1500; // LINE APIのレートリミットを考慮した安全な送信間隔（1.5秒）
+    // ... (既存のコード) ...
 
-/**
- * LINEメッセージを送信キューに追加する関数。
- * @param {string} to - 送信先のユーザーIDまたはグループID
- * @param {Array<Object>|Object} messages - 送信するメッセージオブジェクトの配列、または単一のメッセージオブジェクト
- */
-async function safePushMessage(to, messages) {
-    const messagesArray = Array.isArray(messages) ? messages : [messages];
-    messageQueue.push({ to, messages: messagesArray });
-    startMessageQueueWorker();
-}
+    if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
+        try {
+            // ⭐ 修正箇所3: prefilledFormUrl の生成と利用 ⭐
+            // ここで `WATCH_SERVICE_FORM_BASE_URL` と `WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID` を使用してURIを組み立てます
+            const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}&${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
 
-/**
- * メッセージキューを処理するワーカー関数。
- * 一定間隔でメッセージを送信し、429エラー時にはリトライを行う。
- */
-async function startMessageQueueWorker() {
-    if (isProcessingQueue) {
-        return;
-    }
-    isProcessingQueue = true;
+            // ⭐ Node.jsのログにも出力して、生成されたURLが正しいか確認してください ⭐
+            console.log('生成された見守りサービスフォームURL:', prefilledFormUrl); // デバッグ用
 
-    while (messageQueue.length > 0) {
-        const { to, messages } = messageQueue.shift();
-        const maxRetries = 3;
-        const initialDelayMs = MESSAGE_SEND_INTERVAL_MS;
-
-        for (let i = 0; i <= maxRetries; i++) {
-            const currentDelay = initialDelayMs * (2 ** i);
-            if (i > 0) console.warn(`⚠️ キューからの送信リトライ中 (ユーザー: ${to}, 残りリトライ: ${maxRetries - i}, ディレイ: ${currentDelay}ms)`);
-            await new Promise(resolve => setTimeout(resolve, currentDelay));
-
-            try {
-                await client.pushMessage(to, messages);
-                if (i > 0) console.log(`✅ キューからのメッセージ送信リトライ成功 to: ${to}`);
-                break;
-            } catch (error) {
-                if (error.statusCode === 429) {
-                    if (i === maxRetries) {
-                        console.error(`🚨 キューからのメッセージ送信リトライ失敗: 最大リトライ回数に達しました (ユーザー: ${to})`);
-                        await logErrorToDb(to, `キューメッセージ送信429エラー (最終リトライ失敗)`, { error: error.message, messages: JSON.stringify(messages) });
-                    }
-                } else {
-                    console.error(`❌ キューからのメッセージ送信失敗 (ユーザー: ${to}):`, error.message);
-                    await logErrorToDb(to, 'キューメッセージ送信エラー', { error: error.message, messages: JSON.stringify(messages) });
-                    break;
+            const watchServiceGuideFlexWithUriButton = {
+                "type": "bubble",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        { "type": "text", "text": "💖見守りサービス案内💖", "weight": "bold", "color": "#FF69B4", "size": "lg" },
+                        { "type": "text", "text": "💖こころちゃんから大切なあなたへ💖\n\nこころちゃん見守りサービスは、定期的にこころちゃんからあなたに「元気？」とメッセージを送るサービスだよ😊\n\nメッセージに「OKだよ💖」と返信してくれたら、こころちゃんは安心するよ。\n\nもし、数日経っても返信がない場合、こころちゃんが心配して、ご登録の緊急連絡先へご連絡することがあるから、安心してね。\n\nこのサービスで、あなたの毎日がもっと安心で笑顔になりますように✨", "wrap": true, "margin": "md", "size": "sm" }
+                    ]
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "sm",
+                    "contents": [
+                        // ⭐ 修正箇所4: uriを動的に生成した prefilledFormUrl に変更します ⭐
+                        { "type": "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "見守り登録する", uri: prefilledFormUrl }, "color": "#d63384" },
+                        { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "見守りを解除する", data: "action=watch_unregister" }, "color": "#808080" }
+                    ]
                 }
-            }
+            };
+            await client.replyMessage(event.replyToken, {
+                type: 'flex',
+                altText: '💖見守りサービス案内💖',
+                contents: watchServiceGuideFlexWithUriButton
+            });
+            logToDb(userId, userMessage, '（見守りサービス案内Flex表示）', 'こころちゃん（見守り案内）', 'watch_service_interaction', true);
+            return true;
+        } catch (error) {
+            console.error("❌ 見守りサービス案内Flex送信エラー:", error.message);
+            logErrorToDb(userId, "見守りサービス案内Flex送信エラー", { error: error.message, userId: userId });
+            return false;
         }
     }
+    // ... (続くコード) ...
+}
+
+
+// ⭐ handleEvent 関数内の「会員登録」または「登録したい」の処理を修正します ⭐
+// STUDENT_MIDDLE_HIGH_UNI_FORM_URL の URI生成部分
+// ADULT_FORM_URL の URI生成部分
+
+// ... (handleEvent 関数内) ...
+
+// ⭐ 「会員登録」または「登録したい」の処理を強化 ⭐
+// ここで各フォームへのURIをプリフィルします
+// STUDENT_ELEMENTARY_FORM_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_URL, ADULT_FORM_URL も同様にプリフィル可能です。
+// ただし、これらのフォームの line_user_id の entry ID は別途確認が必要です。
+// 今回は WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID を仮で使用していますが、
+// それぞれのフォームの line_user_id フィールドの正確な entry ID に置き換える必要があります。
+// 現状のコードでは STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID は中高大生フォームにしか使われていません。
+
+if (userMessage.includes("会員登録") || userMessage.includes("登録したい")) {
+    let displayFlexMessage;
+    let altText;
+    let logMessage;
+    let logTypeDetail;
+
+    if (user.completedRegistration) {
+        // 登録済みの場合：属性変更用のFlex Messageを動的に生成
+        const changeButtons = [];
+
+        // 現在のカテゴリに応じて、変更先の選択肢を生成
+        if (user.category !== '小学生') {
+            // ⭐ 修正箇所5: 小学生フォームのURIにもプリフィルを追加します ⭐
+            const elementaryFormPrefilledUrl = `${STUDENT_ELEMENTARY_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`; // STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID が正しいか要確認
+            changeButtons.push({ "type": "button", "action": { "type": "uri", "label": "小学生向けに変更する", "uri": elementaryFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" });
+        }
+        if (user.category !== '中学生～大学生') {
+            // ⭐ 修正箇所6: 中学生～大学生フォームのURIにもプリフィルを追加します ⭐
+            const middleHighUniFormPrefilledUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
+            changeButtons.push({ "type": "button", "action": { "type": "uri", "label": "中学生～大学生向けに変更する", "uri": middleHighUniFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFB6C1" });
+        }
+        if (user.category !== '成人') {
+            // ⭐ 修正箇所7: 成人フォームのURIにもプリフィルを追加します ⭐
+            // 成人フォームのline_user_idのentry IDは別途確認が必要です。仮でWATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_IDを使っています。
+            // 正しいentry IDに置き換えてください。
+            const adultFormPrefilledUrl = `${ADULT_FORM_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`; 
+            changeButtons.push({ "type": "button", "action": { "type": "uri", "label": "成人向けに変更する", "uri": adultFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" });
+        }
+
+        displayFlexMessage = {
+            // ... 既存のFlex Messageの構造 ...
+        };
+        altText = "登録情報変更・退会メニュー";
+        logMessage = `会員登録済み、属性変更・退会案内表示 (現在の属性: ${user.category})`;
+        logTypeDetail = 'registration_info_change_guide';
+
+    } else {
+        // 未登録の場合：新規登録と退会ボタンを含むFlex Message
+        // ここは `REGISTRATION_AND_CHANGE_BUTTONS_FLEX` テンプレートが使われていますが、
+        // そのテンプレート内の ADULT_FORM_URL にプリフィルが追加される必要があります。
+        // REGISTRATION_AND_CHANGE_BUTTONS_FLEX テンプレートの修正は別途行います。
+        displayFlexMessage = REGISTRATION_AND_CHANGE_BUTTONS_FLEX;
+        altText = "会員登録メニュー";
+        logMessage = "会員登録メニュー表示";
+        logTypeDetail = "registration_start";
+        await updateUserData(userId, { registrationStep: 'askingCategory' }); // 新規登録フロー開始
+    }
+
+    try {
+        await client.replyMessage(event.replyToken, {
+            type: "flex",
+            altText: altText,
+            contents: displayFlexMessage
+        });
+        await logToDb(userId, userMessage, logMessage, "System", logTypeDetail);
+    } catch (replyError) {
+        console.error(`❌ 会員登録/変更メニュー replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+        await safePushMessage(userId, { type: "flex", altText: altText, contents: displayFlexMessage });
+        await logErrorToDb(userId, `会員登録/変更メニュー replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+    }
+    return;
+}
+
+// ... (中略) ...
+
+// ⭐ handleRegistrationFlow 関数内の STUDENT_MIDDLE_HIGH_UNI_FORM_URL のプリフィルも修正します ⭐
+async function handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection) {
+    // ... (既存のコード) ...
+
+    case 'askingConsent':
+        if (lowerUserMessage === '同意する' || lowerUserMessage === '同意') {
+            if (user.category === '中学生～大学生') {
+                // ⭐ 修正箇所8: 学生証提出フォームのURIにもプリフィルを追加します ⭐
+                const prefilledFormUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_URL}?${STUDENT_ID_FORM_LINE_USER_ID_ENTRY_ID}=${userId}`;
+                await usersCollection.doc(userId).update({
+                    consentObtained: true,
+                    registrationStep: null,
+                    completedRegistration: true,
+                    membershipType: "free"
+                });
+                // ... (続くFlex Messageの送信ロジック) ...
+                if (event.replyToken) {
+                    await client.replyMessage(event.replyToken, {
+                        type: 'flex',
+                        altText: '学生証提出のお願い',
+                        contents: {
+                            type: 'bubble',
+                            body: {
+                                type: 'box',
+                                layout: 'vertical',
+                                contents: [
+                                    { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
+                                    { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
+                                    { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "学生証提出フォームへ", uri: prefilledFormUrl }, margin: "md", color: "#FFB6C1" } // ここで prefilledFormUrl を使用
+                                ]
+                            }
+                        }
+                    });
+                } else {
+                    await safePushMessage(userId, {
+                        type: 'flex',
+                        altText: '学生証提出のお願い',
+                        contents: {
+                            type: 'bubble',
+                            body: {
+                                type: 'box',
+                                layout: 'vertical',
+                                contents: [
+                                    { type: 'text', text: 'ありがとう！同意してくれて嬉しいな🌸\n学生会員として登録が完了したよ！', wrap: true },
+                                    { type: 'text', text: '学生証の提出にご協力ください💖\n（下のボタンからフォームへ進んでね！）', wrap: true, margin: 'md' },
+                                    { type: "button", "style": "primary", "height": "sm", "action": { type: "uri", label: "学生証提出フォームへ", uri: prefilledFormUrl }, "margin": "md", "color": "#FFB6C1" } // ここで prefilledFormUrl を使用
+                                ]
+                            }
+                        }
+                    });
+                }
+                // ... (続くコード) ...
+            } else { // 小学生、成人など、学生証提出が不要な場合
+                // ... (既存のコード) ...
+            }
+            // ... (続くコード) ...
+        }
+        // ... (続くコード) ...
+}
+
+// ⭐ REGISTRATION_AND_CHANGE_BUTTONS_FLEX テンプレートの修正 ⭐
+// このテンプレートは `handleEvent` 関数の「会員登録」または「登録したい」の未登録時に使われます。
+// ここで ADULT_FORM_URL にプリフィルパラメータを追加します。
+const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+            { "type": "text", "text": "会員登録・情報変更メニュー🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+            { "type": "text", "text": "新しい会員登録、または登録情報の変更を選んでね！", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
+        ]
+    },
+    "footer": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [
+            // ⭐ 修正箇所9: 新規登録ボタン（成人用）のURIにプリフィルを追加します ⭐
+            // このADULT_FORM_URLもline_user_idを受け取る場合、そのentry IDを確認し、追加が必要です。
+            // 仮でWATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_IDを使っていますが、正しいentry IDに置き換えてください。
+            { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": `${ADULT_FORM_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${userId}` }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
+            // ... (その他のボタン) ...
+            { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
+        ]
+    }
+};
 
     isProcessingQueue = false;
 }
