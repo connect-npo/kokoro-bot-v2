@@ -339,7 +339,7 @@ const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
         "spacing": "sm",
         "contents": [
             // デフォルトは成人用、ユーザーが選択肢を選ぶ形。uriは動的に設定されます。
-            { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": ADULT_FORM_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
+            { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": ADULT_FORM_BASE_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" }, // ⭐ 修正済み: ADULT_FORM_BASE_URLを使用 ⭐
             { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
         ]
     }
@@ -380,8 +380,8 @@ const specialRepliesMap = new Map([
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
 
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？💖　話して聞かせてくれると嬉しいな😊"],
-    [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-    [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+    [/元気かな/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+    [/元気？/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/ya-ho-|ヤッホー|やっほー/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんにちは/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
     [/こんばんわ/i, "やっほー！今日はどうしたの？🌸 何か話したいことあるかな？😊"],
@@ -1441,7 +1441,7 @@ async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
         const data = doc.data();
         if (data[alertType] && (now - data[alertType]) < COOLDOWN_PERIOD_MS) {
             if (process.env.NODE_ENV !== 'production') {
-                console.log(`⚠️ クールダウン中: ${userId} - ${alertType} (残り: ${Math.ceil((data[alertType] + COOLDOWN_PERIOD_MS - now) / 1000 / 60)}分)`);
+                console.log(`⚠️ ユーザー ${userId} への応答クールダウン中。`);
             }
             return false;
         }
@@ -1896,8 +1896,6 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
             altText = "新規会員登録メニュー";
             logMessage = "新規会員登録メニュー表示（区分選択促し）";
             logTypeDetail = "registration_start";
-            // registrationStep は、ユーザーがフォーム送信後にFirestoreに保存されるため、ここで直接設定しない
-            // ここではあくまでメニュー表示に留める
         }
 
         try {
