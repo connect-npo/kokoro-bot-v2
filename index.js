@@ -682,9 +682,9 @@ function getAIModelForUser(user, messageText) {
     return "gemini-1.5-flash-latest";
 }
 
-// --- AI応答生成関数 ---
-// GPTモデル（OpenAI）からの応答生成
-async function generateGPTReply(userMessage, modelToUse, userId, user) {
+// --- AI応答生成関数 (GPT & Gemini 両方に対応) ---
+// generateGPTReply を generateAIReply にリネームし、Geminiの処理も統合
+async function generateAIReply(userMessage, modelToUse, userId, user) {
     const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
     const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
 
@@ -766,58 +766,67 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
     }
     try {
         if (process.env.NODE_ENV !== 'production') {
-            console.log(`💡 Gemini: ${modelToUse} 使用中`);
+            console.log(`💡 AI Model Being Used: ${modelToUse}`);
         }
-        const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings: AI_SAFETY_SETTINGS });
 
-        const generateContentPromise = new Promise((resolve, reject) => {
-            let timeoutId;
-            const controller = new AbortController();
-            const signal = controller.signal;
-
-            timeoutId = setTimeout(() => {
-                controller.abort();
-                reject(new Error("API応答がタイムアウトしました。"));
-            }, 10000);
-
-            model.generateContent({
+        let replyContent;
+        if (modelToUse.startsWith('gpt')) {
+            const completion = await openai.chat.completions.create({
+                model: modelToUse,
+                messages: [{ role: "system", content: systemInstruction }, { role: "user", content: userMessage }],
+                max_tokens: isUserChildCategory ? 200 : 700
+            });
+            replyContent = completion.choices[0].message.content;
+        } else if (modelToUse.startsWith('gemini')) {
+            const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings: AI_SAFETY_SETTINGS });
+            const result = await model.generateContent({
                 system_instruction: { parts: [{ text: systemInstruction }] },
                 contents: [{ role: "user", parts: [{ text: userMessage }] }],
                 generationConfig: {
                     maxOutputTokens: isUserChildCategory ? 200 : 700
                 }
-            }, { requestOptions: { signal } })
-                .then(result => {
-                    clearTimeout(timeoutId);
-                    resolve(result);
-                })
-                .catch(error => {
-                    clearTimeout(timeoutId);
-                    reject(error);
-                });
-        });
-        const result = await generateContentPromise;
+            });
 
-        if (result.response && result.response.candidates && result.response.candidates.length > 0) {
-            return result.response.candidates[0].content.parts[0].text;
-        } else {
-            if (process.env.NODE_ENV !== 'production') {
-                console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
+            if (result.response && result.response.candidates && result.response.candidates.length > 0) {
+                replyContent = result.response.candidates[0].content.parts[0].text;
+            } else {
+                if (process.env.NODE_ENV !== 'production') {
+                    console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
+                }
+                return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
             }
-            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
+        } else {
+            throw new Error(`未知のAIモデル: ${modelToUse}`);
         }
+        return replyContent;
     } catch (error) {
-        console.error(`Gemini APIエラー:`, error.response?.data || error.message);
-        await logErrorToDb(userId, `Gemini APIエラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
+        console.error(`AI応答生成中にエラーが発生しました (${modelToUse}):`, error.response?.data || error.message);
+        await logErrorToDb(userId, `AI応答生成エラー`, { error: error.message, stack: error.stack, userMessage: userMessage, modelUsed: modelToUse });
+
         if (error.message === "API応答がタイムアウトしました。") {
             return "ごめんね、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
         }
         if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
-        return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
+        // フォールバックロジック
+        const fallbackMessage = "ごめんね、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
+        try {
+            // 元のモデルがGemini Proの場合、Flashへフォールバックを試みる
+            if (modelToUse === "gemini-1.5-pro-latest" && !error.message.includes("API応答がタイムアウトしました.")) { // タイムアウト時はすでにメッセージがあるため
+                const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+                const fallbackResult = await fallbackModel.generateContent("ごめん、さっきの質問にうまく答えられなかったみたい。別の角度から教えてくれる？");
+                const fallbackResponse = await fallbackResult.response;
+                return `ごめんね、ちょっと今うまくお話できなかったの…💦\nでも、別の方法で考えてみたよ。「${fallbackResponse.text()}」\nまたあとで試してみてくれると嬉しいな💖`;
+            }
+        } catch (fallbackError) {
+            console.error("Gemini 1.5 Flashへのフォールバック中にもエラーが発生しました:", fallbackError);
+            await logErrorToDb(userId, 'AI_FALLBACK_ERROR', fallbackError.message, { originalModel: modelToUse, message: userMessage });
+        }
+        return fallbackMessage;
     }
 }
+
 
 // ⭐handleRegistrationFlow関数をここに定義します⭐
 async function handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection) {
@@ -829,7 +838,8 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
             // ユーザーデータをFirestoreから削除
             await usersCollection.doc(userId).delete();
             // registrationStepをリセット（既にユーザーデータがないので厳密には不要だが念のため）
-            await usersCollection.doc(userId).set({ registrationStep: null, completedRegistration: false, membershipType: "guest" }, { merge: true }); // 新規ゲスト状態として初期化
+            // 再フォロー時のために membershipType を guest に設定
+            await usersCollection.doc(userId).set({ registrationStep: null, completedRegistration: false, membershipType: "guest" }, { merge: true }); 
 
             if (event.replyToken) {
                 await client.replyMessage(event.replyToken, { type: 'text', text: '退会手続きが完了したよ🌸\nさみしいけど、いつでもまた会えるのを楽しみにしているね💖\nこのアカウントをブロックしても大丈夫だよ。' });
@@ -1193,12 +1203,6 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     const lowerUserMessage = userMessage.toLowerCase();
     let handled = false;
 
-    // 退会フローはhandleRegistrationFlowで一元管理するため、ここでのキャンセルロジックは削除
-    // if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep === 'awaiting_contact_form') {
-    //      // ... (既存のキャンセル処理) ...
-    //      return true;
-    // }
-
     const currentUserConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
     if (!currentUserConfig.canUseWatchService) {
         if (event.replyToken) {
@@ -1346,7 +1350,6 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         }
         return false;
     }
-
     if (lowerUserMessage.includes("話を聞いて")) {
         if (user && user.watchServiceEnabled) {
             try {
@@ -1715,7 +1718,6 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
             if (parts.length >= 3) {
                 const replyTargetUserId = parts[1];
                 const replyMessageContent = parts.slice(2).join(' ').trim();
-
                 if (replyTargetUserId && replyMessageContent) {
                     try {
                         const targetUserDisplayName = await getUserDisplayName(replyTargetUserId);
@@ -1923,7 +1925,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         const canNotify = await checkAndSetAlertCooldown(userId, 'danger', 5);
         if (canNotify) {
             await updateUserData(userId, { isUrgent: true });
-            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user); // ⭐ generateGPTReply から generateAIReply に変更 ⭐
 
             try {
                 await client.replyMessage(event.replyToken, [
@@ -1958,7 +1960,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         const canNotify = await checkAndSetAlertCooldown(userId, 'scam', 5);
         if (canNotify) {
             await updateUserData(userId, { isUrgent: true });
-            const empatheticReply = await generateGPTReply(userMessage, "gpt-4o", userId, user);
+            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user); // ⭐ generateGPTReply から generateAIReply に変更 ⭐
             try {
                 await client.replyMessage(event.replyToken, [
                     { type: 'text', text: empatheticReply },
@@ -2075,39 +2077,20 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
     }
 
     let modelToUseForGeneralChat = getAIModelForUser(user, userMessage);
-    let aiType = "";
     let finalModelForAPI = modelToUseForGeneralChat;
 
     if (user.isInConsultationMode) {
         finalModelForAPI = "gemini-1.5-pro-latest";
-        aiType = "Gemini";
         await updateUserData(userId, { isInConsultationMode: false, isUrgent: false });
         logType = "consultation_message";
-    } else if (modelToUseForGeneralChat.startsWith("gpt")) {
-        aiType = "OpenAI";
-        await updateUserData(userId, { isUrgent: false });
-    } else {
-        aiType = "Gemini";
+    } else { // 通常会話はisInConsultationModeでない限り、getAIModelForUserで設定されたモデルを使用
         await updateUserData(userId, { isUrgent: false });
     }
 
     try {
-        if (aiType === "OpenAI") {
-            if (finalModelForAPI.startsWith("gpt")) {
-                replyText = await generateGPTReply(userMessage, finalModelForAPI, userId, user);
-            } else {
-                console.error(`AIモデル呼び出しエラー: OpenAIタイプなのにGeminiモデル名(${finalModelForAPI})が指定されました。`);
-                replyText = "ごめんね、AIモデルの選択で問題が起きたみたい…💦";
-            }
-        } else {
-            if (finalModelForAPI.startsWith("gemini")) {
-                replyText = await generateGeminiReply(userMessage, finalModelForAPI, userId, user);
-            } else {
-                console.error(`AIモデル呼び出しエラー: GeminiタイプなのにOpenAIモデル名(${finalModelForAPI})が指定されました。`);
-                replyText = "ごめんね、AIモデルの選択で問題が起きたみたい…💦";
-            }
-        }
-
+        // ⭐ generateGeminiReply の呼び出しを generateAIReply に変更 ⭐
+        replyText = await generateAIReply(userMessage, finalModelForAPI, userId, user);
+        
         await updateUserData(userId, {
             dailyMessageCount: admin.firestore.FieldValue.increment(1),
             lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
@@ -2115,7 +2098,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
 
         try {
             await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            await logToDb(userId, userMessage, replyText, aiType, logType);
+            // responsedBy は modelToUseForGeneralChat のプレフィックスで判別
+            await logToDb(userId, userMessage, replyText, finalModelForAPI.startsWith('gpt') ? 'OpenAI' : 'Gemini', logType);
         } catch (replyError) {
             console.error(`❌ AI応答 replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
             await safePushMessage(userId, { type: 'text', text: replyText });
@@ -2217,6 +2201,13 @@ async function handlePostbackEvent(event) {
                 await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId: userId });
                 return;
             }
+        }
+    }
+
+    // ⭐ 見守りサービス解除Postbackの処理をhandleWatchServiceRegistrationに委譲 ⭐
+    if (action === 'watch_unregister') {
+        if (await handleWatchServiceRegistration(event, userId, "解除", user)) { // "解除"を渡してメッセージベースのロジックを利用
+            return;
         }
     }
 
