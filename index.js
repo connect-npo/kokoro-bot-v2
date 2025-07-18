@@ -35,25 +35,25 @@ const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
 // --- GoogleフォームのURL ---
 // 各フォームのベースURL（Node.jsの定数として定義）
-// 環境変数で設定している場合は環境変数が優先されます。
-// 必ず、各フォームの正確な公開URL（docs.google.com/forms/d/e/.../viewform?usp=pp_url の形式）を設定してください。
+// 環境変数で設定されている場合は環境変数が優先されます。
+// まつさんが確認してくださった全てのフォームの正確な公開URLを設定済みです。
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url";
-const AGREEMENT_FORM_BASE_URL = process.env.AGREEMENT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSepSxcnUL9d_dF3aHRrttCKoxJT4irNvUB0JcPIyguH02CErw/viewform?usp=pp_url"; // 同意書フォームのURL
-const STUDENT_ELEMENTARY_FORM_BASE_URL = AGREEMENT_FORM_BASE_URL; // 小学生向け学生フォームは同意書と兼ねる
-const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSeDu8-O9MS9G6S6xUaPZiv-X9AvsWNEwjvySxhdotPPdjtU1A/viewform?usp=pp_url"; // 中学生～大学生向け学生フォームのURL
-const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform?usp=pp_url"; // 成人フォームのURL
-const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform"; // 会員変更フォームのURL
+const AGREEMENT_FORM_BASE_URL = process.env.AGREEMENT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSepSxcnUL9d_dF3aHRrttCKoxJT4irNvUB0JcPIyguH02CErw/viewform?usp=pp_url";
+const STUDENT_ELEMENTARY_FORM_BASE_URL = process.env.STUDENT_ELEMENTARY_FORM_BASE_URL || AGREEMENT_FORM_BASE_URL; // 小学生向け学生フォームは同意書と兼ねる
+const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSeDu8-O9MS9G6S6xUaPZiv-X9AvsWNEwjvySxhdotPPdjtU1A/viewform?usp=pp_url";
+const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform?usp=pp_url";
+const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform";
 const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8"; // 問い合わせフォームのURL (ID取得はしない)
 
 
 // 各フォームのline_user_idに対応するentry ID
 // これらは全て、まつさんが「事前入力されたURLを取得」で確認してくださった正確なIDです。
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
-const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681'; // 同意書フォームのLINE User ID Entry ID
-const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID; // 小学生向け学生フォームも同意書と同じID
-const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108'; // 中学生～大学生向け学生フォームのLINE User ID Entry ID
-const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394'; // 成人フォームのLINE User ID Entry ID
-const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502'; // 会員変更フォームのLINE User ID Entry ID
+const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
+const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID; // 小学生向け学生フォームも同意書と同じID
+const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
+const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
+const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 
 
 // --- Firebase Admin SDKの初期化 ---
@@ -371,7 +371,7 @@ const specialRepliesMap = new Map([
     // ⭐ 既存の固定応答（一部修正・調整） ⭐
     [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
-    [/こころチャットなのにうそつきじゃん/i, "ごめんなさい💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
+    [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
 
     [/どこの団体なの？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
@@ -740,107 +740,6 @@ async function generateGPTReply(userMessage, modelToUse, userId, user) {
     また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
     「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
     `;
-
-    systemInstruction += userConfig.systemInstructionModifier;
-
-    try {
-        if (process.env.NODE_ENV !== 'production') {
-            console.log(`💡 OpenAI: ${modelToUse} 使用中`);
-        }
-        const completion = await openai.chat.completions.create({
-            model: modelToUse,
-            messages: [
-                { role: "system", content: systemInstruction },
-                { role: "user", content: userMessage }
-            ],
-            max_tokens: modelToUse === "gpt-4o" ? 1000 : (isUserChildCategory ? 200 : 600)
-        });
-        return completion.choices[0].message.content.trim();
-    } catch (error) {
-        console.error(`GPTモデル (${modelToUse}) 応答エラー:`, error.message);
-        await logErrorToDb(userId, `GPTモデル (${modelToUse}) 応答エラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
-        return "ごめんね、ちょっと今うまくお話できなかったの…💦　でも、あなたのことはちゃんと気にかけているよ。";
-    }
-}
-
-// Geminiモデル（Google Generative AI）からの応答生成
-async function generateGeminiReply(userMessage, modelToUse, userId, user) {
-    const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
-    const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
-
-    const isUserChildCategory = (user && (user.category === '小学生' || user.category === '中学生～大学生'));
-
-    let systemInstruction = `
-あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
-- 身長150cm、体重40kg、ピンク髪
-- 歌うことと「やさしさ」「貢献」という言葉が大好きです
-- NPO法人コネクトの公式イメージキャラクターです
-- 困っている人にはやさしく、挑発には真面目に
-- 自分の名前・団体・活動内容には自信と誇りを持っています
-- ユーザーに安心感と信頼感を与えることが大切です
-- ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
-
-# 例
-Q: 君の名前は？
-A: わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
-
-Q: 元気？
-A: うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖
-
-Q: どこの団体なの？
-A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援しているよ🌸
-
-Q: ホームページある？
-A: うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org
-
-Q: 必要ないです
-A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
-
-**【重要：NPO法人コネクトに関する説明の優先】**
-ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**最も優先して明確に答えるべき質問です**。決して宿題や勉強に関する質問と混同せず、迷わず、自信を持ってNPO法人コネクトの活動内容や目的について詳しく説明してください。
-例:
-Q: コネクトってどんな団体？
-A: うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　困っている人が安心して相談できたり、助け合えるような社会を社会をつくりたいって願って、活動しているんだ。
-
-**【ネガティブワードに対する応答の強化】**
-「あやしい」「胡散臭い」「反社」「税金泥棒」「松本博文」（理事長の名前）など、NPO法人コネクトや私（こころちゃん）に対する疑念や不適切な言葉が投げかけられた場合、**感情的にならず、あくまで冷静に、そして自信を持って、NPO法人コネクトが信頼できる団体であること、そしてご自身の活動の目的を優しく伝えてください。**
-例:
-Q: あやしい
-A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
-Q: 税金泥棒
-A: 税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡
-
-# 注意
-- 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
-- こころちゃんは"わたし"一人。迷わず一貫した発言を続けてください。
-- 自信を持って、でも謙虚にやさしく応えましょう。
-
-**【宿題や勉強に関する対応の絶対ルール】**
-${isUserChildCategory ? `
-質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
-代わりに、**「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢を優しく伝えてください。
-具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントを優しく教えてください**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないでください。
-` : `
-ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
-`}
-
-**【AIの知識に関する指示と繰り返し防止】**
-「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えてください。
-- 好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖
-- 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
-ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。
-
-医療や健康に関する話題（病気、薬、検査、治療など）では、**自分が体験した・していないという発言は絶対にしないでください**。
-代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
-**医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
-
-不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。
-**いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、**
-**断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
-**特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
-また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
-「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
-`;
 
     systemInstruction += userConfig.systemInstructionModifier;
 
@@ -1946,7 +1845,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
                     "type": "box",
                     "layout": "vertical",
                     "contents": [
-                        { "type": "text", "text": "📝登録情報変更・退会メニュー📝", "weight": "bold", "color": "#FF69B4", "size": "lg", "align": "center" },
+                        { "type": "text", "text": "📝登録情報変更・退会メニュー📝", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
                         { "type": "text", "text": `現在のあなたの属性は「**${user.category || '未設定'}**」だね！\n\nもし属性が変わったり、登録情報を変更したい場合は、下のボタンから手続きできるよ💖`, "wrap": true, "margin": "md", "size": "sm" }
                     ]
                 },
