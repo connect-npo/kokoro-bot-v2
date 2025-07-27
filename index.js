@@ -837,14 +837,18 @@ async function generateAIReply(userMessage, modelToUse, userId, user, conversati
             console.log(`💡 AI Model Being Used: ${modelToUse}`);
         }
 
-        let replyContent;
-        // ⭐ AIモデルに渡すメッセージ配列の構築 ⭐
+       let replyContent;
+        // ⭐ AIモデルに渡すメッセージ配列の構築 (共通部分) ⭐
+        // ここで履歴のロールを調整します
         const messagesForAI = [
             { role: "system", content: systemInstruction },
-            ...conversationHistory, // 過去の会話履歴を挿入
+            // ⭐ 修正: 履歴のロールをOpenAIとGeminiの両方に対応させるように変換 ⭐
+            ...conversationHistory.map(turn => ({
+                role: turn.role === 'model' ? 'assistant' : turn.role, // 'model'が来た場合は'assistant'に変換
+                content: turn.content
+            })),
             { role: "user", content: userMessage }
         ];
-
 
         if (modelToUse.startsWith('gpt')) {
             const completion = await openai.chat.completions.create({
