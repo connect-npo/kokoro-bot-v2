@@ -51,7 +51,7 @@ const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://form
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
 const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
 const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID; // 小学生向け学生フォームも同意書と同じID
-const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
+const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.DENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
 const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 
@@ -491,7 +491,7 @@ async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'syste
     }
 }
 
-// --- 会話履歴をFirestoreに保存する関数 ---
+// ⭐ 会話履歴をFirestoreに保存する関数 --- (修正済み) ⭐
 async function saveConversationHistory(userId, messageContent, role) {
     const userRef = db.collection('users').doc(userId);
     const conversationRef = userRef.collection('conversations').doc('history');
@@ -528,7 +528,7 @@ async function saveConversationHistory(userId, messageContent, role) {
     }
 }
 
-// ⭐ 会話履歴をFirestoreから取得する関数 --- (追加) ⭐
+// ⭐ 会話履歴をFirestoreから取得する関数 --- (追加済み) ⭐
 async function getConversationHistory(userId) {
     const userRef = db.collection('users').doc(userId);
     const conversationRef = userRef.collection('conversations').doc('history');
@@ -636,7 +636,6 @@ async function getUserData(userId) {
 
     return userData;
 }
-
 /**
  * ユーザーの会員情報をFirestoreに保存する関数。
  * @param {string} userId - LINEユーザーID
@@ -724,7 +723,8 @@ function shouldLogMessage(logType) {
         'registration_already_completed', 'watch_service_scheduled_message', 'user_suspended',
         'withdrawal_request', 'withdrawal_confirm', 'withdrawal_cancel', 'withdrawal_complete',
         'watch_service_unregister', 'watch_service_unregister_error', 'watch_service_not_registered_on_unregister', // 追加
-        'registration_info_change_guide', 'registration_info_change_unknown_category'
+        'registration_info_change_guide', 'registration_info_change_unknown_category',
+        'duplicate_message_ignored' // ⭐ 追加: 重複メッセージログタイプ ⭐
     ];
     if (defaultLogTypes.includes(logType)) {
         return true;
@@ -756,7 +756,6 @@ function getAIModelForUser(user, messageText) {
     }
     return "gemini-1.5-flash-latest";
 }
-
 // --- AI応答生成関数 (GPT & Gemini 両方に対応) ---
 async function generateAIReply(userMessage, modelToUse, userId, user, conversationHistory = []) { // ⭐ conversationHistory を引数に追加 ⭐
     const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
@@ -1283,7 +1282,6 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
     }
     return handled;
 }
-
 // ⭐handleWatchServiceRegistration関数をここに定義します⭐
 async function handleWatchServiceRegistration(event, userId, userMessage, user) {
     const usersCollection = db.collection("users");
@@ -1673,7 +1671,6 @@ async function sendScheduledWatchMessage() {
         await logErrorToDb(null, "見守りサービス Cron ジョブエラー", { error: error.message, stack: error.stack });
     }
 }
-
 /**
  * 管理者グループに通知メッセージを送信する関数。
  * @param {string} message - 送信するメッセージ
@@ -2177,8 +2174,26 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         return;
     }
 
-    // ⭐ 会話履歴の取得 ⭐
-    const conversationHistory = await getConversationHistory(userId);
+    // ⭐ 連続する同一メッセージのチェックと応答 ⭐
+    const currentConversationHistory = await getConversationHistory(userId);
+    const lastUserTurn = currentConversationHistory.findLast(turn => turn.role === 'user');
+
+    if (lastUserTurn && lastUserTurn.content === userMessage) {
+        const duplicateMessageReply = "さっきも同じこと教えてくれたね🌸何か違うこと話したいことあるかな？💖";
+        try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: duplicateMessageReply });
+            await logToDb(userId, userMessage, duplicateMessageReply, "System", "duplicate_message_ignored");
+        } catch (replyError) {
+            console.error(`❌ Duplicate message replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
+            await safePushMessage(userId, { type: 'text', text: duplicateMessageReply });
+            await logErrorToDb(userId, `Duplicate message replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
+        }
+        return; // これ以上処理せず、ここで終了
+    }
+
+    // ⭐ AI応答生成の直前に会話履歴を再取得（上記重複チェックで使った履歴をそのまま利用しても良い） ⭐
+    // この位置の getConversationHistory は削除し、上記の currentConversationHistory を使い回します。
+    const conversationHistoryForAI = currentConversationHistory; // 名前を分かりやすく変更
 
     let modelToUseForGeneralChat = getAIModelForUser(user, userMessage);
     let finalModelForAPI = modelToUseForGeneralChat;
@@ -2192,8 +2207,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
     }
 
     try {
-        // ⭐ generateAIReply に conversationHistory を渡す ⭐
-        replyText = await generateAIReply(userMessage, finalModelForAPI, userId, user, conversationHistory);
+        // ⭐ generateAIReply に conversationHistoryForAI を渡す ⭐
+        replyText = await generateAIReply(userMessage, finalModelForAPI, userId, user, conversationHistoryForAI);
         
         await updateUserData(userId, {
             dailyMessageCount: admin.firestore.FieldValue.increment(1),
