@@ -210,11 +210,11 @@ const MEMBERSHIP_CONFIG = {
         `
     },
     "subscriber": {
-        dailyLimit: 20,
+        dailyLimit: -1, // ⭐ 修正: サブスク会員は無制限に ⭐
         isChildAI: false,
         canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、今日の会話回数（1日20回まで）を超えちゃったみたい💦 明日になったらまたお話しできるから、楽しみにしててね！🌸",
-        fallbackModel: "gemini-1.5-flash-latest",
+        exceedLimitMessage: "", // 無制限なのでメッセージは不要
+        fallbackModel: "gemini-1.5-flash-latest", // 現状未使用だが定義は残す
         systemInstructionModifier: `
         # サブスク会員（成人）向け応答強化指示
         あなたは成人であるユーザーに対して、最高レベルのAIとして、最も高度で専門的な情報を提供してください。
@@ -491,6 +491,54 @@ async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'syste
     }
 }
 
+// ⭐ 会話履歴をFirestoreに保存する関数 --- (追加) ⭐
+async function saveConversationHistory(userId, messageContent, role) {
+    const userRef = db.collection('users').doc(userId);
+    const conversationRef = userRef.collection('conversations').doc('history');
+
+    try {
+        const doc = await conversationRef.get();
+        let history = doc.exists ? doc.data().turns : [];
+
+        // 新しい会話ターンを追加
+        history.push({ role: role, content: messageContent, timestamp: admin.firestore.FieldValue.serverTimestamp() });
+
+        // 最新の会話履歴を保持（例: 直近10ターン - ユーザーとAIの合計10メッセージ）
+        const MAX_CONVERSATION_TURNS = 10;
+        if (history.length > MAX_CONVERSATION_TURNS) {
+            history = history.slice(history.length - MAX_CONVERSATION_TURNS);
+        }
+
+        await conversationRef.set({ turns: history }, { merge: true });
+    } catch (error) {
+        console.error('Error saving conversation history:', error);
+        await logErrorToDb(userId, '会話履歴保存エラー', { error: error.message, message: messageContent });
+    }
+}
+
+// ⭐ 会話履歴をFirestoreから取得する関数 --- (追加) ⭐
+async function getConversationHistory(userId) {
+    const userRef = db.collection('users').doc(userId);
+    const conversationRef = userRef.collection('conversations').doc('history');
+
+    try {
+        const doc = await conversationRef.get();
+        if (doc.exists) {
+            // データベースから取得した履歴はTimestampオブジェクトを含む可能性があるので、適切な形式に変換
+            return doc.data().turns.map(turn => ({
+                role: turn.role,
+                content: turn.content
+            })) || [];
+        }
+        return [];
+    } catch (error) {
+        console.error('Error getting conversation history:', error);
+        await logErrorToDb(userId, '会話履歴取得エラー', { error: error.message });
+        return [];
+    }
+}
+
+
 /**
  * ユーザーの会員情報をFirestoreから取得する関数。
  * @param {string} userId - LINEユーザーID
@@ -514,7 +562,7 @@ async function getUserData(userId) {
             lastScheduledWatchMessageSent: null, // 新規追加
             firstReminderSent: false, // 新規追加
             emergencyNotificationSent: false, // 新規追加
-            registeredInfo: {}, // 登録情報（氏名、電話番号など）
+            // registeredInfo: {}, // 登録情報（氏名、電話番号など）→直接ルートに保存する運用に変更
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             // 新規ユーザーの場合、登録完了フラグとカテゴリは未設定
             completedRegistration: false,
@@ -560,6 +608,20 @@ async function getUserData(userId) {
         userData.tempRegistrationData = {};
         await userRef.update({ tempRegistrationData: {} });
     }
+    // ⭐ 新規追加フィールドの初期化（cronジョブが依存するため） ⭐
+    if (userData.lastScheduledWatchMessageSent === undefined) {
+        userData.lastScheduledWatchMessageSent = null;
+        await userRef.update({ lastScheduledWatchMessageSent: null });
+    }
+    if (userData.firstReminderSent === undefined) {
+        userData.firstReminderSent = false;
+        await userRef.update({ firstReminderSent: false });
+    }
+    if (userData.emergencyNotificationSent === undefined) {
+        userData.emergencyNotificationSent = false;
+        await userRef.update({ emergencyNotificationSent: false });
+    }
+
     return userData;
 }
 
@@ -649,6 +711,7 @@ function shouldLogMessage(logType) {
         'special_reply', 'homework_query', 'system_follow', 'registration_buttons_display',
         'registration_already_completed', 'watch_service_scheduled_message', 'user_suspended',
         'withdrawal_request', 'withdrawal_confirm', 'withdrawal_cancel', 'withdrawal_complete',
+        'watch_service_unregister', 'watch_service_unregister_error', 'watch_service_not_registered_on_unregister', // 追加
         'registration_info_change_guide', 'registration_info_change_unknown_category'
     ];
     if (defaultLogTypes.includes(logType)) {
@@ -683,8 +746,7 @@ function getAIModelForUser(user, messageText) {
 }
 
 // --- AI応答生成関数 (GPT & Gemini 両方に対応) ---
-// generateGPTReply を generateAIReply にリネームし、Geminiの処理も統合
-async function generateAIReply(userMessage, modelToUse, userId, user) {
+async function generateAIReply(userMessage, modelToUse, userId, user, conversationHistory = []) { // ⭐ conversationHistory を引数に追加 ⭐
     const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
     const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
 
@@ -770,18 +832,30 @@ async function generateAIReply(userMessage, modelToUse, userId, user) {
         }
 
         let replyContent;
+        // ⭐ AIモデルに渡すメッセージ配列の構築 ⭐
+        const messagesForAI = [
+            { role: "system", content: systemInstruction },
+            ...conversationHistory, // 過去の会話履歴を挿入
+            { role: "user", content: userMessage }
+        ];
+
+
         if (modelToUse.startsWith('gpt')) {
             const completion = await openai.chat.completions.create({
                 model: modelToUse,
-                messages: [{ role: "system", content: systemInstruction }, { role: "user", content: userMessage }],
+                messages: messagesForAI, // ⭐ messagesForAI を渡す ⭐
                 max_tokens: isUserChildCategory ? 200 : 700
             });
             replyContent = completion.choices[0].message.content;
         } else if (modelToUse.startsWith('gemini')) {
             const model = genAI.getGenerativeModel({ model: modelToUse, safetySettings: AI_SAFETY_SETTINGS });
             const result = await model.generateContent({
-                system_instruction: { parts: [{ text: systemInstruction }] },
-                contents: [{ role: "user", parts: [{ text: userMessage }] }],
+                system_instruction: { parts: [{ text: systemInstruction }] }, // Geminiではsystem_instructionは別途指定
+                // Gemini APIは 'assistant' ロールを 'model' として受け取る
+                contents: messagesForAI.filter(m => m.role !== 'system').map(m => ({
+                    role: m.role === 'assistant' ? 'model' : m.role,
+                    parts: [{ text: m.content }]
+                })),
                 generationConfig: {
                     maxOutputTokens: isUserChildCategory ? 200 : 700
                 }
@@ -815,7 +889,9 @@ async function generateAIReply(userMessage, modelToUse, userId, user) {
             // 元のモデルがGemini Proの場合、Flashへフォールバックを試みる
             if (modelToUse === "gemini-1.5-pro-latest" && !error.message.includes("API応答がタイムアウトしました.")) { // タイムアウト時はすでにメッセージがあるため
                 const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-                const fallbackResult = await fallbackModel.generateContent("ごめん、さっきの質問にうまく答えられなかったみたい。別の角度から教えてくれる？");
+                const fallbackResult = await fallbackModel.generateContent({
+                    contents: [{ role: "user", parts: [{ text: "ごめん、さっきの質問にうまく答えられなかったみたい。別の角度から教えてくれる？" }] }]
+                });
                 const fallbackResponse = await fallbackResult.response;
                 return `ごめんね、ちょっと今うまくお話できなかったの…💦\nでも、別の方法で考えてみたよ。「${fallbackResponse.text()}」\nまたあとで試してみてくれると嬉しいな💖`;
             }
@@ -839,7 +915,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
             await usersCollection.doc(userId).delete();
             // registrationStepをリセット（既にユーザーデータがないので厳密には不要だが念のため）
             // 再フォロー時のために membershipType を guest に設定
-            await usersCollection.doc(userId).set({ registrationStep: null, completedRegistration: false, membershipType: "guest" }, { merge: true }); 
+            await usersCollection.doc(userId).set({ registrationStep: null, completedRegistration: false, membershipType: "guest" }, { merge: true });
 
             if (event.replyToken) {
                 await client.replyMessage(event.replyToken, { type: 'text', text: '退会手続きが完了したよ🌸\nさみしいけど、いつでもまた会えるのを楽しみにしているね💖\nこのアカウントをブロックしても大丈夫だよ。' });
@@ -1269,7 +1345,10 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         }
     }
 
-    // OKボタン応答と状態リセット (handleEventから移動)
+    // ⭐ Postbackからの見守り関連応答（OK, 元気ないなど）は handlePostbackEvent で処理されるため、ここからは削除 ⭐
+    // ⭐ handleWatchServiceRegistration 関数内でメッセージテキストによる見守り関連応答を処理する場合のみ残す ⭐
+    // 今のコードでは、メッセージテキスト（例：「元気だよ！」）による応答をここで処理しているため、ここは残します。
+    // Postbackアクションによる応答は handlePostbackEvent で処理します。
     if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.watchServiceEnabled) { // 見守りサービスが有効な場合のみ応答
             try {
@@ -1379,7 +1458,8 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     // ⭐ 見守りサービス解除はPostbackからも、メッセージからも可能にする ⭐
-    if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ' || (event.type === 'postback' && event.postback.data === 'action=watch_unregister')) {
+    // メッセージからの「解除」はここで処理。PostbackはhandlePostbackEventで処理される。
+    if (lowerUserMessage === '解除' || lowerUserMessage === 'かいじょ') {
         let replyTextForUnregister = "";
         let logTypeForUnregister = "";
 
@@ -1387,16 +1467,21 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             try {
                 await usersCollection.doc(userId).update({
                     watchServiceEnabled: false,
-                    emergencyContact: null, // 登録情報も削除
+                    // 見守り解除に伴い、関連するユーザー情報をFirestoreから削除
+                    phoneNumber: admin.firestore.FieldValue.delete(),
+                    guardianName: admin.firestore.FieldValue.delete(),
+                    guardianPhoneNumber: admin.firestore.FieldValue.delete(),
+                    'address.city': admin.firestore.FieldValue.delete(),
+                    name: admin.firestore.FieldValue.delete(),
+                    kana: admin.firestore.FieldValue.delete(),
+                    age: admin.firestore.FieldValue.delete(),
+                    category: admin.firestore.FieldValue.delete(),
+                    completedRegistration: false, // 会員登録完了フラグもリセット
                     lastScheduledWatchMessageSent: null,
                     firstReminderSent: false,
                     emergencyNotificationSent: false,
-                    'registeredInfo.phoneNumber': admin.firestore.FieldValue.delete(),
-                    'registeredInfo.guardianName': admin.firestore.FieldValue.delete(),
-                    'registeredInfo.emergencyContact': admin.firestore.FieldValue.delete(),
-                    'registeredInfo.relationship': admin.firestore.FieldValue.delete()
                 });
-                replyTextForUnregister = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖";
+                replyTextForUnregister = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖\n※登録情報も初期化されました。";
                 logTypeForUnregister = 'watch_service_unregister';
             } catch (error) {
                 console.error("❌ 見守りサービス解除処理エラー:", error.message);
@@ -1409,15 +1494,14 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
             logTypeForUnregister = 'watch_service_not_registered_on_unregister';
         }
         await client.replyMessage(event.replyToken, { type: 'text', text: replyTextForUnregister });
-        await logToDb(userId, `Postback: ${event.postback.data || userMessage}`, replyTextForUnregister, "System", logTypeForUnregister);
+        await logToDb(userId, userMessage, replyTextForUnregister, "System", logTypeForUnregister);
         return true;
     }
     return false;
 }
 
-
 // --- 定期見守りメッセージ送信 Cronジョブ (毎日15時にトリガー) ---
-cron.schedule('0 15 * * *', () => {
+cron.schedule('0 15 * * *', () => { // 毎日15時に実行
     if (process.env.NODE_ENV !== 'production') {
         console.log('cron: 定期見守りメッセージ送信処理をトリガーします。');
     }
@@ -1461,7 +1545,7 @@ async function checkAndSetAlertCooldown(userId, alertType, cooldownMinutes) {
  */
 async function sendScheduledWatchMessage() {
     const usersCollection = db.collection('users');
-    const now = admin.firestore.Timestamp.now();
+    const now = admin.firestore.Timestamp.now().toDate(); // 現在時刻をDateオブジェクトで取得
 
     try {
         const snapshot = await usersCollection
@@ -1471,36 +1555,69 @@ async function sendScheduledWatchMessage() {
         for (const doc of snapshot.docs) {
             const user = doc.data();
             const userId = doc.id;
+
+            // lastOkResponse または createdAt がない場合を考慮し、デフォルト値を設定
             const lastOkResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : user.createdAt.toDate();
-            const lastScheduledWatchMessageSent = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : user.createdAt.toDate();
+            // lastScheduledWatchMessageSent がない場合、非常に古い時刻を設定して初回送信を促す
+            const lastScheduledWatchMessageSent = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : new Date(0); // Epoch
+
+            // 経過時間（ミリ秒）
+            const msSinceLastOk = now.getTime() - lastOkResponse.getTime();
+            const msSinceLastScheduled = now.getTime() - lastScheduledWatchMessageSent.getTime();
 
             let updateData = {};
-            let shouldSendInitialMessage = false;
-            let shouldSendFirstReminder = false;
-            let shouldSendEmergencyNotification = false;
+            let messageToSend = null;
+            let logTypeToUse = null;
 
-            if ((now.toDate().getTime() - lastOkResponse.getTime()) >= (3 * 24 * 60 * 60 * 1000) &&
-                (!user.lastScheduledWatchMessageSent || (now.toDate().getTime() - lastScheduledWatchMessageSent.getTime()) >= (3 * 24 * 60 * 60 * 1000))) {
-                shouldSendInitialMessage = true;
+            // --- フェーズ1: 3日 (72時間) 未応答の場合の初回見守りメッセージ ---
+            // lastOkResponseから72時間以上経過、かつ、初回見守りメッセージがまだ送信されていないか、
+            // あるいは、前回の見守りメッセージ送信から72時間以上経過している場合
+            const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+            if (msSinceLastOk >= THREE_DAYS_MS && msSinceLastScheduled >= THREE_DAYS_MS) {
+                messageToSend = watchMessages[Math.floor(Math.random() * watchMessages.length)];
+                logTypeToUse = 'watch_service_initial_message';
+                updateData.lastScheduledWatchMessageSent = admin.firestore.FieldValue.serverTimestamp();
+                updateData.firstReminderSent = false; // 初回見守りメッセージなのでリマインダーフラグをリセット
+                updateData.emergencyNotificationSent = false; // 同上
+                if (process.env.NODE_ENV !== 'production') {
+                    console.log(`ユーザー ${userId}: 3日経過 - 初回見守りメッセージを送信準備`);
+                }
+            }
+            // --- フェーズ2: 初回見守りメッセージ送信後、24時間未応答の場合のリマインダー ---
+            // 前回の見守りメッセージ送信から24時間以上経過、かつ、初回リマインダーがまだ送信されていない場合
+            else if (user.lastScheduledWatchMessageSent && msSinceLastScheduled >= (24 * 60 * 60 * 1000) && !user.firstReminderSent) {
+                messageToSend = "こころちゃんだよ🌸\n元気にしてるかな？\nもしかして、忙しいのかな？\n短い時間でいいから、一言「OKだよ💖」って教えてくれると安心するな😊";
+                logTypeToUse = 'watch_service_reminder_24h';
+                updateData.firstReminderSent = true;
+                if (process.env.NODE_ENV !== 'production') {
+                    console.log(`ユーザー ${userId}: 24時間経過 - 初回リマインダーを送信準備`);
+                }
+            }
+            // --- フェーズ3: 初回見守りメッセージ送信後、さらに5時間未応答の場合の緊急通知 ---
+            // (合計で初回見守りから29時間)
+            // 前回の見守りメッセージ送信から29時間以上経過、かつ、緊急通知がまだ送信されていない場合
+            else if (user.lastScheduledWatchMessageSent && msSinceLastScheduled >= ((24 + 5) * 60 * 60 * 1000) && !user.emergencyNotificationSent) {
+                const canNotify = await checkAndSetAlertCooldown(userId, 'watch_unresponsive', 5); // 5分クールダウン
+                if (canNotify) {
+                    const userInfo = user; // userオブジェクトをそのまま渡す
+                    const messageForOfficer = `ユーザー ${userInfo.name || '不明なユーザー'} (${userId}) が見守りサービスで未応答です。緊急対応が必要です。`;
+                    await notifyOfficerGroup(messageForOfficer, userId, userInfo, "watch_unresponsive", "緊急");
+                    logTypeToUse = 'watch_service_final_notification';
+                    updateData.emergencyNotificationSent = true;
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.log(`ユーザー ${userId}: 29時間経過 - 緊急通知をトリガー`);
+                    }
+                } else {
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.log(`ユーザー ${userId}: 見守り緊急通知はクールダウン中のためスキップされました。`);
+                    }
+                }
             }
 
-            if (user.lastScheduledWatchMessageSent &&
-                (now.toDate().getTime() - user.lastScheduledWatchMessageSent.toDate().getTime()) >= (24 * 60 * 60 * 1000) &&
-                !user.firstReminderSent) {
-                shouldSendFirstReminder = true;
-            }
-
-            if (user.lastScheduledWatchMessageSent &&
-                (now.toDate().getTime() - user.lastScheduledWatchMessageSent.toDate().getTime()) >= ((24 + 5) * 60 * 60 * 1000) &&
-                !user.emergencyNotificationSent) {
-                shouldSendEmergencyNotification = true;
-            }
-
-
-            if (shouldSendInitialMessage) {
-                const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)];
+            // メッセージ送信とデータ更新
+            if (messageToSend) {
                 const messages = [
-                    { type: 'text', text: randomMessage },
+                    { type: 'text', text: messageToSend },
                     {
                         type: 'flex',
                         altText: '元気？ボタン',
@@ -1529,39 +1646,7 @@ async function sendScheduledWatchMessage() {
                     }
                 ];
                 await safePushMessage(userId, messages);
-                updateData.lastScheduledWatchMessageSent = now;
-                updateData.firstReminderSent = false;
-                updateData.emergencyNotificationSent = false;
-                if (process.env.NODE_ENV !== 'production') {
-                    console.log(`ユーザー ${userId}: 3日経過 - 初回見守りメッセージを送信`);
-                }
-                logToDb(userId, `（3日未応答初回見守り）`, randomMessage, 'こころちゃん（見守り）', 'watch_service_initial_message', true);
-            } else if (shouldSendFirstReminder) {
-                reminderMessage = "こころちゃんだよ🌸\n元気にしてるかな？\nもしかして、忙しいのかな？\n短い時間でいいから、一言「OKだよ💖」って教えてくれると安心するな😊";
-                await safePushMessage(userId, { type: 'text', text: reminderMessage });
-                updateData.firstReminderSent = true;
-                if (process.env.NODE_ENV !== 'production') {
-                    console.log(`ユーザー ${userId}: 24時間経過 - 初回リマインダーを送信`);
-                }
-                logToDb(userId, `（24時間未応答リマインダー）`, reminderMessage, 'こころちゃん（見守り）', 'watch_service_reminder_24h', true);
-            } else if (shouldSendEmergencyNotification) {
-                const canNotify = await checkAndSetAlertCooldown(userId, 'watch_unresponsive', 5);
-                if (canNotify) {
-                    const userInfo = user.registeredInfo || {};
-                    const userName = userInfo.name || '不明なユーザー';
-                    const notificationDetailType = '緊急';
-                    const messageForOfficer = `ユーザー ${userName} (${userId}) が見守りサービスで${notificationDetailType}未応答です。緊急対応が必要です。`;
-                    await notifyOfficerGroup(messageForOfficer, userId, userInfo, "watch_unresponsive", notificationDetailType);
-                    updateData.emergencyNotificationSent = true;
-                    if (process.env.NODE_ENV !== 'production') {
-                        console.log(`ユーザー ${userId}: 5時間経過 - 緊急通知をトリガー`);
-                    }
-                    logToDb(userId, `（緊急未応答最終通知）`, `緊急連絡先へ通知をトリガー`, 'こころちゃん（見守り）', 'watch_service_final_notification', true);
-                } else {
-                    if (process.env.NODE_ENV !== 'production') {
-                        console.log(`ユーザー ${userId}: 見守り緊急通知はクールダウン中のためスキップされました。`);
-                    }
-                }
+                await logToDb(userId, `（定期見守りメッセージ）`, messageToSend, 'こころちゃん（見守り）', logTypeToUse, true);
             }
 
             if (Object.keys(updateData).length > 0) {
@@ -1581,17 +1666,18 @@ async function sendScheduledWatchMessage() {
  * 管理者グループに通知メッセージを送信する関数。
  * @param {string} message - 送信するメッセージ
  * @param {string} userId - 通知対象のユーザーID
- * @param {Object} userInfo - ユーザーの登録情報
+ * @param {Object} userInfo - ユーザーの登録情報 (userオブジェクトを直接渡す想定)
  * @param {string} type - 通知の種類 (例: "danger", "scam", "watch_unresponsive")
  * @param {string} [notificationDetailType=''] - 見守りサービス未応答時の詳細タイプ (例: "緊急")
  */
 async function notifyOfficerGroup(message, userId, userInfo, type, notificationDetailType = '') {
-    const userName = userInfo.full_name || userInfo.name || '不明なユーザー'; // full_nameを優先、なければname
-    const userPhone = userInfo.phoneNumber || '不明';
-    const guardianName = userInfo.guardianName || '不明';
-    const emergencyContact = userInfo.emergencyContact || '不明'; // registeredInfo.emergencyContact
-    const relationship = userInfo.relationship || '不明'; // registeredInfo.relationship
-    const userCity = userInfo.city || '不明'; // registeredInfo.city
+    // userInfoはユーザーデータオブジェクト全体を想定
+    const userName = userInfo.name || '不明なユーザー';
+    const userPhone = userInfo.phoneNumber || '未登録';
+    const guardianName = userInfo.guardianName || '未登録';
+    const emergencyContact = userInfo.guardianPhoneNumber || '未登録'; // 保護者電話番号を緊急連絡先として使用
+    const relationship = userInfo.relationship || '未登録'; // 現行フローで取得されていないため、必要に応じて追加
+    const userCity = (userInfo.address && userInfo.address.city) ? userInfo.address.city : '未登録';
 
     // 通知タイトル
     let notificationTitle = "";
@@ -1604,7 +1690,7 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
     }
 
     // ⭐ 修正箇所: 通知メッセージのフォーマットをご要望通りに改善 ⭐
-    const simpleNotificationMessage = `${notificationTitle}\n` +
+    const simpleNotificationMessage = `${notificationTitle}\n\n` +
                                       `👤 氏名：${userName}\n` +
                                       `📱 電話番号：${userPhone}\n` +
                                       `🏠 市区町村：${userCity}\n` +
@@ -1899,7 +1985,6 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
             logMessage = "新規会員登録メニュー表示（区分選択促し）";
             logTypeDetail = "registration_start";
         }
-
         try {
             await client.replyMessage(event.replyToken, {
                 type: "flex",
@@ -1925,7 +2010,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         const canNotify = await checkAndSetAlertCooldown(userId, 'danger', 5);
         if (canNotify) {
             await updateUserData(userId, { isUrgent: true });
-            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user); // ⭐ generateGPTReply から generateAIReply に変更 ⭐
+            // ⭐ generateAIReply に conversationHistory を渡す ⭐
+            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user, await getConversationHistory(userId));
 
             try {
                 await client.replyMessage(event.replyToken, [
@@ -1941,7 +2027,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
                 ]);
                 await logErrorToDb(userId, `Danger word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
             }
-            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "danger");
+            // ⭐ notifyOfficerGroup の userInfo に user オブジェクト全体を渡す ⭐
+            await notifyOfficerGroup(userMessage, userId, user, "danger");
         } else {
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`ユーザー ${userId}: 危険ワード通知はクールダウン中のためスキップされました。`);
@@ -1960,7 +2047,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         const canNotify = await checkAndSetAlertCooldown(userId, 'scam', 5);
         if (canNotify) {
             await updateUserData(userId, { isUrgent: true });
-            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user); // ⭐ generateGPTReply から generateAIReply に変更 ⭐
+            // ⭐ generateAIReply に conversationHistory を渡す ⭐
+            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user, await getConversationHistory(userId));
             try {
                 await client.replyMessage(event.replyToken, [
                     { type: 'text', text: empatheticReply },
@@ -1975,7 +2063,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
                 ]);
                 await logErrorToDb(userId, `Scam word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
             }
-            await notifyOfficerGroup(userMessage, userId, user.registeredInfo || {}, "scam");
+            // ⭐ notifyOfficerGroup の userInfo に user オブジェクト全体を渡す ⭐
+            await notifyOfficerGroup(userMessage, userId, user, "scam");
         } else {
             if (process.env.NODE_ENV !== 'production') {
                 console.log(`ユーザー ${userId}: 詐欺ワード通知はクールダウン中のためスキップされました。`);
@@ -2076,6 +2165,9 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         return;
     }
 
+    // ⭐ 会話履歴の取得 ⭐
+    const conversationHistory = await getConversationHistory(userId);
+
     let modelToUseForGeneralChat = getAIModelForUser(user, userMessage);
     let finalModelForAPI = modelToUseForGeneralChat;
 
@@ -2088,8 +2180,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
     }
 
     try {
-        // ⭐ generateGeminiReply の呼び出しを generateAIReply に変更 ⭐
-        replyText = await generateAIReply(userMessage, finalModelForAPI, userId, user);
+        // ⭐ generateAIReply に conversationHistory を渡す ⭐
+        replyText = await generateAIReply(userMessage, finalModelForAPI, userId, user, conversationHistory);
         
         await updateUserData(userId, {
             dailyMessageCount: admin.firestore.FieldValue.increment(1),
@@ -2098,7 +2190,9 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
 
         try {
             await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            // responsedBy は modelToUseForGeneralChat のプレフィックスで判別
+            // ⭐ 応答後、会話履歴を保存 ⭐
+            await saveConversationHistory(userId, userMessage, 'user');
+            await saveConversationHistory(userId, replyText, finalModelForAPI.startsWith('gpt') ? 'assistant' : 'model'); // AIのロールを適切に保存
             await logToDb(userId, userMessage, replyText, finalModelForAPI.startsWith('gpt') ? 'OpenAI' : 'Gemini', logType);
         } catch (replyError) {
             console.error(`❌ AI応答 replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
@@ -2126,7 +2220,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
 async function handlePostbackEvent(event) {
     if (!event.source || !event.source.userId) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log("userIdが取得できないPostbackイベントでした。無視します。", event);
+            console.log("userIdが取得できないPostbackイベントでした。無視します.", event);
         }
         return;
     }
@@ -2145,74 +2239,117 @@ async function handlePostbackEvent(event) {
     let replyText = "";
     let logType = "postback_action";
     let user = await getUserData(userId); // 最新のユーザーデータを取得
+    const usersCollection = db.collection('users');
 
-    // ⭐ 退会リクエストPostbackの処理をhandleRegistrationFlowに委譲 ⭐
+    // ⭐ 退会リクエストPostbackの処理 ⭐
     if (action === 'request_withdrawal') {
-        // handleRegistrationFlowで退会フローを開始するためのregistrationStepを設定
-        await db.collection('users').doc(userId).update({ registrationStep: 'confirm_withdrawal' });
-        await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
-        });
-        await logToDb(userId, `Postback: ${event.postback.data}`, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+        if (user.completedRegistration) {
+            await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
+            });
+            await logToDb(userId, `Postback: ${event.postback.data}`, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+        } else {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'まだ会員登録されていないみたいだよ🌸\n退会手続きは、会員登録済みの方のみ行えるんだ。'
+            });
+            await logToDb(userId, `Postback: ${event.postback.data}`, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
+        }
         return;
     }
 
+    // ⭐ 見守りサービス解除Postbackの処理 ⭐
+    if (action === 'watch_unregister') {
+        let replyTextForUnregister = "";
+        let logTypeForUnregister = "";
 
-    if (['watch_ok', 'watch_somewhat', 'watch_tired', 'watch_talk'].includes(action)) {
         if (user && user.watchServiceEnabled) {
             try {
-                await db.collection('users').doc(userId).update(
-                    {
-                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-                        lastScheduledWatchMessageSent: null,
-                        firstReminderSent: false,
-                        emergencyNotificationSent: false
-                    }
-                );
-                switch (action) {
-                    case 'watch_ok':
-                        replyText = "OKありがとう！元気そうで安心したよ💖";
-                        logType = 'watch_service_ok_response';
-                        break;
-                    case 'watch_somewhat':
-                        replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
-                        logType = 'watch_service_status_somewhat';
-                        break;
-                    case 'watch_tired':
-                        replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
-                        logType = 'watch_service_status_tired';
-                        break;
-                    case 'watch_talk':
-                        replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
-                        logType = 'watch_service_status_talk';
-                        break;
-                }
-                try {
-                    await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-                    await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
-                } catch (replyError) {
-                    await safePushMessage(userId, { type: 'text', text: replyText });
-                    await logErrorToDb(userId, `Watch service postback replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
-                }
-                return;
+                await usersCollection.doc(userId).update({
+                    watchServiceEnabled: false,
+                    // 見守り解除に伴い、関連するユーザー情報をFirestoreから削除
+                    phoneNumber: admin.firestore.FieldValue.delete(),
+                    guardianName: admin.firestore.FieldValue.delete(),
+                    guardianPhoneNumber: admin.firestore.FieldValue.delete(),
+                    'address.city': admin.firestore.FieldValue.delete(),
+                    name: admin.firestore.FieldValue.delete(),
+                    kana: admin.firestore.FieldValue.delete(),
+                    age: admin.firestore.FieldValue.delete(),
+                    category: admin.firestore.FieldValue.delete(),
+                    completedRegistration: false, // 会員登録完了フラグもリセット
+                    lastScheduledWatchMessageSent: null,
+                    firstReminderSent: false,
+                    emergencyNotificationSent: false,
+                });
+                replyTextForUnregister = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖\n※登録情報も初期化されました。";
+                logTypeForUnregister = 'watch_service_unregister';
             } catch (error) {
-                console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
-                await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId: userId });
-                return;
+                console.error("❌ 見守りサービス解除処理エラー:", error.message);
+                await logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId: userId });
+                replyTextForUnregister = "ごめんね、解除処理中にエラーが起きたみたい…💦 もう一度試してみてくれるかな？";
+                logTypeForUnregister = 'watch_service_unregister_error';
             }
+        } else {
+            replyTextForUnregister = "見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖";
+            logTypeForUnregister = 'watch_service_not_registered_on_unregister';
         }
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyTextForUnregister });
+        await logToDb(userId, `Postback: ${event.postback.data}`, replyTextForUnregister, "System", logTypeForUnregister);
+        return;
     }
 
-    // ⭐ 見守りサービス解除Postbackの処理をhandleWatchServiceRegistrationに委譲 ⭐
-    if (action === 'watch_unregister') {
-        if (await handleWatchServiceRegistration(event, userId, "解除", user)) { // "解除"を渡してメッセージベースのロジックを利用
-            return;
-        }
-    }
-
-
+    // ⭐ 見守りサービスの「OKだよ💖」などの応答Postbackの処理をここに再統合 ⭐
     switch (action) {
+        case 'watch_ok':
+        case 'watch_somewhat':
+        case 'watch_tired':
+        case 'watch_talk':
+            if (user && user.watchServiceEnabled) {
+                try {
+                    await usersCollection.doc(userId).update(
+                        {
+                            lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                            lastScheduledWatchMessageSent: null,
+                            firstReminderSent: false,
+                            emergencyNotificationSent: false
+                        }
+                    );
+                    switch (action) {
+                        case 'watch_ok':
+                            replyText = "OKありがとう！元気そうで安心したよ💖";
+                            logType = 'watch_service_ok_response';
+                            break;
+                        case 'watch_somewhat':
+                            replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
+                            logType = 'watch_service_status_somewhat';
+                            break;
+                        case 'watch_tired':
+                            replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
+                            logType = 'watch_service_status_tired';
+                            break;
+                        case 'watch_talk':
+                            replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
+                            logType = 'watch_service_status_talk';
+                            break;
+                    }
+                    try {
+                        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+                        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+                    } catch (replyError) {
+                        await safePushMessage(userId, { type: 'text', text: replyText });
+                        await logErrorToDb(userId, `Watch service postback replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
+                    }
+                    return;
+                } catch (error) {
+                    console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
+                    await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId: userId });
+                    return;
+                }
+            }
+            break; // watch_okなどのswitch-caseのbreak
+
         default:
             replyText = "ごめんね、その操作はまだできないみたい…💦";
             logType = 'unknown_postback_action';
@@ -2255,7 +2392,7 @@ async function handleFollowEvent(event) {
         lastScheduledWatchMessageSent: null,
         firstReminderSent: false,
         emergencyNotificationSent: false,
-        registeredInfo: {},
+        // registeredInfo: {}, // 登録情報（氏名、電話番号など）→直接ルートに保存する運用に変更
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         completedRegistration: false, // フォロー時は未登録
         category: null, // フォロー時はカテゴリなし
