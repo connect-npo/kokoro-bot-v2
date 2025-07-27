@@ -491,7 +491,7 @@ async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'syste
     }
 }
 
-// ⭐ 会話履歴をFirestoreに保存する関数 --- (追加) ⭐
+// --- 会話履歴をFirestoreに保存する関数 ---
 async function saveConversationHistory(userId, messageContent, role) {
     const userRef = db.collection('users').doc(userId);
     const conversationRef = userRef.collection('conversations').doc('history');
@@ -501,7 +501,8 @@ async function saveConversationHistory(userId, messageContent, role) {
         let history = doc.exists ? doc.data().turns : [];
 
         // 新しい会話ターンを追加
-        history.push({ role: role, content: messageContent, timestamp: admin.firestore.FieldValue.serverTimestamp() });
+        // ⭐ 修正: FieldValue.serverTimestamp() の代わりに new Date() を使用 ⭐
+        history.push({ role: role, content: messageContent, timestamp: new Date() });
 
         // 最新の会話履歴を保持（例: 直近10ターン - ユーザーとAIの合計10メッセージ）
         const MAX_CONVERSATION_TURNS = 10;
@@ -509,10 +510,21 @@ async function saveConversationHistory(userId, messageContent, role) {
             history = history.slice(history.length - MAX_CONVERSATION_TURNS);
         }
 
+        // Firestoreに保存
         await conversationRef.set({ turns: history }, { merge: true });
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`✅ 会話履歴をFirestoreに保存しました: UserId=${userId}, Role=${role}`);
+        }
     } catch (error) {
-        console.error('Error saving conversation history:', error);
-        await logErrorToDb(userId, '会話履歴保存エラー', { error: error.message, message: messageContent });
+        console.error('❌ 会話履歴の保存中にエラーが発生しました:', error.message);
+        // エラーログの詳細を増やす
+        await logErrorToDb(userId, '会話履歴保存エラー', {
+            errorMessage: error.message,
+            stack: error.stack,
+            messageContent: messageContent,
+            role: role,
+            historyLength: history.length
+        });
     }
 }
 
