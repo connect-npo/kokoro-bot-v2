@@ -197,7 +197,7 @@ const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式"
 const MEMBERSHIP_CONFIG = {
     "guest": {
         dailyLimit: 5,
-        model: "gemini-1.5-flash-latest", // ゲストはFlash固定（初期応答用）
+        // model: "gemini-1.5-flash-latest", // ゲストはFlash固定（初期応答用）
         isChildAI: true,
         canUseWatchService: true,
         exceedLimitMessage: "ごめんね、お試し期間中（1日5回まで）の会話回数を超えちゃったみたい💦 明日になったらまたお話しできるから、楽しみにしててね！💖",
@@ -854,7 +854,7 @@ async function generateAIReply(userMessage, modelToUse, userId, user, conversati
             console.log(`💡 AI Model Being Used: ${modelToUse}`);
         }
 
-       let replyContent;
+        let replyContent;
         // ⭐ AIモデルに渡すメッセージ配列の構築 (共通部分) ⭐
         // ここで履歴のロールを調整します
         const messagesForAI = [
@@ -929,7 +929,6 @@ async function generateAIReply(userMessage, modelToUse, userId, user, conversati
         return fallbackMessage;
     }
 }
-
 
 // ⭐handleRegistrationFlow関数をここに定義します⭐
 async function handleRegistrationFlow(event, userId, user, userMessage, lowerUserMessage, usersCollection) {
@@ -1694,12 +1693,12 @@ async function sendScheduledWatchMessage() {
  */
 async function notifyOfficerGroup(message, userId, userInfo, type, notificationDetailType = '') {
     // userInfoはユーザーデータオブジェクト全体を想定
-    const userName = userInfo.name || '不明なユーザー';
+    const userName = userInfo.name || '未登録'; // Changed from '不明なユーザー'
     const userPhone = userInfo.phoneNumber || '未登録';
     const guardianName = userInfo.guardianName || '未登録';
     const emergencyContact = userInfo.guardianPhoneNumber || '未登録'; // 保護者電話番号を緊急連絡先として使用
     const relationship = userInfo.relationship || '未登録'; // 現行フローで取得されていないため、必要に応じて追加
-    const userCity = (userInfo.address && userInfo.address.city) ? userInfo.address.address_city : '未登録'; // ここを修正 (userInfo.address.city -> userInfo.address.address_city)
+    const userCity = (userInfo.address && userInfo.address.city) ? userInfo.address.city : '未登録'; // Here's the fix: userInfo.address.city
 
     // 通知タイトル
     let notificationTitle = "";
@@ -2031,6 +2030,152 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
     return;
 }
 
+    // --- メッセージカウントのリセット (日次) ---
+    const today = new Date().toDateString();
+    const lastMessageDate = user.lastMessageDate ? new Date(user.lastMessageDate._seconds * 1000).toDateString() : null;
+
+    if (lastMessageDate !== today) {
+        user.dailyMessageCount = 0;
+        user.lastMessageDate = admin.firestore.FieldValue.serverTimestamp();
+        await updateUserData(userId, { dailyMessageCount: 0, lastMessageDate: admin.firestore.FieldValue.serverTimestamp() });
+    }
+
+    // --- メッセージ制限チェック ---
+    if (userConfig.dailyLimit !== -1 && user.dailyMessageCount >= userConfig.dailyLimit) {
+        replyText = userConfig.exceedLimitMessage;
+        if (event.replyToken) {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        } else {
+            await safePushMessage(userId, { type: 'text', text: replyText });
+        }
+        await logToDb(userId, userMessage, replyText, "LimitExceeded", "message_limit_exceeded");
+        return;
+    }
+
+    // --- メッセージカウントを増やす ---
+    await updateUserData(userId, {
+        dailyMessageCount: admin.firestore.FieldValue.increment(1),
+        lastMessageDate: admin.firestore.FieldValue.serverTimestamp()
+    });
+    // ⭐ 最新のユーザーデータを再取得（インクリメントされた値を確認するため） ⭐
+    user = await getUserData(userId);
+
+
+    // --- 危険ワード/詐欺ワード/不適切ワードチェック ---
+    const dangerDetected = checkContainsDangerWords(userMessage);
+    const scamDetected = checkContainsScamWords(userMessage);
+    const inappropriateDetected = checkContainsInappropriateWords(userMessage);
+
+    if (dangerDetected) {
+        await client.replyMessage(event.replyToken, {
+            type: 'flex',
+            altText: '危険ワード検知',
+            contents: EMERGENCY_FLEX_MESSAGE
+        });
+        await logToDb(userId, userMessage, '(危険ワード検知Flex表示)', 'こころちゃん（危険ワード）', 'danger_word_triggered', true);
+        await notifyOfficerGroup(userMessage, userId, user, "danger");
+        return;
+    }
+    if (scamDetected) {
+        await client.replyMessage(event.replyToken, {
+            type: 'flex',
+            altText: '詐欺注意喚起',
+            contents: SCAM_FLEX_MESSAGE
+        });
+        await logToDb(userId, userMessage, '(詐欺注意喚起Flex表示)', 'こころちゃん（詐欺注意）', 'scam_word_triggered', true);
+        await notifyOfficerGroup(userMessage, userId, user, "scam");
+        return;
+    }
+    if (inappropriateDetected) {
+        replyText = "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, userMessage, replyText, 'こころちゃん（不適切ワード）', 'inappropriate_word_triggered', true);
+        return;
+    }
+
+    // --- 固定応答チェック (ClariS関連含む) ---
+    const specialReply = checkSpecialReply(userMessage);
+    if (specialReply) {
+        replyText = specialReply;
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, userMessage, replyText, 'こころちゃん（固定応答）', 'special_reply', true);
+        return;
+    }
+
+    // --- NPO法人コネクトに関する問い合わせ ---
+    if (isOrganizationInquiry(userMessage)) {
+        replyText = ORGANIZATION_REPLY_MESSAGE;
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, userMessage, replyText, 'こころちゃん（団体問い合わせ）', 'organization_inquiry_fixed', true);
+        return;
+    }
+
+    // --- 宿題・勉強に関する質問のハンドリング ---
+    const homeworkTriggered = containsHomeworkTrigger(userMessage);
+    if (homeworkTriggered && user.category && (user.category === '小学生' || user.category === '中学生～大学生')) {
+        replyText = "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦\nでも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, userMessage, replyText, 'こころちゃん（宿題ヘルプ）', 'homework_query', true);
+        return;
+    }
+    
+    // --- 相談モードの切り替え ---
+    if (lowerUserMessage === '相談') {
+        if (!user.isInConsultationMode) {
+            await updateUserData(userId, { isInConsultationMode: true });
+            replyText = "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖";
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+            await logToDb(userId, userMessage, replyText, 'こころちゃん（相談モード）', 'consultation_mode_start', true);
+            return;
+        } else {
+            replyText = "もう相談モードになっているよ🌸 何かお話したいことある？💖";
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+            await logToDb(userId, userMessage, replyText, 'こころちゃん（相談モード）', 'consultation_mode_already_active');
+            return;
+        }
+    }
+
+    // --- 会話履歴の取得 ---
+    const conversationHistory = await getConversationHistory(userId);
+
+    // --- AIモデルの選択 ---
+    let modelToUse = getAIModelForUser(user, userMessage); // ⭐ ここでモデルを動的に決定 ⭐
+
+    // 相談モードの場合、Gemini 1.5 Proを使用し、モードを終了する
+    if (user.isInConsultationMode) {
+        modelToUse = "gemini-1.5-pro-latest";
+        await updateUserData(userId, { isInConsultationMode: false }); // 1回でモード終了
+        logType = 'consultation_message';
+    }
+
+
+    // --- AI応答生成 ---
+    try {
+        const aiResponse = await generateAIReply(userMessage, modelToUse, userId, user, conversationHistory);
+        replyText = aiResponse;
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+
+        // 会話履歴を保存
+        await saveConversationHistory(userId, userMessage, 'user');
+        await saveConversationHistory(userId, replyText, 'model');
+
+        if (!shouldLogMessage(logType)) { // 通常会話はログしない設定だが、デバッグ用に一時的にログ
+             if (process.env.NODE_ENV !== 'production') {
+                console.log(`💬 AI Reply (User: ${userId}, Model: ${modelToUse}): ${replyText}`);
+            }
+        }
+        await logToDb(userId, userMessage, replyText, responsedBy, logType);
+
+    } catch (error) {
+        console.error(`❌ LINE応答送信またはAI生成エラー: ${error.message}`);
+        await logErrorToDb(userId, `LINE応答送信またはAI生成エラー`, { error: error.message, userMessage: userMessage });
+        // エラー時のフォールバックメッセージ
+        const fallbackReply = "ごめんね、今うまくお話ができないみたい…💦 もう一度話しかけてくれるかな？🌸";
+        await client.replyMessage(event.replyToken, { type: 'text', text: fallbackReply });
+        await logToDb(userId, userMessage, fallbackReply, "SystemError", "ai_response_fallback", true);
+    }
+}
+
 // --- Postbackイベントハンドラ ---
 async function handlePostbackEvent(event) {
     if (!event.source || !event.source.userId) {
@@ -2223,7 +2368,10 @@ async function handleFollowEvent(event) {
 
     // Followイベントからの登録ボタンもプリフィルするように修正
     // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
-    const initialRegistrationFormUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+    const elementaryStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_ELEMENTARY_FORM_BASE_URL, STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+    const middleHighUniStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+    const adultFormPrefilledUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+
 
     const registrationFlex = {
         type: "flex",
@@ -2234,8 +2382,8 @@ async function handleFollowEvent(event) {
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    { "type": "text", "text": "会員登録・情報変更メニュー🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
-                    { "type": "text", "text": "新しい会員登録、または登録情報の変更を選んでね！", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
+                    { "type": "text", "text": "新しい会員登録メニュー🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+                    { "type": "text", "text": "まずはあなたの区分を選んでね！", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
                 ]
             },
             "footer": {
@@ -2243,8 +2391,9 @@ async function handleFollowEvent(event) {
                 "layout": "vertical",
                 "spacing": "sm",
                 "contents": [
-                    { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": initialRegistrationFormUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
-                    { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
+                    { "type": "button", "action": { "type": "uri", "label": "小学生向け", "uri": elementaryStudentFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
+                    { "type": "button", "action": { "type": "uri", "label": "中学生～大学生向け", "uri": middleHighUniStudentFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFB6C1" },
+                    { "type": "button", "action": { "type": "uri", "label": "成人向け", "uri": adultFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" }
                 ]
             }
         }
