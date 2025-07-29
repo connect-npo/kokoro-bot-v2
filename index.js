@@ -1977,9 +1977,9 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         } else {
             // 未登録の場合：新規登録フォームへのボタンを含むFlex Message
             // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
-            const elementaryStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_ELEMENTARY_FORM_BASE_URL, STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
-            const middleHighUniStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
-            const adultFormPrefilledUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+            const elementaryStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_ELEMENTARY_FORM_BASE_URL, STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID, userId);
+const middleHighUniStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID, userId);
+const adultFormPrefilledUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID, userId);
 
             console.log(`DEBUG: Generated Adult Form URL: ${adultFormPrefilledUrl}`); // この行は既に存在
             console.log(`DEBUG: Generated Elementary Student Form URL: ${elementaryStudentFormPrefilledUrl}`); // 追加
