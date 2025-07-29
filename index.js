@@ -37,14 +37,13 @@ const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 // 各フォームのベースURL（Node.jsの定数として定義）
 // 環境変数で設定されている場合は環境変数が優先されます。
 // まつさんが確認してくださった全てのフォームの正確な公開URLを設定済みです。
-const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform?usp=pp_url";
-const AGREEMENT_FORM_BASE_URL = process.env.AGREEMENT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSepSxcnUL9d_dF3aHRrttCKoxJT4irNvUB0JcPIyguH02CErw/viewform?usp=pp_url";
-const STUDENT_ELEMENTARY_FORM_BASE_URL = process.env.STUDENT_ELEMENTARY_FORM_BASE_URL || AGREEMENT_FORM_BASE_URL; // 小学生向け学生フォームは同意書と兼ねる
-const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSeDu8-O9MS9G6S6xUaPZiv-X9AvsWNEwjvySxhdotPPdjtU1A/viewform?usp=pp_url";
-const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform"; // ⭐ここを修正⭐
-const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform";
-const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8"; // 問い合わせフォームのURL (ID取得はしない)
-
+const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform"; // ⭐ ?usp=pp_url を削除 ⭐
+const AGREEMENT_FORM_BASE_URL = process.env.AGREEMENT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSepSxcnUL9d_dF3aHRrttCKoxJT4irNvUB0JcPIyguH02CErw/viewform"; // ⭐ ?usp=pp_url を削除 ⭐
+const STUDENT_ELEMENTARY_FORM_BASE_URL = process.env.STUDENT_ELEMENTARY_FORM_BASE_URL || AGREEMENT_FORM_BASE_URL; // こちらは AGREEMENT_FORM_BASE_URL に連動するため変更不要
+const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSeDu8-O9MS9G6S6xUaPZiv-X9AvsWNEwjvySxhdotPPdjtU1A/viewform"; // ⭐ ?usp=pp_url を削除 ⭐
+const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform"; // ⭐ 既に修正済み ⭐
+const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform"; // 変更不要
+const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8"; // 変更不要
 
 // 各フォームのline_user_idに対応するentry ID
 // これらは全て、まつさんが「事前入力されたURLを取得」で確認してくださった正確なIDです。
