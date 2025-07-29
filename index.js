@@ -37,22 +37,35 @@ const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 // 各フォームのベースURL（Node.jsの定数として定義）
 // 環境変数で設定されている場合は環境変数が優先されます。
 // まつさんが確認してくださった全てのフォームの正確な公開URLを設定済みです。
-const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform"; // ⭐ ?usp=pp_url を削除 ⭐
-const AGREEMENT_FORM_BASE_URL = process.env.AGREEMENT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSepSxcnUL9d_dF3aHRrttCKoxJT4irNvUB0JcPIyguH02CErw/viewform"; // ⭐ ?usp=pp_url を削除 ⭐
-const STUDENT_ELEMENTARY_FORM_BASE_URL = process.env.STUDENT_ELEMENTARY_FORM_BASE_URL || AGREEMENT_FORM_BASE_URL; // こちらは AGREEMENT_FORM_BASE_URL に連動するため変更不要
-const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSeDu8-O9MS9G6S6xUaPZiv-X9AvsWNEwjvySxhdotPPdjtU1A/viewform"; // ⭐ ?usp=pp_url を削除 ⭐
-const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform"; // ⭐ 既に修正済み ⭐
-const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform"; // 変更不要
-const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8"; // 変更不要
+// ⭐修正済み: ?usp=pp_url を削除し、汎用関数 addParamToFormUrl でパラメータを安全に追加する前提に立つ⭐
+const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform";
+const AGREEMENT_FORM_BASE_URL = process.env.AGREEMENT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSepSxcnUL9d_dF3aHRrttCKoxJT4irNvUB0JcPIyguH02CErw/viewform";
+const STUDENT_ELEMENTARY_FORM_BASE_URL = process.env.STUDENT_ELEMENTARY_FORM_BASE_URL || AGREEMENT_FORM_BASE_URL; // 小学生向け学生フォームは同意書と兼ねる
+const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSeDu8-O9MS9G6S6xUaPZiv-X9AvsWNEwjvySxhdotPPdjtU1A/viewform";
+const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform";
+const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform";
+const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8"; // 問い合わせフォームのURL (ID取得はしない)
 
 // 各フォームのline_user_idに対応するentry ID
 // これらは全て、まつさんが「事前入力されたURLを取得」で確認してくださった正確なIDです。
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
 const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
 const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID; // 小学生向け学生フォームも同意書と同じID
-const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.DENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
+const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
 const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
+
+
+// ⭐追加する汎用関数: フォームURLにパラメータを安全に追加する関数 ⭐
+// URLに'?'が既に含まれているか確認し、適切なセパレータ（'?'または'&'）を選択します。
+function addParamToFormUrl(baseUrl, paramName, paramValue) {
+    if (!paramValue) { // 値がない場合は追加しない（URLが不完全になるのを防ぐ）
+        return baseUrl;
+    }
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}${paramName}=${encodeURIComponent(paramValue)}`;
+}
+// ⭐追加する汎用関数ここまで⭐
 
 
 // --- Firebase Admin SDKの初期化 ---
@@ -386,7 +399,7 @@ const specialRepliesMap = new Map([
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？💖　話して聞かせてくれると嬉しいな😊"],
     [/元気かな/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/元気？/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
+    [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
     [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
@@ -957,7 +970,6 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
         }
     }
 
-
     if (['登録やめる', 'やめる', 'キャンセル', 'やめたい'].includes(lowerUserMessage) && user.registrationStep) {
         await usersCollection.doc(userId).update({ registrationStep: null, tempRegistrationData: {} });
         if (event.replyToken) {
@@ -1155,7 +1167,8 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
             if (lowerUserMessage === '同意する' || lowerUserMessage === '同意') {
                 if (user.category === '中学生～大学生') {
                     // ⭐ 学生証提出フォームのURIにもプリフィルを追加します ⭐
-                    const prefilledFormUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL}?${STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
+                    const prefilledFormUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+
                     await usersCollection.doc(userId).update({
                         consentObtained: true,
                         registrationStep: null,
@@ -1316,11 +1329,9 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
 
     if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
         try {
-            // ⭐ 修正箇所: prefilledFormUrl の生成と利用 ⭐
-            // ここで `WATCH_SERVICE_FORM_BASE_URL` と `WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID` を使用してURIを組み立てます
-            const prefilledFormUrl = `${WATCH_SERVICE_FORM_BASE_URL}&${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
+            // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
+            const prefilledFormUrl = addParamToFormUrl(WATCH_SERVICE_FORM_BASE_URL, WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
 
-            // ⭐ Node.jsのログにも出力して、生成されたURLが正しいか確認してください ⭐
             console.log('生成された見守りサービスフォームURL:', prefilledFormUrl); // デバッグ用
 
             const watchServiceGuideFlexWithUriButton = {
@@ -1359,8 +1370,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     // ⭐ Postbackからの見守り関連応答（OK, 元気ないなど）は handlePostbackEvent で処理されるため、ここからは削除 ⭐
-    // ⭐ handleWatchServiceRegistration 関数内でメッセージテキストによる見守り関連応答を処理する場合のみ残す ⭐
-    // 今のコードでは、メッセージテキスト（例：「元気だよ！」）による応答をここで処理しているため、ここは残します。
+    // メッセージテキスト（例：「元気だよ！」）による応答をここで処理しているため、ここは残します。
     // Postbackアクションによる応答は handlePostbackEvent で処理します。
     if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
         if (user && user.watchServiceEnabled) { // 見守りサービスが有効な場合のみ応答
@@ -1640,7 +1650,7 @@ async function sendScheduledWatchMessage() {
                                 "type": "box",
                                 "layout": "vertical",
                                 "contents": [
-                                    { "type": "text", "text": "元気？🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+                                    { "type": "text", "text": "元気？🌸", "weight": "bold", "color": "#FF69B4", "size": "lg", "align": "center" },
                                     { "type": "text", "text": "こころちゃん、あなたのことが心配だよ…！", "wrap": true, "margin": "md", "size": "sm" }
                                 ]
                             },
@@ -1689,7 +1699,7 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
     const guardianName = userInfo.guardianName || '未登録';
     const emergencyContact = userInfo.guardianPhoneNumber || '未登録'; // 保護者電話番号を緊急連絡先として使用
     const relationship = userInfo.relationship || '未登録'; // 現行フローで取得されていないため、必要に応じて追加
-    const userCity = (userInfo.address && userInfo.address.city) ? userInfo.address.city : '未登録';
+    const userCity = (userInfo.address && userInfo.address.city) ? userInfo.address.address_city : '未登録'; // ここを修正 (userInfo.address.city -> userInfo.address.address_city)
 
     // 通知タイトル
     let notificationTitle = "";
@@ -1928,7 +1938,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         }
     }
 
- // ⭐ 「会員登録」または「登録したい」の処理を強化 ⭐
+    // ⭐ 「会員登録」または「登録したい」の処理を強化 (addParamToFormUrl使用) ⭐
     if (userMessage.includes("会員登録") || userMessage.includes("登録したい")) {
         let displayFlexMessage;
         let altText;
@@ -1937,7 +1947,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
 
         if (user.completedRegistration) {
             // 登録済みの場合：属性変更・退会用のFlex Messageを動的に生成
-            const memberChangeFormPrefilledUrl = `${MEMBER_CHANGE_FORM_BASE_URL}?${MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
+            const memberChangeFormPrefilledUrl = addParamToFormUrl(MEMBER_CHANGE_FORM_BASE_URL, MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
 
             displayFlexMessage = {
                 "type": "bubble",
@@ -1967,13 +1977,14 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
 
         } else {
             // 未登録の場合：新規登録フォームへのボタンを含むFlex Message
-            const elementaryStudentFormPrefilledUrl = `${STUDENT_ELEMENTARY_FORM_BASE_URL}?${STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
-            const middleHighUniStudentFormPrefilledUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL}?${STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
-            const adultFormPrefilledUrl = `${ADULT_FORM_BASE_URL}?${ADULT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
+            // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
+            const elementaryStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_ELEMENTARY_FORM_BASE_URL, STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+            const middleHighUniStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+            const adultFormPrefilledUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
 
-            // ⭐追加箇所: 生成された成人向けフォームURLをログに出力⭐
-            console.log(`DEBUG: Generated Adult Form URL: ${adultFormPrefilledUrl}`);
-            // ⭐追加箇所ここまで⭐
+            console.log(`DEBUG: Generated Adult Form URL: ${adultFormPrefilledUrl}`); // この行は既に存在
+            console.log(`DEBUG: Generated Elementary Student Form URL: ${elementaryStudentFormPrefilledUrl}`); // 追加
+            console.log(`DEBUG: Generated Middle/High/Uni Student Form URL: ${middleHighUniStudentFormPrefilledUrl}`); // 追加
 
             displayFlexMessage = {
                 "type": "bubble",
@@ -2014,238 +2025,9 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         }
         return;
     }
-    
-    // ⭐ 見守りサービス登録・解除のメッセージ処理は handleWatchServiceRegistration に移譲 ⭐
-    if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
-        return;
-    }
 
-
-    if (checkContainsDangerWords(userMessage)) {
-        const canNotify = await checkAndSetAlertCooldown(userId, 'danger', 5);
-        if (canNotify) {
-            await updateUserData(userId, { isUrgent: true });
-            // ⭐ generateAIReply に conversationHistory を渡す ⭐
-            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user, await getConversationHistory(userId));
-
-            try {
-                await client.replyMessage(event.replyToken, [
-                    { type: 'text', text: empatheticReply },
-                    { type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE }
-                ]);
-                await logToDb(userId, userMessage, "緊急時連絡先表示", "System", "danger_word_triggered", true);
-            } catch (replyError) {
-                console.error(`❌ Danger word replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
-                await safePushMessage(userId, [
-                    { type: 'text', text: empatheticReply },
-                    { type: 'flex', altText: '緊急時連絡先', contents: EMERGENCY_FLEX_MESSAGE }
-                ]);
-                await logErrorToDb(userId, `Danger word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-            }
-            // ⭐ notifyOfficerGroup の userInfo に user オブジェクト全体を渡す ⭐
-            await notifyOfficerGroup(userMessage, userId, user, "danger");
-        } else {
-            if (process.env.NODE_ENV !== 'production') {
-                console.log(`ユーザー ${userId}: 危険ワード通知はクールダウン中のためスキップされました。`);
-            }
-            try {
-                await client.replyMessage(event.replyToken, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
-            } catch (replyError) {
-                await safePushMessage(userId, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
-                await logErrorToDb(userId, `Danger cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-            }
-        }
-        return;
-    }
-
-    if (checkContainsScamWords(userMessage)) {
-        const canNotify = await checkAndSetAlertCooldown(userId, 'scam', 5);
-        if (canNotify) {
-            await updateUserData(userId, { isUrgent: true });
-            // ⭐ generateAIReply に conversationHistory を渡す ⭐
-            const empatheticReply = await generateAIReply(userMessage, "gpt-4o", userId, user, await getConversationHistory(userId));
-            try {
-                await client.replyMessage(event.replyToken, [
-                    { type: 'text', text: empatheticReply },
-                    { type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE }
-                ]);
-                await logToDb(userId, userMessage, "詐欺注意喚起表示", "System", "scam_word_triggered", true);
-            } catch (replyError) {
-                console.error(`❌ Scam word replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
-                await safePushMessage(userId, [
-                    { type: 'text', text: empatheticReply },
-                    { type: 'flex', altText: '詐欺注意喚起', contents: SCAM_FLEX_MESSAGE }
-                ]);
-                await logErrorToDb(userId, `Scam word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-            }
-            // ⭐ notifyOfficerGroup の userInfo に user オブジェクト全体を渡す ⭐
-            await notifyOfficerGroup(userMessage, userId, user, "scam");
-        } else {
-            if (process.env.NODE_ENV !== 'production') {
-                console.log(`ユーザー ${userId}: 詐欺ワード通知はクールダウン中のためスキップされました。`);
-            }
-            try {
-                await client.replyMessage(event.replyToken, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
-            } catch (replyError) {
-                await safePushMessage(userId, { type: 'text', text: "ごめんね、今はもう少し待ってくれるかな？💖" });
-                await logErrorToDb(userId, `Scam cooldown replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-            }
-        }
-        return;
-    }
-
-    if (checkContainsInappropriateWords(userMessage)) {
-        replyText = "ごめんね、その言葉はこころちゃんには理解できないの…💦　別の言葉で話しかけてくれると嬉しいな💖";
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            await logToDb(userId, userMessage, replyText, "System", "inappropriate_word_triggered", true);
-        } catch (replyError) {
-            await safePushMessage(userId, { type: 'text', text: replyText });
-            await logErrorToDb(userId, `Inappropriate word replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return;
-    }
-
-    const specialReply = checkSpecialReply(userMessage);
-    if (specialReply) {
-        if (userMessage.toLowerCase().includes("相談したい")) {
-            await updateUserData(userId, { isInConsultationMode: true });
-            logType = "consultation_mode_start";
-            try {
-                await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
-                await logToDb(userId, userMessage, specialReply, "System", logType);
-            } catch (replyError) {
-                await safePushMessage(userId, { type: 'text', text: specialReply });
-                await logErrorToDb(userId, `Consultation mode replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-            }
-            return;
-        } else {
-            logType = "special_reply";
-            try {
-                await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
-                await logToDb(userId, userMessage, specialReply, "System", logType);
-            } catch (replyError) {
-                await safePushMessage(userId, { type: 'text', text: specialReply });
-                await logErrorToDb(userId, `Special replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-            }
-            return;
-        }
-    }
-
-    if (isOrganizationInquiry(userMessage)) {
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
-            await logToDb(userId, userMessage, ORGANIZATION_REPLY_MESSAGE, "System", "organization_inquiry_fixed");
-        } catch (replyError) {
-            await safePushMessage(userId, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
-            await logErrorToDb(userId, `Organization inquiry replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return;
-    }
-
-    if (containsHomeworkTrigger(userMessage) && user.category && (user.category === '小学生' || user.category === '中学生～大学生')) { // isUserChildCategoryを使用
-        replyText = "宿題のことかな？がんばってるね！🌸 こころちゃんは、直接宿題の答えを教えることはできないんだけど、一緒に考えることはできるよ😊 どんな問題で困ってるの？ヒントなら出せるかも！";
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            await logToDb(userId, userMessage, replyText, "System", "homework_query");
-        } catch (replyError) {
-            await safePushMessage(userId, { type: 'text', text: replyText });
-            await logErrorToDb(userId, `Homework query replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return;
-    }
-
-    const now = new Date();
-    const today = now.getDate();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    const lastMessageDate = user.lastMessageDate ? new Date(user.lastMessageDate._seconds * 1000) : null;
-    if (!lastMessageDate ||
-        lastMessageDate.getDate() !== today ||
-        lastMessageDate.getMonth() !== currentMonth ||
-        lastMessageDate.getFullYear() !== currentYear) {
-        user.dailyMessageCount = 0;
-    }
-
-    if (userConfig.dailyLimit !== -1 && user.dailyMessageCount >= userConfig.dailyLimit) {
-        replyText = userConfig.exceedLimitMessage;
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            await logToDb(userId, userMessage, replyText, "System", "exceed_daily_limit");
-        } catch (replyError) {
-            await safePushMessage(userId, { type: 'text', text: replyText });
-            await logErrorToDb(userId, `Exceed daily limit replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return;
-    }
-
-    // ⭐ 連続する同一メッセージのチェックと応答 ⭐
-    const currentConversationHistory = await getConversationHistory(userId);
-    const lastUserTurn = currentConversationHistory.findLast(turn => turn.role === 'user');
-
-    if (lastUserTurn && lastUserTurn.content === userMessage) {
-        const duplicateMessageReply = "さっきも同じこと教えてくれたね🌸何か違うこと話したいことあるかな？💖";
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: duplicateMessageReply });
-            await logToDb(userId, userMessage, duplicateMessageReply, "System", "duplicate_message_ignored");
-        } catch (replyError) {
-            console.error(`❌ Duplicate message replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
-            await safePushMessage(userId, { type: 'text', text: duplicateMessageReply });
-            await logErrorToDb(userId, `Duplicate message replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        return; // これ以上処理せず、ここで終了
-    }
-
-    // ⭐ AI応答生成の直前に会話履歴を再取得（上記重複チェックで使った履歴をそのまま利用しても良い） ⭐
-    // この位置の getConversationHistory は削除し、上記の currentConversationHistory を使い回します。
-    const conversationHistoryForAI = currentConversationHistory; // 名前を分かりやすく変更
-
-    let modelToUseForGeneralChat = getAIModelForUser(user, userMessage);
-    let finalModelForAPI = modelToUseForGeneralChat;
-
-    if (user.isInConsultationMode) {
-        finalModelForAPI = "gemini-1.5-pro-latest";
-        await updateUserData(userId, { isInConsultationMode: false, isUrgent: false });
-        logType = "consultation_message";
-    } else { // 通常会話はisInConsultationModeでない限り、getAIModelForUserで設定されたモデルを使用
-        await updateUserData(userId, { isUrgent: false });
-    }
-
-    try {
-        // ⭐ generateAIReply に conversationHistoryForAI を渡す ⭐
-        replyText = await generateAIReply(userMessage, finalModelForAPI, userId, user, conversationHistoryForAI);
-        
-        await updateUserData(userId, {
-            dailyMessageCount: admin.firestore.FieldValue.increment(1),
-            lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            // ⭐ 応答後、会話履歴を保存 ⭐
-            await saveConversationHistory(userId, userMessage, 'user');
-            await saveConversationHistory(userId, replyText, finalModelForAPI.startsWith('gpt') ? 'assistant' : 'model'); // AIのロールを適切に保存
-            await logToDb(userId, userMessage, replyText, finalModelForAPI.startsWith('gpt') ? 'OpenAI' : 'Gemini', logType);
-        } catch (replyError) {
-            console.error(`❌ AI応答 replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
-            await safePushMessage(userId, { type: 'text', text: replyText });
-            await logErrorToDb(userId, `AI応答 replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-
-    } catch (error) {
-        console.error(`AI応答生成中にエラーが発生しました: ${error.message}`);
-        await logErrorToDb(userId, `AI応答生成エラー`, { error: error.message, stack: error.stack, userMessage: userMessage });
-        replyText = "ごめんね、ちょっと今うまくお話できなかったの…💦　またあとで試してみてくれると嬉しいな💖";
-        try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        } catch (replyError) {
-            await safePushMessage(userId, { type: 'text', text: replyText });
-            await logErrorToDb(userId, `AI応答エラーメッセージ replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: userMessage });
-        }
-        await logToDb(userId, userMessage, replyText, "System", "ai_generation_error");
-    }
-
+// ⭐ 見守りサービス登録・解除のメッセージ処理は handleWatchServiceRegistration に移譲 ⭐
+if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
     return;
 }
 
@@ -2276,7 +2058,7 @@ async function handlePostbackEvent(event) {
 
     // ⭐ 退会リクエストPostbackの処理 ⭐
     if (action === 'request_withdrawal') {
-        if (user.completedRegistration) {
+        if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
             await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
             await client.replyMessage(event.replyToken, {
                 type: 'text',
@@ -2403,7 +2185,7 @@ async function handlePostbackEvent(event) {
 async function handleFollowEvent(event) {
     if (!event.source || !event.source.userId) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log("userIdが取得できないFollowイベントでした。無視します。", event);
+            console.log("userIdが取得できないFollowイベントでした。無視します.", event);
         }
         return;
     }
@@ -2440,7 +2222,8 @@ async function handleFollowEvent(event) {
     };
 
     // Followイベントからの登録ボタンもプリフィルするように修正
-    const initialRegistrationFormUrl = `${ADULT_FORM_BASE_URL}?${ADULT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`; // ADULT_FORM_BASE_URLにプリフィル追加
+    // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
+    const initialRegistrationFormUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
 
     const registrationFlex = {
         type: "flex",
@@ -2482,7 +2265,7 @@ async function handleFollowEvent(event) {
 async function handleUnfollowEvent(event) {
     if (!event.source || !event.source.userId) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log("userIdが取得できないUnfollowイベントでした。無視します。", event);
+            console.log("userIdが取得できないUnfollowイベントでした。無視します.", event);
         }
         return;
     }
