@@ -1166,7 +1166,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
             if (lowerUserMessage === '同意する' || lowerUserMessage === '同意') {
                 if (user.category === '中学生～大学生') {
                     // ⭐ 学生証提出フォームのURIにもプリフィルを追加します ⭐
-                    const prefilledFormUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+                    const prefilledFormUrl = addParamToFormUrl(WATCH_SERVICE_FORM_BASE_URL, WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID, userId);
 
                     await usersCollection.doc(userId).update({
                         consentObtained: true,
@@ -1329,7 +1329,7 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
         try {
             // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
-            const prefilledFormUrl = addParamToFormUrl(WATCH_SERVICE_FORM_BASE_URL, WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+            const prefilledFormUrl = addParamToFormUrl(WATCH_SERVICE_FORM_BASE_URL, WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID, userId);
 
             console.log('生成された見守りサービスフォームURL:', prefilledFormUrl); // デバッグ用
 
