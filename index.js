@@ -1929,7 +1929,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         }
     }
 
-    // ⭐ 「会員登録」または「登録したい」の処理を強化 ⭐
+ // ⭐ 「会員登録」または「登録したい」の処理を強化 ⭐
     if (userMessage.includes("会員登録") || userMessage.includes("登録したい")) {
         let displayFlexMessage;
         let altText;
@@ -1968,10 +1968,13 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
 
         } else {
             // 未登録の場合：新規登録フォームへのボタンを含むFlex Message
-            // 新規登録の区分選択を促すメッセージとボタン
             const elementaryStudentFormPrefilledUrl = `${STUDENT_ELEMENTARY_FORM_BASE_URL}?${STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
             const middleHighUniStudentFormPrefilledUrl = `${STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL}?${STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
             const adultFormPrefilledUrl = `${ADULT_FORM_BASE_URL}?${ADULT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`;
+
+            // ⭐追加箇所: 生成された成人向けフォームURLをログに出力⭐
+            console.log(`DEBUG: Generated Adult Form URL: ${adultFormPrefilledUrl}`);
+            // ⭐追加箇所ここまで⭐
 
             displayFlexMessage = {
                 "type": "bubble",
@@ -2012,7 +2015,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
         }
         return;
     }
-
+    
     // ⭐ 見守りサービス登録・解除のメッセージ処理は handleWatchServiceRegistration に移譲 ⭐
     if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
         return;
