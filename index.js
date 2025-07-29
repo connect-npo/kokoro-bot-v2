@@ -185,6 +185,7 @@ const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式"
 const MEMBERSHIP_CONFIG = {
     "guest": {
         dailyLimit: 5,
+        model: "gemini-1.5-flash-latest", // ゲストはFlash固定（初期応答用）
         isChildAI: true,
         canUseWatchService: true,
         exceedLimitMessage: "ごめんね、お試し期間中（1日5回まで）の会話回数を超えちゃったみたい💦 明日になったらまたお話しできるから、楽しみにしててね！💖",
@@ -192,6 +193,7 @@ const MEMBERSHIP_CONFIG = {
     },
     "free": {
         dailyLimit: 20,
+        // model: "gemini-1.5-flash-latest", // ⭐ここを削除またはコメントアウト⭐
         isChildAI: true,
         canUseWatchService: true,
         exceedLimitMessage: "ごめんね、今日の会話回数（1日20回まで）を超えちゃったみたい💦 明日になったらまたお話しできるから、楽しみにしてててね！💖",
@@ -199,6 +201,7 @@ const MEMBERSHIP_CONFIG = {
     },
     "donor": {
         dailyLimit: -1,
+        // model: "gemini-1.5-pro-latest", // ⭐ここを削除またはコメントアウト⭐
         isChildAI: false,
         canUseWatchService: true,
         exceedLimitMessage: "",
@@ -210,10 +213,11 @@ const MEMBERSHIP_CONFIG = {
         `
     },
     "subscriber": {
-        dailyLimit: -1, // ⭐ 修正: サブスク会員は無制限に ⭐
+        dailyLimit: -1,
+        // model: "gemini-1.5-pro-latest", // ⭐ここを削除またはコメントアウト⭐
         isChildAI: false,
         canUseWatchService: true,
-        exceedLimitMessage: "", // 無制限なのでメッセージは不要
+        exceedLimitMessage: "",
         fallbackModel: "gemini-1.5-flash-latest", // 現状未使用だが定義は残す
         systemInstructionModifier: `
         # サブスク会員（成人）向け応答強化指示
@@ -224,6 +228,7 @@ const MEMBERSHIP_CONFIG = {
     },
     "admin": {
         dailyLimit: -1,
+        // model: "gemini-1.5-pro-latest", // ⭐ここを削除またはコメントアウト⭐
         isChildAI: false,
         canUseWatchService: true,
         exceedLimitMessage: "",
