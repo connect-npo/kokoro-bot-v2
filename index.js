@@ -430,7 +430,6 @@ function checkSpecialReply(text) {
 const ORGANIZATION_REPLY_MESSAGE = "うん、NPO法人コネクトのこと、もっと知りたいんだね🌸　コネクトは、子どもたちや高齢者の方々、そしてみんなが安心して相談できる場所を目指している団体なんだよ😊　困っている人が安心して相談できたり、助け合えるような社会を社会をつくりたいって願って、活動しているんだ。\nもっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org";
 
 // ⭐見守りサービスの定期実行処理 (cron) - ここから貼り付け⭐
-const cron = require('node-cron');
 const admin = require('firebase-admin');
 const db = admin.firestore();
 
