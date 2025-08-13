@@ -1808,14 +1808,6 @@ async function sendScheduledWatchMessage() {
         await logErrorToDb(null, "見守りサービス Cron ジョブエラー", { error: error.message, stack: error.stack });
     }
 }
-/**
- * 管理者グループに通知メッセージを送信する関数。
- * @param {string} message - 送信するメッセージ
- * @param {string} userId - 通知対象のユーザーID
- * @param {Object} userInfo - ユーザーの登録情報 (userオブジェクトを直接渡す想定)
- * @param {string} type - 通知の種類 (例: "danger", "scam", "watch_unresponsive")
- * @param {string} [notificationDetailType=''] - 見守りサービス未応答時の詳細タイプ (例: "緊急")
- */
 async function notifyOfficerGroup(message, userId, userInfo, type, notificationDetailType = '') {
     // userInfoはユーザーデータオブジェクト全体を想定
     const userName = (userInfo.name && userInfo.name !== '') ? userInfo.name : '未登録';
@@ -1857,32 +1849,6 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
         console.warn("⚠️ OFFICER_GROUP_ID が設定されていないため、管理者グループへの通知は送信されません。");
     }
 }
-
-    // ⭐ 修正箇所: 通知メッセージのフォーマットをご要望通りに改善 ⭐
-    const simpleNotificationMessage = `${notificationTitle}\n\n` +
-                                      `👤 氏名：${userName}\n` +
-                                      `📱 電話番号：${userPhone}\n` +
-                                      `🏠 市区町村：${userCity}\n` +
-                                      `👨‍👩‍👧‍👦 保護者名：${guardianName}\n` +
-                                      `📞 緊急連絡先：${emergencyContact}\n` +
-                                      `🧬 続柄：${relationship}\n` +
-                                      `\nメッセージ: 「${message}」\n\n` +
-                                      `ユーザーID: ${userId}\n` +
-                                      `ユーザーとのチャットへ: https://line.me/ti/p/~${userId}\n` +
-                                      `LINEで個別相談を促すには、上記のURLをタップしてチャットを開き、手動でメッセージを送信してください。\n` +
-                                      `※ LINE公式アカウントID:@201nxobx`;
-
-    // Send the message to the officer group
-    if (OFFICER_GROUP_ID) {
-        await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: simpleNotificationMessage });
-        if (process.env.NODE_ENV !== 'production') {
-            console.log(`✅ 管理者グループに${type}通知を送信しました (テキスト形式)。`);
-        }
-    } else {
-        console.warn("⚠️ OFFICER_GROUP_ID が設定されていないため、管理者グループへの通知は送信されません。");
-    }
-}
-
 
 // ⭐ メッセージ応答のクールダウンを管理する関数 ⭐
 async function shouldRespond(userId) {
