@@ -1811,10 +1811,13 @@ async function sendScheduledWatchMessage() {
 async function notifyOfficerGroup(message, userId, userInfo, type, notificationDetailType = '') {
     // userInfoはユーザーデータオブジェクト全体を想定
     const userName = (userInfo.name && userInfo.name !== '') ? userInfo.name : '未登録';
+    // 新しい項目: 登録者様の連絡先（電話番号）
     const userPhone = (userInfo.phoneNumber && userInfo.phoneNumber !== '') ? userInfo.phoneNumber : '未登録';
     const guardianName = (userInfo.guardianName && userInfo.guardianName !== '') ? userInfo.guardianName : '未登録';
     const emergencyContact = (userInfo.guardianPhoneNumber && userInfo.guardianPhoneNumber !== '') ? userInfo.guardianPhoneNumber : '未登録'; // 保護者電話番号を緊急連絡先として使用
     const relationship = (userInfo.relationship && userInfo.relationship !== '') ? userInfo.relationship : '未登録';
+    // 新しい項目: 区分
+    const userCategory = (userInfo.category && userInfo.category !== '') ? userInfo.category : '未登録';
     const userCity = (userInfo.address && userInfo.address.city && userInfo.address.city !== '') ? userInfo.address.city : '未登録';
 
     // 通知タイトル
@@ -1829,11 +1832,12 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
 
     const simpleNotificationMessage = `${notificationTitle}\n\n` +
         `👤 氏名：${userName}\n` +
-        `📱 電話番号：${userPhone}\n` +
+        `📱 登録者様電話番号：${userPhone}\n` +
         `🏠 市区町村：${userCity}\n` +
         `👨‍👩‍👧‍👦 保護者名：${guardianName}\n` +
         `📞 緊急連絡先：${emergencyContact}\n` +
         `🧬 続柄：${relationship}\n` +
+        `📝 区分：${userCategory}\n` +
         `\nメッセージ: 「${message}」\n\n` +
         `ユーザーID: ${userId}\n` +
         `ユーザーとのチャットへ: https://line.me/ti/p/~${userId}\n` +
