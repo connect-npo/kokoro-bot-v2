@@ -1877,7 +1877,7 @@ async function shouldRespond(userId) {
 }
 
 // --- LINEイベントハンドラ ---
-async function handleEvent(event) {
+async function handleEvent(event) { // ⭐ async キーワードがここにあることを確認 ⭐
     if (!event || !event.source || !event.message || event.message.type !== 'text') {
         if (process.env.NODE_ENV !== 'production') {
             console.log("Non-text message or malformed event received. Ignoring:", event);
@@ -1946,7 +1946,7 @@ async function handleEvent(event) {
                 if (replyTargetUserId && replyMessageContent) {
                     try {
                         const targetUserDisplayName = await getUserDisplayName(replyTargetUserId);
-                        await safePushMessage(replyTargetUserId, { type: 'text', text: ` こころだよ！理事会からのメッセージだよ😊\n\n「${replyMessageContent}」\n\n何か困ったことがあったら、また私に話しかけてね💖` });
+                        await safePushMessage(replyTargetUserId, { type: 'text', text: `🌸 こころだよ！理事会からのメッセージだよ😊\n\n「${replyMessageContent}」\n\n何か困ったことがあったら、また私に話しかけてね💖` });
                         await client.replyMessage(event.replyToken, { type: 'text', text: `${targetUserDisplayName} (${replyTargetUserId}) さんにメッセージを送信しました。\n内容: 「${replyMessageContent}」` });
                         await logToDb(userId, userMessage, `Re: ${replyMessageContent}`, "AdminCommand", 'admin_reply_to_user');
                         return;
@@ -1989,7 +1989,7 @@ async function handleEvent(event) {
                 snapshot.forEach(doc => {
                     const data = doc.data();
                     const timestamp = data.timestamp ? new Date(data.timestamp._seconds * 1000).toLocaleString() : 'N/A';
-                    historyMessages.push(`[${timestamp}] ${data.logType}: ${data.userMessage} -> ${data.replyText}`);
+                    historyMessages.push(`[${timestamp}] ${data.logType}: ${data.message} -> ${data.replyText}`);
                 });
                 replyText = historyMessages.length > 0 ? historyMessages.join('\n\n') : '履歴はありません。';
                 break;
@@ -2096,8 +2096,8 @@ async function handleEvent(event) {
             // 未登録の場合：新規登録フォームへのボタンを含むFlex Message
             // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
             const elementaryStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_ELEMENTARY_FORM_BASE_URL, STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID, userId);
-            const middleHighUniStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID, userId);
-            const adultFormPrefilledUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID, userId);
+const middleHighUniStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID, userId);
+const adultFormPrefilledUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID, userId);
 
             console.log(`DEBUG: Generated Adult Form URL: ${adultFormPrefilledUrl}`); // この行は既に存在
             console.log(`DEBUG: Generated Elementary Student Form URL: ${elementaryStudentFormPrefilledUrl}`); // 追加
@@ -2143,10 +2143,10 @@ async function handleEvent(event) {
         return;
     }
 
-    // ⭐ 見守りサービス登録・解除のメッセージ処理は handleWatchServiceRegistration に移譲 ⭐
-    if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
-        return;
-    }
+// ⭐ 見守りサービス登録・解除のメッセージ処理は handleWatchServiceRegistration に移譲 ⭐
+if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
+    return;
+}
 
     // --- メッセージカウントのリセット (日次) ---
     const today = new Date().toDateString();
@@ -2178,43 +2178,40 @@ async function handleEvent(event) {
     // ⭐ 最新のユーザーデータを再取得（インクリメントされた値を確認するため） ⭐
     user = await getUserData(userId);
 
+
     // --- 危険ワード/詐欺ワード/不適切ワードチェック ---
-    // ⭐ 修正：AIを使った安全性のチェックに置き換え ⭐
-    const safetyCheckResult = await checkMessageWithAIForSafety(userMessage);
+    const dangerDetected = checkContainsDangerWords(userMessage);
+    const scamDetected = checkContainsScamWords(userMessage);
+    const inappropriateDetected = checkContainsInappropriateWords(userMessage);
 
-    if (safetyCheckResult.isDanger) {
-        // 危険ワード検知時の処理
-        await client.replyMessage(event.replyToken, {
-            type: 'flex',
-            altText: '危険ワード検知',
-            contents: EMERGENCY_FLEX_MESSAGE
-        });
-        // GPT-4o miniで応答を生成し、続けて送信
-        const aiResponse = await generateAIReply(userMessage, "gpt-4o-mini", userId, user, conversationHistory);
-        await safePushMessage(userId, { type: 'text', text: aiResponse });
-        await logToDb(userId, userMessage, `(危険ワード検知Flex表示) + ${aiResponse}`, 'こころちゃん（危険ワード）', 'danger_word_triggered', true);
-        await notifyOfficerGroup(userMessage, userId, user, "danger");
-        return;
-    }
-
-    if (safetyCheckResult.isScam) {
-        // 詐欺注意ワード検知時の処理
-        await client.replyMessage(event.replyToken, {
-            type: 'flex',
-            altText: '詐欺注意喚起',
-            contents: SCAM_FLEX_MESSAGE
-        });
-        // GPT-4o miniで応答を生成し、続けて送信
-        const aiResponse = await generateAIReply(userMessage, "gpt-4o-mini", userId, user, conversationHistory);
-        await safePushMessage(userId, { type: 'text', text: aiResponse });
-        await logToDb(userId, userMessage, `(詐欺注意喚起Flex表示) + ${aiResponse}`, 'こころちゃん（詐欺注意）', 'scam_word_triggered', true);
-        await notifyOfficerGroup(userMessage, userId, user, "scam");
-        return;
-    }
-
-    if (safetyCheckResult.isInappropriate) {
-        // 不適切ワード検知時の処理
-        replyText = "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね�";
+   if (dangerDetected) {
+    await client.replyMessage(event.replyToken, {
+        type: 'flex',
+        altText: '危険ワード検知',
+        contents: EMERGENCY_FLEX_MESSAGE
+    });
+    // GPT-4o miniで応答を生成し、続けて送信
+    const aiResponse = await generateAIReply(userMessage, "gpt-4o-mini", userId, user, conversationHistory);
+    await safePushMessage(userId, { type: 'text', text: aiResponse });
+    await logToDb(userId, userMessage, `(危険ワード検知Flex表示) + ${aiResponse}`, 'こころちゃん（危険ワード）', 'danger_word_triggered', true);
+    await notifyOfficerGroup(userMessage, userId, user, "danger");
+    return;
+}
+if (scamDetected) {
+    await client.replyMessage(event.replyToken, {
+        type: 'flex',
+        altText: '詐欺注意喚起',
+        contents: SCAM_FLEX_MESSAGE
+    });
+    // GPT-4o miniで応答を生成し、続けて送信
+    const aiResponse = await generateAIReply(userMessage, "gpt-4o-mini", userId, user, conversationHistory);
+    await safePushMessage(userId, { type: 'text', text: aiResponse });
+    await logToDb(userId, userMessage, `(詐欺注意喚起Flex表示) + ${aiResponse}`, 'こころちゃん（詐欺注意）', 'scam_word_triggered', true);
+    await notifyOfficerGroup(userMessage, userId, user, "scam");
+    return;
+}
+    if (inappropriateDetected) {
+        replyText = "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
         await logToDb(userId, userMessage, replyText, 'こころちゃん（不適切ワード）', 'inappropriate_word_triggered', true);
         return;
@@ -2245,12 +2242,12 @@ async function handleEvent(event) {
         await logToDb(userId, userMessage, replyText, 'こころちゃん（宿題ヘルプ）', 'homework_query', true);
         return;
     }
-
+    
     // --- 相談モードの切り替え ---
     if (lowerUserMessage === '相談') {
         if (!user.isInConsultationMode) {
             await updateUserData(userId, { isInConsultationMode: true });
-            replyText = "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？";
+            replyText = "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖";
             await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
             await logToDb(userId, userMessage, replyText, 'こころちゃん（相談モード）', 'consultation_mode_start', true);
             return;
@@ -2287,7 +2284,7 @@ async function handleEvent(event) {
         await saveConversationHistory(userId, replyText, 'model');
 
         if (!shouldLogMessage(logType)) { // 通常会話はログしない設定だが、デバッグ用に一時的にログ
-            if (process.env.NODE_ENV !== 'production') {
+             if (process.env.NODE_ENV !== 'production') {
                 console.log(`💬 AI Reply (User: ${userId}, Model: ${modelToUse}): ${replyText}`);
             }
         }
@@ -2302,133 +2299,6 @@ async function handleEvent(event) {
         await logToDb(userId, userMessage, fallbackReply, "SystemError", "ai_response_fallback", true);
     }
 }
-
-// ⭐ 追加：AIを使って危険メッセージをチェックする関数 ⭐
-// この関数は、Gemini APIを呼び出してメッセージの安全性を判定します。
-async function checkMessageWithAIForSafety(message) {
-    try {
-        const prompt = `以下のメッセージが危険、詐欺、または不適切な内容を含んでいるかどうかを判断してください。
-        
-        メッセージ: "${message}"
-        
-        判断基準:
-        - 危険 (danger): 自傷行為を示唆する、生命に危険を及ぼす、暴力的な内容、いじめ、ハラスメントなど。
-        - 詐欺 (scam): お金を要求する、個人情報を聞き出そうとする、フィッシングサイトへの誘導など。
-        - 不適切 (inappropriate): 性的な内容、差別的な表現、公序良俗に反する内容。
-        - 該当なし (none): 上記のいずれにも該当しない場合。
-        
-        回答は以下のJSONフォーマットで返してください。
-        
-        \`\`\`json
-        {
-          "isDanger": boolean,
-          "isScam": boolean,
-          "isInappropriate": boolean,
-          "reason": "該当なし" | "危険" | "詐欺" | "不適切"
-        }
-        \`\`\`
-        
-        例1:
-        メッセージ: "死にたい"
-        \`\`\`json
-        {
-          "isDanger": true,
-          "isScam": false,
-          "isInappropriate": false,
-          "reason": "危険"
-        }
-        \`\`\`
-        
-        例2:
-        メッセージ: "お金を稼ぐ簡単な方法があるよ"
-        \`\`\`json
-        {
-          "isDanger": false,
-          "isScam": true,
-          "isInappropriate": false,
-          "reason": "詐欺"
-        }
-        \`\`\`
-        
-        例3:
-        メッセージ: "こんにちは"
-        \`\`\`json
-        {
-          "isDanger": false,
-          "isScam": false,
-          "isInappropriate": false,
-          "reason": "該当なし"
-        }
-        \`\`\`
-        
-        あなたの回答はJSONオブジェクトのみにしてください。
-        `;
-
-        const chatHistory = [];
-        chatHistory.push({ role: "user", parts: [{ text: prompt }] });
-        const payload = {
-            contents: chatHistory,
-            generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: "OBJECT",
-                    properties: {
-                        "isDanger": { "type": "BOOLEAN" },
-                        "isScam": { "type": "BOOLEAN" },
-                        "isInappropriate": { "type": "BOOLEAN" },
-                        "reason": { "type": "STRING" }
-                    },
-                    "propertyOrdering": ["isDanger", "isScam", "isInappropriate", "reason"]
-                }
-            }
-        };
-        const apiKey = "";
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-
-        let response;
-        const maxRetries = 5;
-        let attempt = 0;
-        while (attempt < maxRetries) {
-            try {
-                response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (response.ok) break;
-            } catch (error) {
-                // Ignore console logging for retries
-            }
-            attempt++;
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
-        }
-
-        if (!response || !response.ok) {
-            throw new Error(`API call failed with status: ${response ? response.status : 'N/A'}`);
-        }
-
-        const result = await response.json();
-        const jsonText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (jsonText) {
-            const parsedJson = JSON.parse(jsonText);
-            return parsedJson;
-        } else {
-            throw new Error("Invalid response format from API");
-        }
-
-    } catch (error) {
-        console.error("Error in checkMessageWithAIForSafety:", error);
-        // エラーが発生した場合、安全のため「該当なし」として返す
-        return {
-            isDanger: false,
-            isScam: false,
-            isInappropriate: false,
-            reason: "該当なし"
-        };
-    }
-}
-
 
 // --- Postbackイベントハンドラ ---
 async function handlePostbackEvent(event) {
@@ -2454,7 +2324,26 @@ async function handlePostbackEvent(event) {
     let logType = "postback_action";
     let user = await getUserData(userId); // 最新のユーザーデータを取得
     const usersCollection = db.collection('users');
-
+/**
+ * ユーザーのメッセージと設定に基づいて最適なAIモデルを選択する
+ * @param {Object} user - ユーザーデータ
+ * @param {string} userMessage - ユーザーが送信したメッセージ
+ * @returns {string} 使用するAIモデルのID
+ */
+function getAIModelForUser(user, userMessage) {
+    if (user.isInConsultationMode) {
+        return "gemini-1.5-pro-latest";
+    }
+    
+    // 50文字以下ならGemini 1.5 Flash、50文字以上ならGPT-4o miniを使用
+    const model = userMessage.length <= 50 ? "gemini-1.5-flash-latest" : "gpt-4o-mini";
+    
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`🤖 AI Model Selected: ${model} for message length ${userMessage.length}`);
+    }
+    
+    return model;
+}
     // ⭐ 退会リクエストPostbackの処理 ⭐
     if (action === 'request_withdrawal') {
         if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
@@ -2559,21 +2448,255 @@ async function handlePostbackEvent(event) {
                 } catch (error) {
                     console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
                     await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId: userId });
-                    // Fallback reply
-                    replyText = "ごめんね、今うまく処理できないみたい💦 もう一度試してくれるかな？";
-                    await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
                     return;
                 }
-            } else {
-                replyText = "見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてみてね💖";
-                await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-                await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", 'watch_service_postback_not_registered');
-                return;
             }
+            break; // watch_okなどのswitch-caseのbreak
+
         default:
-            // 他のpostbackアクションは無視
+            replyText = "ごめんね、その操作はまだできないみたい…💦";
+            logType = 'unknown_postback_action';
+            break;
     }
+
+    try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+    } catch (replyError) {
+        await safePushMessage(userId, { type: 'text', text: replyText });
+        await logErrorToDb(userId, `Default postback replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userMessage: `Postback: ${event.postback.data}` });
+    }
+    return;
 }
+
+// --- Followイベントハンドラ ---
+async function handleFollowEvent(event) {
+    if (!event.source || !event.source.userId) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("userIdが取得できないFollowイベントでした。無視します.", event);
+        }
+        return;
+    }
+    const userId = event.source.userId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`✅ 新しいユーザーがフォローしました: ${userId}`);
+    }
+
+    const isAdminUser = BOT_ADMIN_IDS.includes(userId);
+
+    const initialUserData = {
+        membershipType: isAdminUser ? "admin" : "guest",
+        dailyMessageCount: 0,
+        lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
+        isUrgent: false,
+        isInConsultationMode: false,
+        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+        watchServiceEnabled: false,
+        lastScheduledWatchMessageSent: null,
+        firstReminderSent: false,
+        emergencyNotificationSent: false,
+        // registeredInfo: {}, // 登録情報（氏名、電話番号など）→直接ルートに保存する運用に変更
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        completedRegistration: false, // フォロー時は未登録
+        category: null, // フォロー時はカテゴリなし
+        registrationStep: null,
+        tempRegistrationData: {},
+    };
+    await db.collection('users').doc(userId).set(initialUserData);
+
+    const welcomeMessage = {
+        type: 'text',
+        text: 'はじめまして！わたしは皆守こころ（みなもりこころ）だよ🌸\n\n困ったことがあったら、いつでもお話聞かせてね😊\n\nまずは、会員登録をしてみてくれると嬉しいな💖'
+    };
+
+    // Followイベントからの登録ボタンもプリフィルするように修正
+    // ⭐ 修正箇所: addParamToFormUrl 関数を使用 ⭐
+    const elementaryStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_ELEMENTARY_FORM_BASE_URL, STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+    const middleHighUniStudentFormPrefilledUrl = addParamToFormUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+    const adultFormPrefilledUrl = addParamToFormUrl(ADULT_FORM_BASE_URL, ADULT_FORM_LINE_USER_ID_ENTRY_ID.replace('entry.', ''), userId);
+
+
+    const registrationFlex = {
+        type: "flex",
+        altText: "会員登録メニュー",
+        contents: {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    { "type": "text", "text": "新しい会員登録メニュー🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+                    { "type": "text", "text": "まずはあなたの区分を選んでね！", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
+                ]
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "sm",
+                "contents": [
+                    { "type": "button", "action": { "type": "uri", "label": "小学生向け", "uri": elementaryStudentFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
+                    { "type": "button", "action": { "type": "uri", "label": "中学生～大学生向け", "uri": middleHighUniStudentFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFB6C1" },
+                    { "type": "button", "action": { "type": "uri", "label": "成人向け", "uri": adultFormPrefilledUrl }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" }
+                ]
+            }
+        }
+    };
+
+
+    try {
+        await client.replyMessage(event.replyToken, [welcomeMessage, registrationFlex]);
+        await logToDb(userId, "フォローイベント", "初回メッセージと登録メニュー表示", "System", "system_follow");
+    } catch (replyError) {
+        await safePushMessage(userId, [welcomeMessage, registrationFlex]);
+        await logErrorToDb(userId, `Follow event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userId: userId });
+    }
+    return;
+}
+
+// --- Unfollowイベントハンドラ ---
+async function handleUnfollowEvent(event) {
+    if (!event.source || !event.source.userId) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("userIdが取得できないUnfollowイベントでした。無視します.", event);
+        }
+        return;
+    }
+    const userId = event.source.userId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`❌ ユーザーがブロック/アンフォローしました: ${userId}`);
+    }
+    // ユーザーデータを削除 (退会と同じ処理)
+    try {
+        await db.collection('users').doc(userId).delete();
+        await logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォローによりデータ削除", "System", "system_unfollow");
+    } catch (error) {
+        console.error(`❌ アンフォロー時のユーザーデータ削除エラー: ${error.message}`);
+        await logErrorToDb(userId, `アンフォロー時のユーザーデータ削除エラー`, { error: error.message, userId: userId });
+    }
+    return;
+}
+
+// --- 見守りサービス用 Cron ジョブ ---
+const job = cron.schedule('0 15 * * *', async () => {
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('--- 見守りサービス定期チェックを開始しました ---');
+    }
+    const now = admin.firestore.Timestamp.now();
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+    try {
+        const usersSnapshot = await db.collection('users')
+            .where('watchServiceEnabled', '==', true)
+            .get();
+
+        const promises = usersSnapshot.docs.map(async (doc) => {
+            const userId = doc.id;
+            const user = doc.data();
+
+            if (!user.lastScheduledWatchMessageSent) {
+                // 初回送信
+                const messageToSend = 'こころです🌸 最近どうしてる？\n体調とか、無理してないかな？';
+                const logTypeToUse = 'watch_service_scheduled_message';
+                const messages = [
+                    { type: 'text', text: messageToSend },
+                    {
+                        type: 'flex',
+                        altText: '元気？ボタン',
+                        contents: {
+                            "type": "bubble",
+                            "body": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "contents": [
+                                    { "type": "text", "text": "元気？🌸", "weight": "bold", "color": "#FF69B4", "size": "lg", "align": "center" },
+                                    { "type": "text", "text": "こころちゃん、あなたのことが心配だよ…！", "wrap": true, "margin": "md", "size": "sm" }
+                                ]
+                            },
+                            "footer": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "spacing": "sm",
+                                "contents": [
+                                    { "type": "button", "style": "primary", "height": "sm", "action": { type: "postback", label: "OKだよ💖", data: "action=watch_ok" }, "color": "#d63384" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "ちょっと元気ないかも…", data: "action=watch_somewhat" }, "color": "#808080" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "疲れたよ…", data: "action=watch_tired" }, "color": "#808080" },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "お話したいな…", data: "action=watch_talk" }, "color": "#808080" }
+                                ]
+                            }
+                        }
+                    }
+                ];
+                await safePushMessage(userId, messages);
+                await logToDb(userId, `（定期見守りメッセージ）`, messageToSend, 'こころちゃん（見守り）', logTypeToUse, true);
+                await usersCollection.doc(userId).update({ lastScheduledWatchMessageSent: now });
+            }
+            
+            // 最後の応答から3日以上経っているかチェック
+            const lastResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : null;
+            if (lastResponse && lastResponse < threeDaysAgo) {
+                // 未応答、リマインダーを送信
+                if (!user.firstReminderSent) {
+                    const messageToSend = 'こころです🌸 連絡がないから心配だよ…！\nお返事待ってるね💖';
+                    const logTypeToUse = 'watch_service_first_reminder';
+                    await safePushMessage(userId, { type: 'text', text: messageToSend });
+                    await logToDb(userId, `（リマインダーメッセージ）`, messageToSend, 'こころちゃん（見守り）', logTypeToUse, true);
+                    await usersCollection.doc(userId).update({ firstReminderSent: true });
+                } else if (!user.emergencyNotificationSent) {
+                    // リマインダーにも応答がない場合、理事会に通知
+                    const notificationMessage = 'ユーザーが3日以上応答していません。';
+                    await notifyOfficerGroup(notificationMessage, userId, user, 'watch_unresponsive', '緊急');
+                    await usersCollection.doc(userId).update({ emergencyNotificationSent: true });
+                }
+            }
+        });
+
+        await Promise.all(promises);
+
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('✅ 見守りサービス定期チェックが完了しました。');
+        }
+    } catch (error) {
+        console.error("❌ 見守りサービス Cron ジョブ実行中にエラーが発生しました:", error.message);
+        await logErrorToDb(null, "見守りサービス Cron ジョブエラー", { error: error.message, stack: error.stack });
+    }
+});
+
+// --- LINE Webhook ---
+app.post('/webhook', async (req, res) => {
+    res.sendStatus(200);
+
+    const events = req.body.events;
+    if (!events || events.length === 0) {
+        return;
+    }
+
+    try {
+        await Promise.all(
+            events.map(async (event) => {
+                if (event.type === 'message') {
+                    await handleEvent(event);
+                } else if (event.type === 'postback') {
+                    await handlePostbackEvent(event);
+                } else if (event.type === 'follow') {
+                    await handleFollowEvent(event);
+                } else if (event.type === 'unfollow') {
+                    await handleUnfollowEvent(event);
+                } else if (event.type === 'join') {
+                    await handleJoinEvent(event);
+                } else if (event.type === 'leave') {
+                    await handleLeaveEvent(event);
+                } else {
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.log("Unhandled event type:", event.type, event);
+                    }
+                }
+            })
+        );
+    } catch (err) {
+        console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err);
+    }
+});
 
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
