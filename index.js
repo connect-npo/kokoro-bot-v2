@@ -2662,8 +2662,10 @@ const job = cron.schedule('0 15 * * *', async () => {
     }
 });
 
-// --- LINE Webhook ---
+// --- LINE Webhook --
 app.post('/webhook', async (req, res) => {
+    // 🚨 これが最重要！メッセージを受け取ったらすぐに「OK」の返事を返す
+    //    こうすることで、LINEからのメッセージの再送を防ぎます。
     res.sendStatus(200);
 
     const events = req.body.events;
@@ -2672,6 +2674,7 @@ app.post('/webhook', async (req, res) => {
     }
 
     try {
+        // ここにイベント処理のコードが続きます...
         await Promise.all(
             events.map(async (event) => {
                 if (event.type === 'message') {
@@ -2695,6 +2698,7 @@ app.post('/webhook', async (req, res) => {
         );
     } catch (err) {
         console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err);
+        // エラーが発生しても、`res.sendStatus(200)`は既に実行済みなので、LINEは再送しません。
     }
 });
 
