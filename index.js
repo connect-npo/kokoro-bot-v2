@@ -466,62 +466,46 @@ const watchMessages = [
     "元気かな？💖 こころちゃんです！あなたの毎日が幸せでありますように！"
 ];
 
-// 監視対象となるユーザーを定期的にチェックするcronジョブを定義
-// 3日に一度、午後3時に最初の見守りメッセージを送信
+// ⭐ 最終修正版: 見守りサービスの定期実行処理 ⭐
+
+// 3日に一度、午後3時に見守りメッセージを送信するジョブ
 cron.schedule('0 15 */3 * *', async () => {
-    console.log('✅ Cronジョブ: 見守りメッセージ（初回）の送信処理を開始します。');
-    
+    console.log('✅ Cronジョブ: 定期見守りメッセージの送信処理を開始します。');
     try {
-        const usersSnapshot = await db.collection('users')
-            .where('watchServiceEnabled', '==', true)
-            .get();
-
+        const usersSnapshot = await db.collection('users').where('watchServiceEnabled', '==', true).get();
         const now = new Date();
-
         for (const userDoc of usersSnapshot.docs) {
             const userId = userDoc.id;
             const userData = userDoc.data();
-            
-            // 最後にOK応答があった日時、または初回登録日時を基準にチェック
             const lastOkResponse = userData.lastOkResponse?.toDate?.() || userData.createdAt?.toDate?.() || new Date(0);
             const diffDays = (now.getTime() - lastOkResponse.getTime()) / (1000 * 60 * 60 * 24);
 
-            // 最後にOK応答があってから3日以上経っているか、かつ初回のリマインダーがまだ送られていない場合
+            // 修正: 最後にOK応答があってから3日以上経過していて、OK応答確認中ではない場合
             if (diffDays >= 3 && !userData.firstReminderSent) {
                 const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)];
-
-                // LINEに最初の見守りメッセージを送信
                 await safePushMessage(userId, { type: 'text', text: randomMessage });
-
-                // 送信日時を更新し、初回リマインダーを送信済みにする
                 await db.collection('users').doc(userId).update({
                     lastScheduledWatchMessageSent: admin.firestore.Timestamp.fromDate(now),
-                    firstReminderSent: true
+                    firstReminderSent: true // OK応答確認状態に設定
                 });
-
-                console.log(`✅ 初回見守りメッセージを送信しました: ${userId}`);
+                console.log(`✅ 定期見守りメッセージを送信しました: ${userId}`);
             }
         }
     } catch (error) {
-        console.error('❌ Cronジョブ: 初回見守りメッセージ送信中にエラーが発生しました:', error);
+        console.error('❌ Cronジョブ: 定期見守りメッセージ送信中にエラーが発生しました:', error);
     }
 });
 
-// 初回メッセージ送信後24時間経過したユーザーにリマインダーを送信するジョブ（毎日午後3時にチェック）
+// 24時間後リマインダーを送信するジョブ（毎日午後3時にチェック）
 cron.schedule('0 15 * * *', async () => {
     console.log('✅ Cronジョブ: 24時間後リマインダーの送信処理を開始します。');
-
     try {
-        const usersSnapshot = await db.collection('users')
-            .where('watchServiceEnabled', '==', true)
-            .get();
-
+        const usersSnapshot = await db.collection('users').where('watchServiceEnabled', '==', true).get();
         const now = new Date();
-
         for (const userDoc of usersSnapshot.docs) {
             const userId = userDoc.id;
             const userData = userDoc.data();
-
+            // firstReminderSentがtrue、緊急通知が未送信、最後にメッセージを送信した記録がある
             if (userData.firstReminderSent && !userData.emergencyNotificationSent && userData.lastScheduledWatchMessageSent) {
                 const lastSentTime = userData.lastScheduledWatchMessageSent.toDate().getTime();
                 const diffHours = (now.getTime() - lastSentTime) / (1000 * 60 * 60);
@@ -530,7 +514,7 @@ cron.schedule('0 15 * * *', async () => {
                 if (diffHours >= 24) {
                     const message = "あれ？こころからのメッセージ見てくれたかな？何かあったのかな？少し心配だよ💦　よかったら、元気だよって返信してくれないかな？";
                     await safePushMessage(userId, { type: 'text', text: message });
-                    
+
                     await db.collection('users').doc(userId).update({
                         // 再送信日時を記録
                         lastScheduledWatchMessageSent: admin.firestore.Timestamp.fromDate(now)
@@ -547,35 +531,26 @@ cron.schedule('0 15 * * *', async () => {
 // 24時間後リマインダー送信後5時間経過したユーザーに緊急通知を送信するジョブ（毎日午後8時にチェック）
 cron.schedule('0 20 * * *', async () => {
     console.log('✅ Cronジョブ: 緊急通知の送信処理を開始します。');
-    
     try {
-        const usersSnapshot = await db.collection('users')
-            .where('watchServiceEnabled', '==', true)
-            .get();
-
+        const usersSnapshot = await db.collection('users').where('watchServiceEnabled', '==', true).get();
         const now = new Date();
-
         for (const userDoc of usersSnapshot.docs) {
             const userId = userDoc.id;
             const userData = userDoc.data();
-            
             if (userData.firstReminderSent && !userData.emergencyNotificationSent && userData.lastScheduledWatchMessageSent) {
                 const lastSentTime = userData.lastScheduledWatchMessageSent.toDate().getTime();
                 const diffHours = (now.getTime() - lastSentTime) / (1000 * 60 * 60);
-                
+
                 // 24時間後リマインダー送信から5時間以上経過していて、OK応答がない場合
                 if (diffHours >= 5) {
                     const emergencyMessage = `🚨緊急通知🚨\n[ユーザーID: ${userId}]\n[ユーザー名: ${userData.name || '不明'}]\n[電話番号: ${userData.phoneNumber || '不明'}]\n[住所: ${userData.address?.city || '不明'}]\n\n見守りサービス応答なし。\n${userData.guardianName || '緊急連絡先様'}様、ご確認をお願いします。\n[緊急連絡先: ${userData.guardianPhoneNumber || '不明'}]`;
-
-                    // 理事会グループIDは環境変数で管理されていると仮定
-                    const boardGroupIds = process.env.BOARD_GROUP_IDS ? process.env.BOARD_GROUP_IDS.split(',') : [];
-
-                    for (const groupId of boardGroupIds) {
-                        await safePushMessage(groupId, { type: 'text', text: emergencyMessage });
-                        console.log(`🚨 緊急通知を送信しました: GroupId=${groupId}, UserId=${userId}`);
+                    const officerGroupId = process.env.OFFICER_GROUP_ID;
+                    if (officerGroupId) {
+                        await safePushMessage(officerGroupId, { type: 'text', text: emergencyMessage });
+                        console.log(`🚨 緊急通知を送信しました: GroupId=${officerGroupId}, UserId=${userId}`);
+                    } else {
+                        console.error('❌ 環境変数OFFICER_GROUP_IDが設定されていないため、緊急通知を送信できませんでした。');
                     }
-                    
-                    // 緊急通知送信フラグを立てて、重複送信を防ぐ
                     await db.collection('users').doc(userId).update({
                         emergencyNotificationSent: true
                     });
@@ -586,84 +561,6 @@ cron.schedule('0 20 * * *', async () => {
         console.error('❌ Cronジョブ: 緊急通知送信中にエラーが発生しました:', error);
     }
 });
-// ⭐見守りサービスの定期実行処理 - ここまで貼り付け⭐
-
-// --- ログ記録関数 ---
-async function logToDb(userId, message, replyText, responsedBy, logType, isFlagged = false) {
-    try {
-        const logsCollection = db.collection("logs");
-        await logsCollection.add({
-            userId: userId,
-            message: message,
-            replyText: replyText,
-            responsedBy: responsedBy,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            logType: logType,
-            isFlagged: isFlagged
-        });
-        // 開発環境でのみ詳細ログを出力
-        if (process.env.NODE_ENV !== 'production') {
-            console.log(`✅ Logged to Firestore: Type=${logType}, UserId=${userId}`);
-        }
-    } catch (dbError) {
-        console.error(`❌ Firestoreへのログ書き込み中にエラーが発生しました: ${dbError.message}`);
-    }
-}
-
-async function logErrorToDb(userId, errorMessage, errorDetails, logType = 'system_error') {
-    try {
-        const errorLogsCollection = db.collection("error_logs");
-        await errorLogsCollection.add({
-            userId: userId || 'N/A',
-            message: `ERROR: ${errorMessage}`,
-            replyText: `システムエラー: ${errorMessage}`,
-            responsedBy: 'システム（エラー）',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            logType: logType,
-            errorDetails: errorDetails ? JSON.stringify(errorDetails) : 'N/A'
-        });
-        console.error(`🚨 Firestoreにエラーを記録しました: ${errorMessage}`);
-    } catch (dbError) {
-        console.error(`❌ エラーログ記録中にさらなるエラーが発生しました: ${dbError.message}`);
-    }
-}
-
-// ⭐ 会話履歴をFirestoreに保存する関数 --- (修正済み) ⭐
-async function saveConversationHistory(userId, messageContent, role) {
-    const userRef = db.collection('users').doc(userId);
-    const conversationRef = userRef.collection('conversations').doc('history');
-
-    try {
-        const doc = await conversationRef.get();
-        let history = doc.exists ? doc.data().turns : [];
-
-        // 新しい会話ターンを追加
-        // ⭐ 修正: FieldValue.serverTimestamp() の代わりに new Date() を使用 ⭐
-        history.push({ role: role, content: messageContent, timestamp: new Date() });
-
-        // 最新の会話履歴を保持（例: 直近10ターン - ユーザーとAIの合計10メッセージ）
-        const MAX_CONVERSATION_TURNS = 10;
-        if (history.length > MAX_CONVERSATION_TURNS) {
-            history = history.slice(history.length - MAX_CONVERSATION_TURNS);
-        }
-
-        // Firestoreに保存
-        await conversationRef.set({ turns: history }, { merge: true });
-        if (process.env.NODE_ENV !== 'production') {
-            console.log(`✅ 会話履歴をFirestoreに保存しました: UserId=${userId}, Role=${role}`);
-        }
-    } catch (error) {
-        console.error('❌ 会話履歴の保存中にエラーが発生しました:', error.message);
-        // エラーログの詳細を増やす
-        await logErrorToDb(userId, '会話履歴保存エラー', {
-            errorMessage: error.message,
-            stack: error.stack,
-            messageContent: messageContent,
-            role: role,
-            historyLength: history.length
-        });
-    }
-}
 
 // ⭐ 会話履歴をFirestoreから取得する関数 --- (追加済み) ⭐
 async function getConversationHistory(userId) {
@@ -686,7 +583,6 @@ async function getConversationHistory(userId) {
         return [];
     }
 }
-
 
 /**
  * ユーザーの会員情報をFirestoreから取得する関数。
