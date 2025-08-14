@@ -567,13 +567,17 @@ cron.schedule('0 20 * * *', async () => {
                 if (diffHours >= 5) {
                     const emergencyMessage = `🚨緊急通知🚨\n[ユーザーID: ${userId}]\n[ユーザー名: ${userData.name || '不明'}]\n[電話番号: ${userData.phoneNumber || '不明'}]\n[住所: ${userData.address?.city || '不明'}]\n\n見守りサービス応答なし。\n${userData.guardianName || '緊急連絡先様'}様、ご確認をお願いします。\n[緊急連絡先: ${userData.guardianPhoneNumber || '不明'}]`;
 
-                    // 理事会グループIDは環境変数で管理されていると仮定
-                    const boardGroupIds = process.env.BOARD_GROUP_IDS ? process.env.BOARD_GROUP_IDS.split(',') : [];
+                   // 修正後
+// 理事会グループIDは環境変数で管理されていると仮定
+const officerGroupId = process.env.OFFICER_GROUP_ID;
 
-                    for (const groupId of boardGroupIds) {
-                        await safePushMessage(groupId, { type: 'text', text: emergencyMessage });
-                        console.log(`🚨 緊急通知を送信しました: GroupId=${groupId}, UserId=${userId}`);
-                    }
+// officerGroupIdが存在する場合のみメッセージを送信
+if (officerGroupId) {
+    await safePushMessage(officerGroupId, { type: 'text', text: emergencyMessage });
+    console.log(`🚨 緊急通知を送信しました: GroupId=${officerGroupId}, UserId=${userId}`);
+} else {
+    console.error('❌ 環境変数OFFICER_GROUP_IDが設定されていないため、緊急通知を送信できませんでした。');
+}
                     
                     // 緊急通知送信フラグを立てて、重複送信を防ぐ
                     await db.collection('users').doc(userId).update({
