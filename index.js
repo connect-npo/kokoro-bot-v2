@@ -567,17 +567,13 @@ cron.schedule('0 20 * * *', async () => {
                 if (diffHours >= 5) {
                     const emergencyMessage = `🚨緊急通知🚨\n[ユーザーID: ${userId}]\n[ユーザー名: ${userData.name || '不明'}]\n[電話番号: ${userData.phoneNumber || '不明'}]\n[住所: ${userData.address?.city || '不明'}]\n\n見守りサービス応答なし。\n${userData.guardianName || '緊急連絡先様'}様、ご確認をお願いします。\n[緊急連絡先: ${userData.guardianPhoneNumber || '不明'}]`;
 
-                   // 修正後
-// 理事会グループIDは環境変数で管理されていると仮定
-const officerGroupId = process.env.OFFICER_GROUP_ID;
+                    // 理事会グループIDは環境変数で管理されていると仮定
+                    const boardGroupIds = process.env.BOARD_GROUP_IDS ? process.env.BOARD_GROUP_IDS.split(',') : [];
 
-// officerGroupIdが存在する場合のみメッセージを送信
-if (officerGroupId) {
-    await safePushMessage(officerGroupId, { type: 'text', text: emergencyMessage });
-    console.log(`🚨 緊急通知を送信しました: GroupId=${officerGroupId}, UserId=${userId}`);
-} else {
-    console.error('❌ 環境変数OFFICER_GROUP_IDが設定されていないため、緊急通知を送信できませんでした。');
-}
+                    for (const groupId of boardGroupIds) {
+                        await safePushMessage(groupId, { type: 'text', text: emergencyMessage });
+                        console.log(`🚨 緊急通知を送信しました: GroupId=${groupId}, UserId=${userId}`);
+                    }
                     
                     // 緊急通知送信フラグを立てて、重複送信を防ぐ
                     await db.collection('users').doc(userId).update({
@@ -1812,17 +1808,22 @@ async function sendScheduledWatchMessage() {
         await logErrorToDb(null, "見守りサービス Cron ジョブエラー", { error: error.message, stack: error.stack });
     }
 }
+/**
+ * 管理者グループに通知メッセージを送信する関数。
+ * @param {string} message - 送信するメッセージ
+ * @param {string} userId - 通知対象のユーザーID
+ * @param {Object} userInfo - ユーザーの登録情報 (userオブジェクトを直接渡す想定)
+ * @param {string} type - 通知の種類 (例: "danger", "scam", "watch_unresponsive")
+ * @param {string} [notificationDetailType=''] - 見守りサービス未応答時の詳細タイプ (例: "緊急")
+ */
 async function notifyOfficerGroup(message, userId, userInfo, type, notificationDetailType = '') {
     // userInfoはユーザーデータオブジェクト全体を想定
-    const userName = (userInfo.name && userInfo.name !== '') ? userInfo.name : '未登録';
-    // 新しい項目: 登録者様の連絡先（電話番号）
-    const userPhone = (userInfo.phoneNumber && userInfo.phoneNumber !== '') ? userInfo.phoneNumber : '未登録';
-    const guardianName = (userInfo.guardianName && userInfo.guardianName !== '') ? userInfo.guardianName : '未登録';
-    const emergencyContact = (userInfo.guardianPhoneNumber && userInfo.guardianPhoneNumber !== '') ? userInfo.guardianPhoneNumber : '未登録'; // 保護者電話番号を緊急連絡先として使用
-    const relationship = (userInfo.relationship && userInfo.relationship !== '') ? userInfo.relationship : '未登録';
-    // 新しい項目: 区分
-    const userCategory = (userInfo.category && userInfo.category !== '') ? userInfo.category : '未登録';
-    const userCity = (userInfo.address && userInfo.address.city && userInfo.address.city !== '') ? userInfo.address.city : '未登録';
+    const userName = userInfo.name || '未登録'; // Changed from '不明なユーザー'
+    const userPhone = userInfo.phoneNumber || '未登録';
+    const guardianName = userInfo.guardianName || '未登録';
+    const emergencyContact = userInfo.guardianPhoneNumber || '未登録'; // 保護者電話番号を緊急連絡先として使用
+    const relationship = userInfo.relationship || '未登録'; // 現行フローで取得されていないため、必要に応じて追加
+    const userCity = (userInfo.address && userInfo.address.city) ? userInfo.address.city : '未登録'; // Here's the fix: userInfo.address.city
 
     // 通知タイトル
     let notificationTitle = "";
@@ -1834,20 +1835,21 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
         notificationTitle = `🚨【見守りサービス未応答 (${notificationDetailType})】🚨`;
     }
 
+    // ⭐ 修正箇所: 通知メッセージのフォーマットをご要望通りに改善 ⭐
     const simpleNotificationMessage = `${notificationTitle}\n\n` +
-        `👤 氏名：${userName}\n` +
-        `📱 登録者様電話番号：${userPhone}\n` +
-        `🏠 市区町村：${userCity}\n` +
-        `👨‍👩‍👧‍👦 保護者名：${guardianName}\n` +
-        `📞 緊急連絡先：${emergencyContact}\n` +
-        `🧬 続柄：${relationship}\n` +
-        `📝 区分：${userCategory}\n` +
-        `\nメッセージ: 「${message}」\n\n` +
-        `ユーザーID: ${userId}\n` +
-        `ユーザーとのチャットへ: https://line.me/ti/p/~${userId}\n` +
-        `LINEで個別相談を促すには、上記のURLをタップしてチャットを開き、手動でメッセージを送信してください。\n` +
-        `※ LINE公式アカウントID:@201nxobx`;
+                                      `👤 氏名：${userName}\n` +
+                                      `📱 電話番号：${userPhone}\n` +
+                                      `🏠 市区町村：${userCity}\n` +
+                                      `👨‍👩‍👧‍👦 保護者名：${guardianName}\n` +
+                                      `📞 緊急連絡先：${emergencyContact}\n` +
+                                      `🧬 続柄：${relationship}\n` +
+                                      `\nメッセージ: 「${message}」\n\n` +
+                                      `ユーザーID: ${userId}\n` +
+                                      `ユーザーとのチャットへ: https://line.me/ti/p/~${userId}\n` +
+                                      `LINEで個別相談を促すには、上記のURLをタップしてチャットを開き、手動でメッセージを送信してください。\n` +
+                                      `※ LINE公式アカウントID:@201nxobx`;
 
+    // Send the message to the officer group
     if (OFFICER_GROUP_ID) {
         await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text: simpleNotificationMessage });
         if (process.env.NODE_ENV !== 'production') {
@@ -1857,6 +1859,7 @@ async function notifyOfficerGroup(message, userId, userInfo, type, notificationD
         console.warn("⚠️ OFFICER_GROUP_ID が設定されていないため、管理者グループへの通知は送信されません。");
     }
 }
+
 
 // ⭐ メッセージ応答のクールダウンを管理する関数 ⭐
 async function shouldRespond(userId) {
@@ -2188,32 +2191,26 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
     const scamDetected = checkContainsScamWords(userMessage);
     const inappropriateDetected = checkContainsInappropriateWords(userMessage);
 
-   if (dangerDetected) {
-    await client.replyMessage(event.replyToken, {
-        type: 'flex',
-        altText: '危険ワード検知',
-        contents: EMERGENCY_FLEX_MESSAGE
-    });
-    // GPT-4o miniで応答を生成し、続けて送信
-    const aiResponse = await generateAIReply(userMessage, "gpt-4o-mini", userId, user, conversationHistory);
-    await safePushMessage(userId, { type: 'text', text: aiResponse });
-    await logToDb(userId, userMessage, `(危険ワード検知Flex表示) + ${aiResponse}`, 'こころちゃん（危険ワード）', 'danger_word_triggered', true);
-    await notifyOfficerGroup(userMessage, userId, user, "danger");
-    return;
-}
-if (scamDetected) {
-    await client.replyMessage(event.replyToken, {
-        type: 'flex',
-        altText: '詐欺注意喚起',
-        contents: SCAM_FLEX_MESSAGE
-    });
-    // GPT-4o miniで応答を生成し、続けて送信
-    const aiResponse = await generateAIReply(userMessage, "gpt-4o-mini", userId, user, conversationHistory);
-    await safePushMessage(userId, { type: 'text', text: aiResponse });
-    await logToDb(userId, userMessage, `(詐欺注意喚起Flex表示) + ${aiResponse}`, 'こころちゃん（詐欺注意）', 'scam_word_triggered', true);
-    await notifyOfficerGroup(userMessage, userId, user, "scam");
-    return;
-}
+    if (dangerDetected) {
+        await client.replyMessage(event.replyToken, {
+            type: 'flex',
+            altText: '危険ワード検知',
+            contents: EMERGENCY_FLEX_MESSAGE
+        });
+        await logToDb(userId, userMessage, '(危険ワード検知Flex表示)', 'こころちゃん（危険ワード）', 'danger_word_triggered', true);
+        await notifyOfficerGroup(userMessage, userId, user, "danger");
+        return;
+    }
+    if (scamDetected) {
+        await client.replyMessage(event.replyToken, {
+            type: 'flex',
+            altText: '詐欺注意喚起',
+            contents: SCAM_FLEX_MESSAGE
+        });
+        await logToDb(userId, userMessage, '(詐欺注意喚起Flex表示)', 'こころちゃん（詐欺注意）', 'scam_word_triggered', true);
+        await notifyOfficerGroup(userMessage, userId, user, "scam");
+        return;
+    }
     if (inappropriateDetected) {
         replyText = "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
@@ -2328,26 +2325,7 @@ async function handlePostbackEvent(event) {
     let logType = "postback_action";
     let user = await getUserData(userId); // 最新のユーザーデータを取得
     const usersCollection = db.collection('users');
-/**
- * ユーザーのメッセージと設定に基づいて最適なAIモデルを選択する
- * @param {Object} user - ユーザーデータ
- * @param {string} userMessage - ユーザーが送信したメッセージ
- * @returns {string} 使用するAIモデルのID
- */
-function getAIModelForUser(user, userMessage) {
-    if (user.isInConsultationMode) {
-        return "gemini-1.5-pro-latest";
-    }
-    
-    // 50文字以下ならGemini 1.5 Flash、50文字以上ならGPT-4o miniを使用
-    const model = userMessage.length <= 50 ? "gemini-1.5-flash-latest" : "gpt-4o-mini";
-    
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(`🤖 AI Model Selected: ${model} for message length ${userMessage.length}`);
-    }
-    
-    return model;
-}
+
     // ⭐ 退会リクエストPostbackの処理 ⭐
     if (action === 'request_withdrawal') {
         if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
@@ -2580,96 +2558,46 @@ async function handleUnfollowEvent(event) {
     return;
 }
 
-// --- 見守りサービス用 Cron ジョブ ---
-const job = cron.schedule('0 15 * * *', async () => {
-    if (process.env.NODE_ENV !== 'production') {
-        console.log('--- 見守りサービス定期チェックを開始しました ---');
-    }
-    const now = admin.firestore.Timestamp.now();
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-    try {
-        const usersSnapshot = await db.collection('users')
-            .where('watchServiceEnabled', '==', true)
-            .get();
-
-        const promises = usersSnapshot.docs.map(async (doc) => {
-            const userId = doc.id;
-            const user = doc.data();
-
-            if (!user.lastScheduledWatchMessageSent) {
-                // 初回送信
-                const messageToSend = 'こころです🌸 最近どうしてる？\n体調とか、無理してないかな？';
-                const logTypeToUse = 'watch_service_scheduled_message';
-                const messages = [
-                    { type: 'text', text: messageToSend },
-                    {
-                        type: 'flex',
-                        altText: '元気？ボタン',
-                        contents: {
-                            "type": "bubble",
-                            "body": {
-                                "type": "box",
-                                "layout": "vertical",
-                                "contents": [
-                                    { "type": "text", "text": "元気？🌸", "weight": "bold", "color": "#FF69B4", "size": "lg", "align": "center" },
-                                    { "type": "text", "text": "こころちゃん、あなたのことが心配だよ…！", "wrap": true, "margin": "md", "size": "sm" }
-                                ]
-                            },
-                            "footer": {
-                                "type": "box",
-                                "layout": "vertical",
-                                "spacing": "sm",
-                                "contents": [
-                                    { "type": "button", "style": "primary", "height": "sm", "action": { type: "postback", label: "OKだよ💖", data: "action=watch_ok" }, "color": "#d63384" },
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "ちょっと元気ないかも…", data: "action=watch_somewhat" }, "color": "#808080" },
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "疲れたよ…", data: "action=watch_tired" }, "color": "#808080" },
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { type: "postback", label: "お話したいな…", data: "action=watch_talk" }, "color": "#808080" }
-                                ]
-                            }
-                        }
-                    }
-                ];
-                await safePushMessage(userId, messages);
-                await logToDb(userId, `（定期見守りメッセージ）`, messageToSend, 'こころちゃん（見守り）', logTypeToUse, true);
-                await usersCollection.doc(userId).update({ lastScheduledWatchMessageSent: now });
-            }
-            
-            // 最後の応答から3日以上経っているかチェック
-            const lastResponse = user.lastOkResponse ? user.lastOkResponse.toDate() : null;
-            if (lastResponse && lastResponse < threeDaysAgo) {
-                // 未応答、リマインダーを送信
-                if (!user.firstReminderSent) {
-                    const messageToSend = 'こころです🌸 連絡がないから心配だよ…！\nお返事待ってるね💖';
-                    const logTypeToUse = 'watch_service_first_reminder';
-                    await safePushMessage(userId, { type: 'text', text: messageToSend });
-                    await logToDb(userId, `（リマインダーメッセージ）`, messageToSend, 'こころちゃん（見守り）', logTypeToUse, true);
-                    await usersCollection.doc(userId).update({ firstReminderSent: true });
-                } else if (!user.emergencyNotificationSent) {
-                    // リマインダーにも応答がない場合、理事会に通知
-                    const notificationMessage = 'ユーザーが3日以上応答していません。';
-                    await notifyOfficerGroup(notificationMessage, userId, user, 'watch_unresponsive', '緊急');
-                    await usersCollection.doc(userId).update({ emergencyNotificationSent: true });
-                }
-            }
-        });
-
-        await Promise.all(promises);
-
+// --- Joinイベントハンドラ (グループ参加時) ---
+async function handleJoinEvent(event) {
+    if (!event.source || !event.source.groupId) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log('✅ 見守りサービス定期チェックが完了しました。');
+            console.log("groupIdが取得できないJoinイベントでした。無視します。", event);
         }
-    } catch (error) {
-        console.error("❌ 見守りサービス Cron ジョブ実行中にエラーが発生しました:", error.message);
-        await logErrorToDb(null, "見守りサービス Cron ジョブエラー", { error: error.message, stack: error.stack });
+        return;
     }
-});
+    const groupId = event.source.groupId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`✅ ボットがグループに参加しました: ${groupId}`);
+    }
+    try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
+        await logToDb(groupId, "グループ参加イベント", "グループ参加メッセージ", "System", "system_join");
+    } catch (replyError) {
+        await safePushMessage(groupId, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
+        await logErrorToDb(groupId, `Join event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, groupId: groupId });
+    }
+    return;
+}
 
-// --- LINE Webhook --
+// --- Leaveイベントハンドラ (グループ退出時) ---
+async function handleLeaveEvent(event) {
+    if (!event.source || !event.source.groupId) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("groupIdが取得できないLeaveイベントでした。無視します。", event);
+        }
+        return;
+    }
+    const groupId = event.source.groupId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`❌ ボットがグループから退出しました: ${groupId}`);
+    }
+    await logToDb(groupId, "グループ退出イベント", "ボットがグループから退出", "System", "system_leave");
+    return;
+}
+
+// --- LINE Webhook ---
 app.post('/webhook', async (req, res) => {
-    // 🚨 これが最重要！メッセージを受け取ったらすぐに「OK」の返事を返す
-    //    こうすることで、LINEからのメッセージの再送を防ぎます。
     res.sendStatus(200);
 
     const events = req.body.events;
@@ -2678,7 +2606,6 @@ app.post('/webhook', async (req, res) => {
     }
 
     try {
-        // ここにイベント処理のコードが続きます...
         await Promise.all(
             events.map(async (event) => {
                 if (event.type === 'message') {
@@ -2702,7 +2629,6 @@ app.post('/webhook', async (req, res) => {
         );
     } catch (err) {
         console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err);
-        // エラーが発生しても、`res.sendStatus(200)`は既に実行済みなので、LINEは再送しません。
     }
 });
 
