@@ -95,7 +95,6 @@ client = new Client({
 // --- watch-service.jsにdb, client, adminをエクスポートして共有 ---
 module.exports = { db, client, admin };
 
-
 // 各フォームのline_user_idに対応するentry ID
 // これらは全て、まつさんが「事前入力されたURLを取得」で確認してくださった正確なIDです。
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
