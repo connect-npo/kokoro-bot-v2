@@ -19,7 +19,7 @@ require('./watch-service.js');
 const app = express();
 app.use(express.json());
 
-// --- 環境変数の設定 & GoogleフォームのURLとEntry IDの定義（重複を解消） ---
+// --- 環境変数の設定 & GoogleフォームのURLとEntry IDの定義 ---
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -122,10 +122,11 @@ if (GEMINI_API_KEY) {
     models.gemini = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 }
 
-const client = new Client({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
-});
+// ⭐重複しているclientの宣言を削除
+// const client = new Client({
+//     channelAccessToken: CHANNEL_ACCESS_TOKEN,
+//     channelSecret: CHANNEL_SECRET,
+// });
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
