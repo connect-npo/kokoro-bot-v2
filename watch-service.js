@@ -14,26 +14,6 @@ const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 
-// --- Firebase Admin SDKの初期化 ---
-let db;
-try {
-    if (!getApps().length) {
-        if (!FIREBASE_CREDENTIALS_BASE64) {
-            throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
-        }
-        const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-            databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
-        });
-    }
-    db = getFirestore();
-    console.log("✅ Firebase Admin SDKを初期化しました。");
-} catch (error) {
-    console.error("❌ Firebase Admin SDKの初期化エラー:", error);
-    process.exit(1);
-}
-
 // --- LINEクライアントの初期化 ---
 const client = new Client({
     channelAccessToken: CHANNEL_ACCESS_TOKEN,
