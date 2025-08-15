@@ -7,10 +7,14 @@ const { Client } = require('@line/bot-sdk');
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
+const { getFirestore, Timestamp } = require('firebase-admin/firestore');
+const { getApps } = require('firebase-admin/app');
+const cron = require('node-cron'); // ここにcronを追加します
 
-// ↓↓↓ この行を追加してください ↓↓↓
+// --- watch-service.js を読み込み、定期実行処理を有効化 ---
 require('./watch-service.js');
 
+// --- Expressアプリケーションの初期化 ---
 const app = express();
 app.use(express.json());
 
@@ -20,7 +24,9 @@ const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
+const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 
 let BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"];
 if (process.env.BOT_ADMIN_IDS) {
@@ -32,21 +38,66 @@ if (process.env.BOT_ADMIN_IDS) {
         BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS.split(',').map(id => id.trim());
     }
 }
-const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
-const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
-// --- GoogleフォームのURL ---
-// 各フォームのベースURL（Node.jsの定数として定義）
-// 環境変数で設定されている場合は環境変数が優先されます。
-// まつさんが確認してくださった全てのフォームの正確な公開URLを設定済みです。
-// ⭐修正済み: ?usp=pp_url を削除し、汎用関数 addParamToFormUrl でパラメータを安全に追加する前提に立つ⭐
+// --- GoogleフォームのURLなど、その他の定数 ---
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSdYfVmS8kc71_VASWJe4xtUXpiOhmoQNWyI_oT_DSe2xP4Iuw/viewform";
 const AGREEMENT_FORM_BASE_URL = process.env.AGREEMENT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSepSxcnUL9d_dF3aHRrttCKoxJT4irNvUB0JcPIyguH02CErw/viewform";
-const STUDENT_ELEMENTARY_FORM_BASE_URL = process.env.STUDENT_ELEMENTARY_FORM_BASE_URL || AGREEMENT_FORM_BASE_URL; // 小学生向け学生フォームは同意書と兼ねる
+const STUDENT_ELEMENTARY_FORM_BASE_URL = process.env.STUDENT_ELEMENTARY_FORM_BASE_URL || AGREEMENT_FORM_BASE_URL;
 const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSeDu8-O9MS9G6S6xUaPZiv-X9AvsWNEwjvySxhdotPPdjtU1A/viewform";
 const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform";
 const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform";
-const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8"; // 問い合わせフォームのURL (ID取得はしない)
+const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8";
+
+const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
+const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
+const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID;
+const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
+const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
+const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
+
+
+// ⭐追加する汎用関数: フォームURLにパラメータを安全に追加する関数 ⭐
+// URLに'?'が既に含まれているか確認し、適切なセパレータ（'?'または'&'）を選択します。
+function addParamToFormUrl(baseUrl, paramName, paramValue) {
+    if (!paramValue) { // 値がない場合は追加しない（URLが不完全になるのを防ぐ）
+        return baseUrl;
+    }
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}${paramName}=${encodeURIComponent(paramValue)}`;
+}
+// ⭐追加する汎用関数ここまで⭐
+
+
+// --- Firebase Admin SDKの初期化 ---
+let db;
+let client;
+try {
+    if (!getApps().length) {
+        if (!FIREBASE_CREDENTIALS_BASE64) {
+            throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
+        }
+        const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
+        });
+    }
+    db = getFirestore();
+    console.log("✅ Firebase Admin SDKを初期化しました。");
+} catch (error) {
+    console.error("❌ Firebase Admin SDKの初期化エラー:", error);
+    process.exit(1);
+}
+
+// --- LINEクライアントの初期化 ---
+client = new Client({
+    channelAccessToken: CHANNEL_ACCESS_TOKEN,
+    channelSecret: CHANNEL_SECRET,
+});
+
+// --- watch-service.jsにdb, client, adminをエクスポートして共有 ---
+module.exports = { db, client, admin };
+
 
 // 各フォームのline_user_idに対応するentry ID
 // これらは全て、まつさんが「事前入力されたURLを取得」で確認してくださった正確なIDです。
