@@ -2469,7 +2469,7 @@ async function logErrorToDb(userId, errorType, details) {
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`🚀 サーバーはポート${PORT}で実行されています`);
 });
 
 // --- watch-service.jsにdb, client, admin, saveConversationHistory, logErrorToDb をエクスポートして共有 ---
