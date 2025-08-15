@@ -1,24 +1,11 @@
-// --- dotenvを読み込んで環境変数を安全に管理 ---
-require('dotenv').config();
-
-const { initializeApp, cert, getApps } = require('firebase-admin/app');
+// --- index.jsから共有されたオブジェクトをインポート ---
+const { db, admin, client } = require('./index.js');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
-const { Client } = require('@line/bot-sdk');
 const cron = require('node-cron');
-const admin = require('firebase-admin');
 
-// --- 環境変数の設定 ---
-const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
+// --- 環境変数 ---
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
-
-// --- LINEクライアントの初期化 ---
-const client = new Client({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
-});
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 
 // --- ユーティリティ関数 ---
 async function safePushMessage(to, messages) {
@@ -150,6 +137,7 @@ cron.schedule('0 */1 * * *', async () => {
     timezone: "Asia/Tokyo"
 });
 
+
 // 危険・詐欺ワードの定期チェック
 cron.schedule('*/5 * * * *', async () => {
     // ログデータは5分間隔でチェック
@@ -162,3 +150,4 @@ cron.schedule('*/5 * * * *', async () => {
 if (require.main === module) {
     console.log("▶️ watch-service.js が起動しました。cronジョブが実行されます。");
 }
+
