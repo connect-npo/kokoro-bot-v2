@@ -1,5 +1,3 @@
-require('./watch-service.js');
-
 // --- dotenvを読み込んで環境変数を安全に管理 ---
 require('dotenv').config();
 
@@ -9,6 +7,9 @@ const { Client } = require('@line/bot-sdk');
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
+
+// ↓↓↓ この行を追加してください ↓↓↓
+require('./watch-service.js');
 
 const app = express();
 app.use(express.json());
