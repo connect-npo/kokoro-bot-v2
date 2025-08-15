@@ -30,13 +30,13 @@ const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBE
 
 let BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"];
 if (process.env.BOT_ADMIN_IDS) {
-    try {
-        BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS);
-    } catch (e) {
-        console.error("❌ BOT_ADMIN_IDS 環境変数のパースに失敗しました。JSON形式で設定してください。", e);
-        // パース失敗時はカンマ区切り文字列として処理を試みる
-        BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS.split(',').map(id => id.trim());
-    }
+    try {
+        BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS);
+    } catch (e) {
+        console.error("❌ BOT_ADMIN_IDS 環境変数のパースに失敗しました。JSON形式で設定してください。", e);
+        // パース失敗時はカンマ区切り文字列として処理を試みる
+        BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS.split(',').map(id => id.trim());
+    }
 }
 
 // --- GoogleフォームのURLなど、その他の定数 ---
@@ -47,23 +47,20 @@ const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UN
 const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform";
 const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform";
 const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8";
-
-const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
 const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
 const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID;
 const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
 const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 
-
 // ⭐追加する汎用関数: フォームURLにパラメータを安全に追加する関数 ⭐
 // URLに'?'が既に含まれているか確認し、適切なセパレータ（'?'または'&'）を選択します。
 function addParamToFormUrl(baseUrl, paramName, paramValue) {
-    if (!paramValue) { // 値がない場合は追加しない（URLが不完全になるのを防ぐ）
-        return baseUrl;
-    }
-    const separator = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${separator}${paramName}=${encodeURIComponent(paramValue)}`;
+    if (!paramValue) { // 値がない場合は追加しない（URLが不完全になるのを防ぐ）
+        return baseUrl;
+    }
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}${paramName}=${encodeURIComponent(paramValue)}`;
 }
 // ⭐追加する汎用関数ここまで⭐
 
@@ -72,21 +69,21 @@ function addParamToFormUrl(baseUrl, paramName, paramValue) {
 let db;
 let client;
 try {
-    if (!getApps().length) {
-        if (!FIREBASE_CREDENTIALS_BASE64) {
-            throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
-        }
-        const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-            databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
-        });
-    }
-    db = getFirestore();
-    console.log("✅ Firebase Admin SDKを初期化しました。");
+    if (!getApps().length) {
+        if (!FIREBASE_CREDENTIALS_BASE64) {
+            throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
+        }
+        const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
+        });
+    }
+    db = getFirestore();
+    console.log("✅ Firebase Admin SDKを初期化しました。");
 } catch (error) {
-    console.error("❌ Firebase Admin SDKの初期化エラー:", error);
-    process.exit(1);
+    console.error("❌ Firebase Admin SDKの初期化エラー:", error);
+    process.exit(1);
 }
 
 // --- LINEクライアントの初期化 ---
