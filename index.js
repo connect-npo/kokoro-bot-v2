@@ -2080,36 +2080,20 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
     }
 
 
-    // --- AI応答生成 ---
-    try {
-        const aiResponse = await generateAIReply(userMessage, modelToUse, userId, user, conversationHistory);
-        replyText = aiResponse;
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+   // --- AI応答生成 ---
+try {
+    const aiResponse = await generateAIReply(userMessage, modelToUse, userId, user, conversationHistory);
+    replyText = aiResponse;
+    await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+} catch (error) {
+    console.error("❌ AI応答の送信中にエラーが発生しました:", error);
+    await logErrorToDb(userId, "AI応答送信エラー", { error: error.message, userMessage: userMessage });
+    await safePushMessage(userId, { type: 'text', text: "ごめんね、今ちょっとお返事できないみたい💦 もう一度試してくれるかな？" });
+}
 
 // --- Leaveイベントハンドラ (グループ退出時) ---
 async function handleLeaveEvent(event) {
-    if (!event.source || !event.source.groupId) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.log("groupIdが取得できないLeaveイベントでした。無視します。", event);
-        }
-        return;
-    }
-    const groupId = event.source.groupId;
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(`❌ ボットがグループから退出しました: ${groupId}`);
-    }
-    // logToDb -> saveConversationHistory に修正
-    await saveConversationHistory(groupId, "System", "ボットがグループから退出", "system_leave", event);
-    return;
-}
-
-    const userId = event.source.userId;
-
-    if (!isBotAdmin(userId)) {
-        if (!(await shouldRespond(userId))) {
-            return;
-        }
-    }
+// ...
 
     const data = new URLSearchParams(event.postback.data);
     const action = data.get('action');
