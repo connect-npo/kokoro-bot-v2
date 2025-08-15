@@ -1,3 +1,5 @@
+require('./watch-service.js');
+
 // --- dotenvを読み込んで環境変数を安全に管理 ---
 require('dotenv').config();
 
