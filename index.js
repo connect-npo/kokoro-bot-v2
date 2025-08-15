@@ -2086,35 +2086,22 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
         replyText = aiResponse;
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
 
-        // 会話履歴を保存
-        await saveConversationHistory(userId, userMessage, 'user');
-        await saveConversationHistory(userId, replyText, 'model');
-
-        if (!shouldLogMessage(logType)) { // 通常会話はログしない設定だが、デバッグ用に一時的にログ
-             if (process.env.NODE_ENV !== 'production') {
-                console.log(`💬 AI Reply (User: ${userId}, Model: ${modelToUse}): ${replyText}`);
-            }
-        }
-        await logToDb(userId, userMessage, replyText, responsedBy, logType);
-
-    } catch (error) {
-        console.error(`❌ LINE応答送信またはAI生成エラー: ${error.message}`);
-        await logErrorToDb(userId, `LINE応答送信またはAI生成エラー`, { error: error.message, userMessage: userMessage });
-        // エラー時のフォールバックメッセージ
-        const fallbackReply = "ごめんね、今うまくお話ができないみたい…💦 もう一度話しかけてくれるかな？🌸";
-        await client.replyMessage(event.replyToken, { type: 'text', text: fallbackReply });
-        await logToDb(userId, userMessage, fallbackReply, "SystemError", "ai_response_fallback", true);
-    }
-}
-
-// --- Postbackイベントハンドラ ---
-async function handlePostbackEvent(event) {
-    if (!event.source || !event.source.userId) {
+// --- Leaveイベントハンドラ (グループ退出時) ---
+async function handleLeaveEvent(event) {
+    if (!event.source || !event.source.groupId) {
         if (process.env.NODE_ENV !== 'production') {
-            console.log("userIdが取得できないPostbackイベントでした。無視します.", event);
+            console.log("groupIdが取得できないLeaveイベントでした。無視します。", event);
         }
         return;
     }
+    const groupId = event.source.groupId;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`❌ ボットがグループから退出しました: ${groupId}`);
+    }
+    // logToDb -> saveConversationHistory に修正
+    await saveConversationHistory(groupId, "System", "ボットがグループから退出", "system_leave", event);
+    return;
+}
 
     const userId = event.source.userId;
 
@@ -2378,7 +2365,7 @@ async function handleJoinEvent(event) {
     }
     try {
         await client.replyMessage(event.replyToken, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
-        await logToDb(groupId, "グループ参加イベント", "グループ参加メッセージ", "System", "system_join");
+        await saveConversationHistory(groupId, "System", "グループ参加メッセージ", "system_join", event);
     } catch (replyError) {
         await safePushMessage(groupId, { type: 'text', text: '皆さん、こんにちは！皆守こころです🌸\nこのグループで、みんなのお役に立てると嬉しいな💖' });
         await logErrorToDb(groupId, `Join event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, groupId: groupId });
@@ -2435,11 +2422,75 @@ app.post('/webhook', async (req, res) => {
         );
     } catch (err) {
         console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err);
+        // ここにlogErrorToDbを追加
+        if (db) {
+            await logErrorToDb(null, "Webhook処理エラー", { error: err.message, stack: err.stack, body: JSON.stringify(req.body) });
+        }
     }
 });
+
+// --- データベース関数 ---
+/**
+ * 会話履歴をFirestoreに保存する関数
+ * @param {string} userId - LINEのユーザーIDまたはグループID
+ * @param {string} sender - 送信者 ('User' or 'Bot' or 'System')
+ * @param {string} text - メッセージ本文
+ * @param {string} type - メッセージの種類 ('message', 'response', 'danger_word'など)
+ * @param {Object} event - LINEイベントオブジェクト
+ */
+async function saveConversationHistory(userId, sender, text, type, event) {
+    if (!db) {
+        console.error("❌ Firestoreに接続されていません。履歴を保存できませんでした。");
+        return;
+    }
+    const historyRef = db.collection('histories').doc(userId).collection('conversations');
+    try {
+        await historyRef.add({
+            userId,
+            sender,
+            text,
+            type,
+            timestamp: Timestamp.now(),
+            lineEvent: event || null,
+        });
+    } catch (error) {
+        console.error("❌ 会話履歴の保存中にエラーが発生しました:", error);
+    }
+}
+
+/**
+ * エラーログをFirestoreに保存する関数
+ * @param {string|null} userId - LINEのユーザーID (不明な場合はnull)
+ * @param {string} errorType - エラーの種類
+ * @param {Object} details - エラーの詳細情報
+ */
+async function logErrorToDb(userId, errorType, details) {
+    if (!db) {
+        console.error("❌ Firestoreに接続されていません。エラーログを保存できませんでした。");
+        return;
+    }
+    const errorLogRef = db.collection('error_logs');
+    try {
+        await errorLogRef.add({
+            userId: userId || 'system',
+            errorType,
+            details,
+            timestamp: Timestamp.now(),
+        });
+    } catch (error) {
+        console.error("❌ エラーログの保存中にエラーが発生しました:", error);
+    }
+}
 
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
 });
+
+// --- watch-service.jsにdb, client, admin, saveConversationHistory, logErrorToDb をエクスポートして共有 ---
+module.exports = { db, client, admin, saveConversationHistory, logErrorToDb };
+
+// --- watch-service.js を読み込み、定期実行処理を有効化 ---
+// ⭐注意: FirebaseとLINEクライアントの初期化後に読み込むことが重要
+require('./watch-service.js');
