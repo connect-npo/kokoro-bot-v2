@@ -189,6 +189,11 @@ async function startMessageQueueWorker() {
     isProcessingQueue = false;
 }
 
+// --- LINE Webhook ---
+app.post('/webhook', async (req, res) => {
+    // ... (Webhookの処理は変更なし) ...
+});
+
 // --- 各種ワードリスト ---
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
