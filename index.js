@@ -9,7 +9,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { getApps } = require('firebase-admin/app');
-const cron = require('node-cron'); // ここにcronを追加します
+const cron = require('node-cron');
+const crypto = require('crypto');
 
 // --- watch-service.js を読み込み、定期実行処理を有効化 ---
 require('./watch-service.js');
@@ -18,7 +19,7 @@ require('./watch-service.js');
 const app = express();
 app.use(express.json());
 
-// --- 環境変数の設定 ---
+// --- 環境変数の設定 & GoogleフォームのURLとEntry IDの定義（重複を解消） ---
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -30,13 +31,13 @@ const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBE
 
 let BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"];
 if (process.env.BOT_ADMIN_IDS) {
-    try {
-        BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS);
-    } catch (e) {
-        console.error("❌ BOT_ADMIN_IDS 環境変数のパースに失敗しました。JSON形式で設定してください。", e);
-        // パース失敗時はカンマ区切り文字列として処理を試みる
-        BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS.split(',').map(id => id.trim());
-    }
+    try {
+        BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS);
+    } catch (e) {
+        console.error("❌ BOT_ADMIN_IDS 環境変数のパースに失敗しました。JSON形式で設定してください。", e);
+        // パース失敗時はカンマ区切り文字列として処理を試みる
+        BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS.split(',').map(id => id.trim());
+    }
 }
 
 // --- GoogleフォームのURLなど、その他の定数 ---
@@ -47,62 +48,31 @@ const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UN
 const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSf-HWanQxJWsSaBuoDAtDSweJ-VCHkONTkp0yhknO4aN6OdMA/viewform";
 const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL || "https://docs.google.com/forms/d/e/1FAIpQLSfstUhLrG3aEycQV29pSKDW1hjpR5PykKR9Slx69czmPtj99w/viewform";
 const INQUIRY_FORM_BASE_URL = process.env.INQUIRY_FORM_BASE_URL || "https://forms.gle/N1FbBQn3C3e7Qa2D8";
+
+// 各フォームのline_user_idに対応するentry ID
+const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
+const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
 const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID;
 const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
 const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 
-// ⭐追加する汎用関数: フォームURLにパラメータを安全に追加する関数 ⭐
-// URLに'?'が既に含まれているか確認し、適切なセパレータ（'?'または'&'）を選択します。
-function addParamToFormUrl(baseUrl, paramName, paramValue) {
-    if (!paramValue) { // 値がない場合は追加しない（URLが不完全になるのを防ぐ）
-        return baseUrl;
-    }
-    const separator = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${separator}${paramName}=${encodeURIComponent(paramValue)}`;
-}
-// ⭐追加する汎用関数ここまで⭐
-
-
-// --- Firebase Admin SDKの初期化 ---
-let db;
-let client;
-try {
-    if (!getApps().length) {
-        if (!FIREBASE_CREDENTIALS_BASE64) {
-            throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
-        }
-        const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-            databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
-        });
-    }
-    db = getFirestore();
-    console.log("✅ Firebase Admin SDKを初期化しました。");
-} catch (error) {
-    console.error("❌ Firebase Admin SDKの初期化エラー:", error);
-    process.exit(1);
-}
-
-// --- LINEクライアントの初期化 ---
-client = new Client({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
-});
-
-// --- watch-service.jsにdb, client, adminをエクスポートして共有 ---
-module.exports = { db, client, admin };
-
-// 各フォームのline_user_idに対応するentry ID
-// これらは全て、まつさんが「事前入力されたURLを取得」で確認してくださった正確なIDです。
-const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
-const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
-const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID; // 小学生向け学生フォームも同意書と同じID
-const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
-const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
-const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
-
+// AGREEMENTフォームの詳細なエントリーID（同意書フォーム）
+const AGREEMENT_FORM_ENTRY_ID = process.env.AGREEMENT_FORM_ENTRY_ID;
+const AGREEMENT_FORM_NAME_ENTRY_ID = process.env.AGREEMENT_FORM_NAME_ENTRY_ID;
+const AGREEMENT_FORM_STUDENT_GRADE_ENTRY_ID = process.env.AGREEMENT_FORM_STUDENT_GRADE_ENTRY_ID;
+const AGREEMENT_FORM_STUDENT_NAME_ENTRY_ID = process.env.AGREEMENT_FORM_STUDENT_NAME_ENTRY_ID;
+const AGREEMENT_FORM_GUARDIAN_AGREEMENT_ENTRY_ID = process.env.AGREEMENT_FORM_GUARDIAN_AGREEMENT_ENTRY_ID;
+const AGREEMENT_FORM_PARENT_LINE_ID_ENTRY_ID = process.env.AGREEMENT_FORM_PARENT_LINE_ID_ENTRY_ID;
+const AGREEMENT_FORM_SCHOOL_NAME_ENTRY_ID = process.env.AGREEMENT_FORM_SCHOOL_NAME_ENTRY_ID;
+const AGREEMENT_FORM_GRADE_ENTRY_ID = process.env.AGREEMENT_FORM_GRADE_ENTRY_ID;
+const AGREEMENT_FORM_STUDENT_NAME_HIRAGANA_ENTRY_ID = process.env.AGREEMENT_FORM_STUDENT_NAME_HIRAGANA_ENTRY_ID;
+const AGREEMENT_FORM_NICKNAME_ENTRY_ID = process.env.AGREEMENT_FORM_NICKNAME_ENTRY_ID;
+const AGREEMENT_FORM_GENDER_ENTRY_ID = process.env.AGREEMENT_FORM_GENDER_ENTRY_ID;
+const AGREEMENT_FORM_PHONE_NUMBER_ENTRY_ID = process.env.AGREEMENT_FORM_PHONE_NUMBER_ENTRY_ID;
+const AGREEMENT_FORM_EMAIL_ENTRY_ID = process.env.AGREEMENT_FORM_EMAIL_ENTRY_ID;
+const AGREEMENT_FORM_REASON_FOR_USE_ENTRY_ID = process.env.AGREEMENT_FORM_REASON_FOR_USE_ENTRY_ID;
+const AGREEMENT_FORM_OTHER_NOTES_ENTRY_ID = process.env.AGREEMENT_FORM_OTHER_NOTES_ENTRY_ID;
 
 // ⭐追加する汎用関数: フォームURLにパラメータを安全に追加する関数 ⭐
 // URLに'?'が既に含まれているか確認し、適切なセパレータ（'?'または'&'）を選択します。
@@ -115,24 +85,41 @@ function addParamToFormUrl(baseUrl, paramName, paramValue) {
 }
 // ⭐追加する汎用関数ここまで⭐
 
-
 // --- Firebase Admin SDKの初期化 ---
 let db;
+let client;
 try {
-    if (!FIREBASE_CREDENTIALS_BASE64) {
-        throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
+    if (!getApps().length) {
+        if (!FIREBASE_CREDENTIALS_BASE64) {
+            throw new Error("FIREBASE_CREDENTIALS_BASE64 環境変数が設定されていません。");
+        }
+        const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
+        });
     }
-    const serviceAccount = JSON.parse(Buffer.from(FIREBASE_CREDENTIALS_BASE64, 'base64').toString('ascii'));
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        storageBucket: serviceAccount.project_id + '.appspot.com'
-    });
-    db = admin.firestore();
+    db = getFirestore();
     console.log("✅ Firebase Admin SDKを初期化しました。");
 } catch (error) {
     console.error("❌ Firebase Admin SDKの初期化エラー:", error);
-    console.error("FIREBASE_CREDENTIALS_BASE64が正しく設定されているか、またはJSON形式に問題がないか確認してください。");
     process.exit(1);
+}
+
+// --- LINEクライアントの初期化 ---
+client = new Client({
+    channelAccessToken: CHANNEL_ACCESS_TOKEN,
+    channelSecret: CHANNEL_SECRET,
+});
+
+// --- watch-service.jsにdb, client, adminをエクスポートして共有 ---
+module.exports = { db, client, admin };
+
+// --- グローバル変数 ---
+const models = {};
+if (GEMINI_API_KEY) {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    models.gemini = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 }
 
 const client = new Client({
