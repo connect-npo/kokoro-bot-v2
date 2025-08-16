@@ -2243,15 +2243,18 @@ async function handlePostbackEvent(event) {
         replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
         logType = 'watch_service_status_talk';
         break;
-      case 'request_withdrawal':
-        if (user && user.completedRegistration) {
-          await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
-          replyText = '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？';
-        } else {
-          replyText = "ごめんね、まだ登録が完了していないみたい。退会手続きはできないよ。";
-        }
-        logType = 'request_withdrawal';
-        break;
+     case 'request_withdrawal':
+        if (user && user.completedRegistration) {
+          // 登録済みユーザーの場合、退会確認のステップに移行
+          await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+          replyText = '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？';
+          logType = 'request_withdrawal';
+        } else {
+          // 未登録ユーザーの場合、退会できないことを伝える
+          replyText = "ごめんね、まだ登録が完了していないみたい。退会手続きはできないよ。";
+          logType = 'request_withdrawal_unregistered';
+        }
+        break;
       default:
         // ここに来ない想定だが保険
         replyText = "ごめんね、その操作はまだできないみたい…💦";
