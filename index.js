@@ -1338,44 +1338,60 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
     }
 
     // ⭐ Postbackからの見守り関連応答（OK, 元気ないなど）は handlePostbackEvent で処理されるため、ここからは削除 ⭐
-    // メッセージテキスト（例：「元気だよ！」）による応答をここで処理しているため、ここは残します。
-    // Postbackアクションによる応答は handlePostbackEvent で処理します。
-    if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
-        if (user && user.watchServiceEnabled) { // 見守りサービスが有効な場合のみ応答
-            try {
-                await usersCollection.doc(userId).update(
-                    {
-                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-                        lastScheduledWatchMessageSent: null, // 定期メッセージ送信状態をリセット
-                        firstReminderSent: false, // 24時間リマインダー状態をリセット
-                        emergencyNotificationSent: false // 緊急通知状態をリセット
-                    }
-                );
-                // replyMessageを使用
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
-                });
-                logToDb(userId, userMessage, 'ありがとう🌸 元気そうで安心したよ💖 またね！', 'こころちゃん（見守り応答）', 'watch_service_ok_response', true);
-                return true;
-            } catch (error) {
-                console.error("❌ 見守りサービスOK応答処理エラー:", error.message);
-                logErrorToDb(userId, "見守りサービスOK応答処理エラー", { error: error.message, userId: userId });
-                return false;
-            }
+// メッセージテキスト（例：「元気だよ！」）による応答をここで処理しているため、ここは残します。
+// Postbackアクションによる応答は handlePostbackEvent で処理します。
+if (lowerUserMessage.includes("元気だよ！") || lowerUserMessage.includes("okだよ") || lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫")) {
+    if (user && user.watchServiceEnabled) { // 見守りサービスが有効な場合のみ応答
+        try {
+            await usersCollection.doc(userId).update(
+                {
+                    lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                    lastScheduledWatchMessageSent: null, // 定期メッセージ送信状態をリセット
+                    firstReminderSent: false, // 24時間リマインダー状態をリセット
+                    emergencyNotificationSent: false // 緊急通知状態をリセット
+                }
+            );
+            // replyMessageを使用
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'ありがとう🌸 元気そうで安心したよ💖 またね！'
+            });
+            logToDb(userId, userMessage, 'ありがとう🌸 元気そうで安心したよ💖 またね！', 'こころちゃん（見守り応答）', 'watch_service_ok_response', true);
+            return; // 正常終了
+        } catch (error) {
+            console.error("❌ 見守りサービスOK応答処理エラー:", error.message);
+            logErrorToDb(userId, "見守りサービスOK応答処理エラー", { error: error.message, userId: userId });
+            return; // 異常終了
         }
-        return false;
     }
-    if (lowerUserMessage.includes("まあまあかな")) {
-          if (user && user.watchServiceEnabled) {
-    try {
-      await usersCollection.doc(userId).update({
-        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-        lastScheduledWatchMessageSent: null,
-        firstReminderSent: false,
-        emergencyNotificationSent: false
-      });
+    return; // 条件に合わない場合
+}
 
+if (lowerUserMessage.includes("まあまあかな")) {
+    if (user && user.watchServiceEnabled) {
+        try {
+            await usersCollection.doc(userId).update({
+                lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+                lastScheduledWatchMessageSent: null,
+                firstReminderSent: false,
+                emergencyNotificationSent: false
+            });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: "そっか、無理しないでね。いつでもこころに話してね🌸"
+            });
+            logToDb(userId, userMessage, "そっか、無理しないでね。いつでもこころに話してね🌸", 'こころちゃん（見守り応答）', 'watch_service_somewhat_response', true);
+            return; // 正常終了
+        } catch (error) {
+            console.error("❌ 見守りサービス「まあまあ」応答処理エラー:", error.message);
+            logErrorToDb(userId, "見守りサービス「まあまあ」応答処理エラー", { error: error.message, userId: userId });
+            return; // 異常終了
+        }
+    }
+    return; // 条件に合わない場合
+}
+
+// 他のメッセージタイプ（相談、勉強など）が続く場合はここに記述
       // アクションごとの返信テキスト
       switch (action) {
         case 'watch_ok':
