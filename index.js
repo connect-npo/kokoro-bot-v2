@@ -957,21 +957,28 @@ const AI_SAFETY_SETTINGS = [
 ];
 
 // --- Flex Message テンプレート (緊急時連絡先) ---
-    "footer": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "sm",
-        "contents": [
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "警察 (電話)", "uri": "tel:110" }, "color": "#FF4500" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "消防・救急 (電話)", "uri": "tel:119" }, "color": "#FF6347" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "チャイルドライン (電話・チャット)", "uri": "https://childline.or.jp/tel" }, "color": "#1E90FF" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "いのちの電話 (電話)", "uri": "tel:0570064556" }, "color": "#32CD32" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "チャットまもるん(チャット)", "uri": "https://www.web-mamorun.com/" }, "color": "#FFA500" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "警視庁(電話)", "uri": "tel:0335814321" }, "color": "#FF4500" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "子供を守る声(電話)", "uri": "tel:01207786786" }, "color": "#9370DB" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "こころちゃん事務局(電話)", "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` }, "color": "#ff69b4" }
-        ]
-    }
+   const EMERGENCY_CONTACTS_FOOTER = {
+  type: "box",
+  layout: "vertical",
+  spacing: "sm",
+  contents: [
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "警察（電話）", uri: "tel:110" }, color: "#FF4500" },
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "消防・救急（電話）", uri: "tel:119" }, color: "#FF6347" },
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "チャイルドライン（電話・チャット）", uri: "https://childline.or.jp/tel" }, color: "#1E90FF" },
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "いのちの電話（電話）", uri: "tel:0570064556" }, color: "#32CD32" },
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "チャットまもるん（チャット）", uri: "https://www.web-mamorun.com/" }, color: "#FFA500" },
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "警視庁（電話）", uri: "tel:0335814321" }, color: "#FF4500" },
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "子供を守る声（電話）", uri: "tel:01207786786" }, color: "#9370DB" },
+    { type: "button", style: "primary", height: "sm",
+      action: { type: "uri", label: "こころちゃん事務局（電話）", uri: `tel:${process.env.EMERGENCY_CONTACT_PHONE_NUMBER}` }, color: "#FF69B4" }
+  ]
 };
 
 // --- Flex Message テンプレート (詐欺注意喚起) ---
