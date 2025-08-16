@@ -163,13 +163,66 @@ async function handleEvent(event) {
         const userId = event.source.userId;
         const profile = await client.getProfile(userId);
         const displayName = profile.displayName;
+        const userMessage = event.message.type === 'text' ? event.message.text : '';
+        const lowerUserMessage = userMessage.toLowerCase();
+
+        // Firestoreからユーザーデータを取得
+        const usersCollection = db.collection('users');
+        const userDoc = await usersCollection.doc(userId).get();
+        const user = userDoc.exists ? userDoc.data() : { registrationStep: null, completedRegistration: false, membershipType: "guest" };
+
+        // ⭐ 退会フローを優先
+        if (user.registrationStep === 'confirm_withdrawal') {
+            if (lowerUserMessage === 'はい') {
+                await usersCollection.doc(userId).delete();
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: '退会手続きが完了しました。\nまたいつでも会いに来てくれると嬉しいな🌸'
+                });
+                await logToDb(userId, userMessage, '退会完了', 'こころちゃん（退会フロー）', 'withdrawal_completed');
+                return;
+            } else if (lowerUserMessage === 'いいえ') {
+                await updateUserData(userId, { registrationStep: null });
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: '退会手続きをキャンセルしたよ🌸\nこれからもよろしくね！'
+                });
+                await logToDb(userId, userMessage, '退会キャンセル', 'こころちゃん（退会フロー）', 'withdrawal_cancelled');
+                return;
+            } else {
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: '「はい」か「いいえ」で教えてね！'
+                });
+                return;
+            }
+        }
+
+        // ⭐ 退会フローのハンドリングを最優先 ⭐
+        if (lowerUserMessage === '退会' || lowerUserMessage === 'たいかい') {
+            if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
+                await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
+                });
+                await logToDb(userId, userMessage, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+                return;
+            } else {
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: 'まだ会員登録されていないみたいだよ🌸\n退会手続きは、会員登録済みの方のみ行えるんだ。'
+                });
+                await logToDb(userId, userMessage, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
+                return;
+            }
+        }
 
         // 今は何もせず、ログだけを出力します
         console.log(`👤 ユーザー ${displayName} (${userId}) からメッセージを受信しました。`);
 
     } catch (err) {
         console.error("❌ イベント処理中にエラーが発生しました:", err);
-        // エラーをデータベースに記録
         const userId = event.source.userId || 'unknown';
         await logErrorToDb(userId, 'イベント処理エラー', { event: JSON.stringify(event), error: err.message });
     }
@@ -929,7 +982,7 @@ async function handleRegistrationFlow(event, userId, user, userMessage, lowerUse
 
     // 退会フローを優先
     if (user.registrationStep === 'confirm_withdrawal') {
-        if (lowerUserMessage === 'はい' || lowerUserMessage === 'yes') {
+        if (lowerUserMessage === '退会' || lowerUserMessage === 'たいかい') {
             // ユーザーデータをFirestoreから削除
             await usersCollection.doc(userId).delete();
             // registrationStepをリセット（既にユーザーデータがないので厳密には不要だが念のため）
@@ -2601,24 +2654,29 @@ async function saveConversationHistory(userId, sender, text, type, event) {
  * @param {string} errorType - エラーの種類
  * @param {Object} details - エラーの詳細情報
  */
-async function logErrorToDb(userId, errorType, details) {
-    if (!db) {
-        console.error("❌ Firestoreに接続されていません。エラーログを保存できませんでした。");
-        return;
-    }
-    const errorLogRef = db.collection('error_logs');
+/**
+ * Firestoreにログを記録する汎用関数
+ * @param {string} userId - ユーザーID
+ * @param {string} userMessage - ユーザーが送信したメッセージ
+ * @param {string} responseMessage - ボットが応答したメッセージ
+ * @param {string} botPersona - 応答したボットのペルソナ（例: 'こころちゃん'）
+ * @param {string} logType - ログの種類（例: 'withdrawal_request'）
+ */
+async function logToDb(userId, userMessage, responseMessage, botPersona = 'こころちゃん', logType = 'message') {
     try {
-        await errorLogRef.add({
-            userId: userId || 'system',
-            errorType,
-            details,
-            timestamp: Timestamp.now(),
+        await db.collection('logs').add({
+            userId,
+            userMessage,
+            responseMessage,
+            botPersona,
+            logType,
+            timestamp: Timestamp.now()
         });
-    } catch (error) {
-        console.error("❌ エラーログの保存中にエラーが発生しました:", error);
+    } catch (dbError) {
+        console.error("🚨 データベースへのログ記録に失敗しました:", dbError);
     }
 }
-
+    
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
