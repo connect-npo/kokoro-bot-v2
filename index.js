@@ -696,11 +696,11 @@ async function handleEvent(event) {
                     if (MEMBERSHIP_CONFIG[newMembershipType]) {
                         await updateUserData(targetUserId, { membershipType: newMembershipType });
                         await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
-                        await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
+                        logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
                         return;
                     } else {
                         await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
-                        await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
+                         logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
                         return;
                     }
                 }
@@ -715,7 +715,7 @@ async function handleEvent(event) {
                     type: 'text',
                     text: '退会手続きが完了しました。\nまたいつでも会いに来てくれると嬉しいな🌸'
                 });
-                await logToDb(userId, userMessage, '退会完了', 'こころちゃん（退会フロー）', 'withdrawal_completed');
+                 logToDb(userId, userMessage, '退会完了', 'こころちゃん（退会フロー）', 'withdrawal_completed');
                 return;
             } else if (lowerUserMessage === 'いいえ') {
                 await updateUserData(userId, { registrationStep: null });
@@ -723,14 +723,14 @@ async function handleEvent(event) {
                     type: 'text',
                     text: '退会手続きをキャンセルしたよ🌸\nこれからもよろしくね！'
                 });
-                await logToDb(userId, userMessage, '退会キャンセル', 'こころちゃん（退会フロー）', 'withdrawal_cancelled');
+                logToDb(userId, userMessage, '退会キャンセル', 'こころちゃん（退会フロー）', 'withdrawal_cancelled');
                 return;
             } else {
                 await client.replyMessage(event.replyToken, {
                     type: 'text',
                     text: '「はい」か「いいえ」で教えてね！'
                 });
-                await logToDb(userId, userMessage, '退会確認の再プロンプト', 'こころちゃん（退会フロー）', 'withdrawal_reprompt');
+                logToDb(userId, userMessage, '退会確認の再プロンプト', 'こころちゃん（退会フロー）', 'withdrawal_reprompt');
                 return;
             }
         }
@@ -743,14 +743,14 @@ async function handleEvent(event) {
                     type: 'text',
                     text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？\n「はい」か「いいえ」で教えてくれるかな？'
                 });
-                await logToDb(userId, userMessage, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+                logToDb(userId, userMessage, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
                 return;
             } else {
                 await client.replyMessage(event.replyToken, {
                     type: 'text',
                     text: 'まだ会員登録されていないみたいだよ🌸\n退会手続きは、会員登録済みの方のみ行えるんだ。'
                 });
-                await logToDb(userId, userMessage, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
+                 logToDb(userId, userMessage, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
                 return;
             }
         }
@@ -1880,7 +1880,7 @@ if (lowerUserMessage.includes("まあまあかな")) {
 
       try {
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+         logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
       } catch (replyError) {
         await safePushMessage(userId, { type: 'text', text: replyText });
         await logErrorToDb(
@@ -1930,7 +1930,7 @@ if (lowerUserMessage.includes("まあまあかな")) {
             logTypeForUnregister = 'watch_service_not_registered_on_unregister';
         }
         await client.replyMessage(event.replyToken, { type: 'text', text: replyTextForUnregister });
-        await logToDb(userId, userMessage, replyTextForUnregister, "System", logTypeForUnregister);
+         logToDb(userId, userMessage, replyTextForUnregister, "System", logTypeForUnregister);
         return true;
     }
     return false;
@@ -2082,7 +2082,7 @@ async function sendScheduledWatchMessage() {
                     }
                 ];
                 await safePushMessage(userId, messages);
-                await logToDb(userId, `（定期見守りメッセージ）`, messageToSend, 'こころちゃん（見守り）', logTypeToUse, true);
+             logToDb(userId, `（定期見守りメッセージ）`, messageToSend, 'こころちゃん（見守り）', logTypeToUse, true);
             }
 
             if (Object.keys(updateData).length > 0) {
@@ -2225,11 +2225,11 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
                     if (MEMBERSHIP_CONFIG[newMembershipType]) {
                         await updateUserData(targetUserId, { membershipType: newMembershipType });
                         await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
-                        await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
+                         logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
                         return;
                     } else {
                         await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
-                        await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
+                        logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
                         return;
                     }
                 }
@@ -2245,7 +2245,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
                         const targetUserDisplayName = await getUserDisplayName(replyTargetUserId);
                         await safePushMessage(replyTargetUserId, { type: 'text', text: `🌸 こころだよ！理事会からのメッセージだよ😊\n\n「${replyMessageContent}」\n\n何か困ったことがあったら、また私に話しかけてね💖` });
                         await client.replyMessage(event.replyToken, { type: 'text', text: `${targetUserDisplayName} (${replyTargetUserId}) さんにメッセージを送信しました。\n内容: 「${replyMessageContent}」` });
-                        await logToDb(userId, userMessage, `Re: ${replyMessageContent}`, "AdminCommand", 'admin_reply_to_user');
+                         logToDb(userId, userMessage, `Re: ${replyMessageContent}`, "AdminCommand", 'admin_reply_to_user');
                         return;
                     } catch (error) {
                         console.error(`Admin reply to user failed: ${error.message}`);
@@ -2308,7 +2308,7 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
                 break;
         }
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, "AdminCommand", `admin_command_${command}`);
+        logToDb(userId, userMessage, replyText, "AdminCommand", `admin_command_${command}`);
         return;
     }
 
@@ -2332,14 +2332,14 @@ async function handleEvent(event) {
                 type: 'text',
                 text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
             });
-            await logToDb(userId, userMessage, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+             logToDb(userId, userMessage, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
             return;
         } else {
             await client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: 'まだ会員登録されていないみたいだよ🌸\n退会手続きは、会員登録済みの方のみ行えるんだ。'
             });
-            await logToDb(userId, userMessage, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
+            logToDb(userId, userMessage, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
             return;
         }
     }
@@ -2378,7 +2378,7 @@ async function handleEvent(event) {
                     type: 'text',
                     text: '退会手続きが完了しました。今までのご利用ありがとうございました🌸'
                 });
-                await logToDb(userId, userMessage, '退会完了', 'こころちゃん（退会）', 'withdrawal_completed');
+                 logToDb(userId, userMessage, '退会完了', 'こころちゃん（退会）', 'withdrawal_completed');
             } catch (error) {
                 console.error("❌ 退会処理エラー:", error);
                 await safePushMessage(userId, { type: 'text', text: 'ごめんね、退会処理中にエラーが発生したみたい💦' });
@@ -2391,7 +2391,7 @@ async function handleEvent(event) {
                 type: 'text',
                 text: '退会をキャンセルしたよ🌸 またいつでも話しかけてね💖'
             });
-            await logToDb(userId, userMessage, '退会キャンセル', 'こころちゃん（退会）', 'withdrawal_canceled');
+             logToDb(userId, userMessage, '退会キャンセル', 'こころちゃん（退会）', 'withdrawal_canceled');
         }
         return;
     }
@@ -2475,7 +2475,7 @@ async function handleEvent(event) {
                 altText: altText,
                 contents: displayFlexMessage
             });
-            await logToDb(userId, userMessage, logMessage, "System", logTypeDetail);
+         logToDb(userId, userMessage, logMessage, "System", logTypeDetail);
         } catch (replyError) {
             console.error(`❌ 会員登録/変更メニュー replyMessage failed: ${replyError.message}. Falling back to safePushMessage.`);
             await safePushMessage(userId, { type: "flex", altText: altText, contents: displayFlexMessage });
@@ -2507,7 +2507,7 @@ async function handleEvent(event) {
         } else {
             await safePushMessage(userId, { type: 'text', text: replyText });
         }
-        await logToDb(userId, userMessage, replyText, "LimitExceeded", "message_limit_exceeded");
+         logToDb(userId, userMessage, replyText, "LimitExceeded", "message_limit_exceeded");
         return;
     }
 
@@ -2531,7 +2531,7 @@ async function handleEvent(event) {
             altText: '危険ワード検知',
             contents: EMERGENCY_FLEX_MESSAGE
         });
-        await logToDb(userId, userMessage, '(危険ワード検知Flex表示)', 'こころちゃん（危険ワード）', 'danger_word_triggered', true);
+         logToDb(userId, userMessage, '(危険ワード検知Flex表示)', 'こころちゃん（危険ワード）', 'danger_word_triggered', true);
         await notifyOfficerGroup(userMessage, userId, user, "danger");
         return;
     }
@@ -2541,14 +2541,14 @@ async function handleEvent(event) {
             altText: '詐欺注意喚起',
             contents: SCAM_FLEX_MESSAGE
         });
-        await logToDb(userId, userMessage, '(詐欺注意喚起Flex表示)', 'こころちゃん（詐欺注意）', 'scam_word_triggered', true);
+        logToDb(userId, userMessage, '(詐欺注意喚起Flex表示)', 'こころちゃん（詐欺注意）', 'scam_word_triggered', true);
         await notifyOfficerGroup(userMessage, userId, user, "scam");
         return;
     }
     if (inappropriateDetected) {
         replyText = "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, 'こころちゃん（不適切ワード）', 'inappropriate_word_triggered', true);
+     logToDb(userId, userMessage, replyText, 'こころちゃん（不適切ワード）', 'inappropriate_word_triggered', true);
         return;
     }
 
@@ -2557,7 +2557,7 @@ async function handleEvent(event) {
     if (specialReply) {
         replyText = specialReply;
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, 'こころちゃん（固定応答）', 'special_reply', true);
+         logToDb(userId, userMessage, replyText, 'こころちゃん（固定応答）', 'special_reply', true);
         return;
     }
 
@@ -2565,7 +2565,7 @@ async function handleEvent(event) {
     if (isOrganizationInquiry(userMessage)) {
         replyText = ORGANIZATION_REPLY_MESSAGE;
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, 'こころちゃん（団体問い合わせ）', 'organization_inquiry_fixed', true);
+        logToDb(userId, userMessage, replyText, 'こころちゃん（団体問い合わせ）', 'organization_inquiry_fixed', true);
         return;
     }
 
@@ -2574,7 +2574,7 @@ async function handleEvent(event) {
     if (homeworkTriggered && user.category && (user.category === '小学生' || user.category === '中学生～大学生')) {
         replyText = "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦\nでも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
         await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, userMessage, replyText, 'こころちゃん（宿題ヘルプ）', 'homework_query', true);
+        logToDb(userId, userMessage, replyText, 'こころちゃん（宿題ヘルプ）', 'homework_query', true);
         return;
     }
     
@@ -2584,12 +2584,12 @@ async function handleEvent(event) {
             await updateUserData(userId, { isInConsultationMode: true });
             replyText = "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖";
             await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            await logToDb(userId, userMessage, replyText, 'こころちゃん（相談モード）', 'consultation_mode_start', true);
+             logToDb(userId, userMessage, replyText, 'こころちゃん（相談モード）', 'consultation_mode_start', true);
             return;
         } else {
             replyText = "もう相談モードになっているよ🌸 何かお話したいことある？💖";
             await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-            await logToDb(userId, userMessage, replyText, 'こころちゃん（相談モード）', 'consultation_mode_already_active');
+             logToDb(userId, userMessage, replyText, 'こころちゃん（相談モード）', 'consultation_mode_already_active');
             return;
         }
     }
@@ -2736,7 +2736,7 @@ async function handlePostbackEvent(event) {
                 type: 'text',
                 text: replyText
             });
-            await logToDb(userId, `postback action: ${action}`, replyText, 'こころちゃん（Postback）', logType);
+             logToDb(userId, `postback action: ${action}`, replyText, 'こころちゃん（Postback）', logType);
         }
 
     } catch (err) {
@@ -2821,7 +2821,7 @@ async function handleFollowEvent(event) {
 
     try {
         await client.replyMessage(event.replyToken, [welcomeMessage, registrationFlex]);
-        await logToDb(userId, "フォローイベント", "初回メッセージと登録メニュー表示", "System", "system_follow");
+         logToDb(userId, "フォローイベント", "初回メッセージと登録メニュー表示", "System", "system_follow");
     } catch (replyError) {
         await safePushMessage(userId, [welcomeMessage, registrationFlex]);
         await logErrorToDb(userId, `Follow event replyMessage失敗、safePushMessageでフォールバック`, { error: replyError.message, userId: userId });
@@ -2845,7 +2845,7 @@ async function handleUnfollowEvent(event) {
     // ユーザーデータを削除 (退会と同じ処理)
     try {
         await db.collection('users').doc(userId).delete();
-        await logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォローによりデータ削除", "System", "system_unfollow");
+        logToDb(userId, "アンフォローイベント", "ユーザーがブロック/アンフォローによりデータ削除", "System", "system_unfollow");
     } catch (error) {
         console.error(`❌ アンフォロー時のユーザーデータ削除エラー: ${error.message}`);
         await logErrorToDb(userId, `アンフォロー時のユーザーデータ削除エラー`, { error: error.message, userId: userId });
@@ -2889,7 +2889,7 @@ async function handleLeaveEvent(event) {
     if (process.env.NODE_ENV !== 'production') {
         console.log(`❌ ボットがグループから退出しました: ${groupId}`);
     }
-    await logToDb(groupId, "グループ退出イベント", "ボットがグループから退出", "System", "system_leave");
+     logToDb(groupId, "グループ退出イベント", "ボットがグループから退出", "System", "system_leave");
     return;
 }
 
