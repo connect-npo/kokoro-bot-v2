@@ -2322,6 +2322,8 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
     let responsedBy = "AI";
     let logType = "normal_conversation";
 
+async function handleEvent(event) {
+    
     // ⭐ 退会フローのハンドリングを最優先 ⭐
     if (lowerUserMessage === '退会' || lowerUserMessage === 'たいかい') {
         if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
