@@ -129,6 +129,54 @@ if (GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
+// --- 汎用関数 (ここから追加) ---
+
+/**
+ * Firestoreにエラーログを記録する関数。
+ * @param {string} userId - エラーが発生したユーザーID
+ * @param {string} message - エラーメッセージ
+ * @param {Object} details - その他の詳細情報
+ */
+async function logErrorToDb(userId, message, details = {}) {
+    console.error(`🔴 データベースにエラーを記録: ${message} (ユーザー: ${userId})`);
+    try {
+        await db.collection('errors').add({
+            userId,
+            message,
+            timestamp: Timestamp.now(),
+            details
+        });
+        console.log("✅ エラーログをデータベースに記録しました。");
+    } catch (dbError) {
+        console.error("🚨 データベースへのエラーログ記録に失敗しました:", dbError);
+    }
+}
+
+/**
+ * LINEのイベントを処理するメイン関数。
+ * @param {Object} event - LINEプラットフォームから送られてきたイベントオブジェクト
+ */
+async function handleEvent(event) {
+    console.log(`Received event: ${JSON.stringify(event)}`);
+
+    try {
+        const userId = event.source.userId;
+        const profile = await client.getProfile(userId);
+        const displayName = profile.displayName;
+
+        // 今は何もせず、ログだけを出力します
+        console.log(`👤 ユーザー ${displayName} (${userId}) からメッセージを受信しました。`);
+
+    } catch (err) {
+        console.error("❌ イベント処理中にエラーが発生しました:", err);
+        // エラーをデータベースに記録
+        const userId = event.source.userId || 'unknown';
+        await logErrorToDb(userId, 'イベント処理エラー', { event: JSON.stringify(event), error: err.message });
+    }
+}
+
+// --- 汎用関数 (ここまで追加) ---
+
 // --- メッセージキュー関連 ---
 const messageQueue = [];
 let isProcessingQueue = false;
@@ -139,53 +187,10 @@ const MESSAGE_SEND_INTERVAL_MS = 1500; // LINE APIのレートリミットを考
  * @param {string} to - 送信先のユーザーIDまたはグループID
  * @param {Array<Object>|Object} messages - 送信するメッセージオブジェクトの配列、または単一のメッセージオブジェクト
  */
-/* ====== START: 解除メッセージ処理ヘルパー ====== */
-async function maybeHandleWatchUnregisterFromMessage({
-    event, userId, userMessage, user, usersCollection
-}) {
-    const lowerUserMessage = (userMessage || '').trim().toLowerCase();
-    if (lowerUserMessage !== '解除' && lowerUserMessage !== 'かいじょ') return false;
-
-    let replyTextForUnregister = "", logTypeForUnregister = "";
-    if (user && user.watchServiceEnabled) {
-        try {
-            await usersCollection.doc(userId).update({
-                watchServiceEnabled: false,
-                phoneNumber: admin.firestore.FieldValue.delete(),
-                guardianName: admin.firestore.FieldValue.delete(),
-                guardianPhoneNumber: admin.firestore.FieldValue.delete(),
-                'address.city': admin.firestore.FieldValue.delete(),
-                name: admin.firestore.FieldValue.delete(),
-                kana: admin.firestore.FieldValue.delete(),
-                age: admin.firestore.FieldValue.delete(),
-                category: admin.firestore.FieldValue.delete(),
-                completedRegistration: false,
-                lastScheduledWatchMessageSent: null,
-                firstReminderSent: false,
-                emergencyNotificationSent: false,
-            });
-            replyTextForUnregister = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖\n※登録情報も初期化されました。";
-            logTypeForUnregister = 'watch_service_unregister';
-        } catch (error) {
-            console.error("❌ 見守りサービス解除処理エラー:", error.message);
-            await logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId });
-            replyTextForUnregister = "ごめんね、解除処理中にエラーが起きたみたい…💦 もう一度試してみてくれるかな？";
-            logTypeForUnregister = 'watch_service_unregister_error';
-        }
-    } else {
-        replyTextForUnregister = "見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてね💖";
-        logTypeForUnregister = 'watch_service_not_registered_on_unregister';
-    }
-    try {
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyTextForUnregister });
-    } catch {
-        await safePushMessage(userId, { type: 'text', text: replyTextForUnregister });
-    }
-    await logToDb(userId, userMessage, replyTextForUnregister, "System", logTypeForUnregister);
-    return true;
+function safePushMessage(to, messages) {
+    messageQueue.push({ to, messages: Array.isArray(messages) ? messages : [messages] });
+    startMessageQueueWorker();
 }
-/* ====== END: 解除メッセージ処理ヘルパー ====== */
-
 
 /**
  * メッセージキューを処理するワーカー関数。
@@ -224,13 +229,31 @@ async function startMessageQueueWorker() {
             }
         }
     }
-
     isProcessingQueue = false;
 }
 
+
 // --- LINE Webhook ---
 app.post('/webhook', async (req, res) => {
-    // ... (Webhookの処理は変更なし) ...
+    const signature = req.headers['x-line-signature'];
+    if (!signature) {
+        return res.status(400).send('Signature header is missing').end();
+    }
+    const signatureMatch = crypto.createHmac('sha256', CHANNEL_SECRET)
+        .update(JSON.stringify(req.body))
+        .digest('base64');
+    if (signature !== signatureMatch) {
+        return res.status(401).send('Invalid signature').end();
+    }
+
+    try {
+        const events = req.body.events;
+        await Promise.all(events.map(event => handleEvent(event)));
+        res.status(200).end();
+    } catch (err) {
+        console.error(err);
+        res.status(500).end();
+    }
 });
 
 // --- 各種ワードリスト ---
