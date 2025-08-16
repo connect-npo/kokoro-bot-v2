@@ -957,16 +957,6 @@ const AI_SAFETY_SETTINGS = [
 ];
 
 // --- Flex Message テンプレート (緊急時連絡先) ---
-const EMERGENCY_FLEX_MESSAGE = {
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "contents": [
-            { "type": "text", "text": "🚨【危険ワード検知】🚨", "weight": "bold", "color": "#DD0000", "size": "xl" },
-            { "type": "text", "text": "緊急時にはこちらにご連絡してね💖", "margin": "md", "wrap": true }
-        ]
-    },
     "footer": {
         "type": "box",
         "layout": "vertical",
