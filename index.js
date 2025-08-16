@@ -2092,9 +2092,6 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
 
    /* ====== START: DROP-IN（AIモデル決定＋解除の早期処理） ====== */
 
-// ① 先にユーザー情報とコレクションを用意
-const user = await getUserData(userId);
-
 // ② AIモデルの選択（user を使って決定）
 let modelToUse = getAIModelForUser(user, userMessage);
 
