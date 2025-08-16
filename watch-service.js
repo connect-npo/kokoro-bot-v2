@@ -18,6 +18,22 @@ async function safePushMessage(to, messages) {
     }
 }
 
+async function createLog(userId, type, message, extraData = {}) {
+    const logRef = db.collection('logs').doc();
+    try {
+        await logRef.set({
+            userId,
+            type,
+            message,
+            timestamp: Timestamp.now(),
+            ...extraData
+        });
+        console.log(`✅ ${type}ログをFirestoreに記録しました: ${logRef.id}`);
+    } catch (error) {
+        console.error(`❌ ログ記録エラー:`, error.message);
+    }
+}
+
 // --- 見守りサービスの定期実行処理 (cron) ---
 // 3日に一度のランダム見守りメッセージ一覧（30通り）
 const watchMessages = [
@@ -54,13 +70,12 @@ const watchMessages = [
 ];
 
 // --- cronジョブ定義 ---
-// 毎日12時に見守りサービスのチェックを実行
-cron.schedule('0 12 * * *', async () => {
+// 3日ごとに15時に見守りサービスのチェックを実行
+cron.schedule('0 15 */3 * *', async () => {
     try {
         console.log("⏰ cron: 見守りサービスのステータスをチェックします...");
         const now = Timestamp.now().toDate();
         const oneDayMs = 24 * 60 * 60 * 1000;
-        const fiveHoursMs = 5 * 60 * 60 * 1000;
 
         const usersRef = db.collection('users').where('watchServiceEnabled', '==', true);
         const snapshot = await usersRef.get();
@@ -112,6 +127,15 @@ cron.schedule('0 12 * * *', async () => {
                     await safePushMessage(OFFICER_GROUP_ID, flexMessage);
                 }
                 await doc.ref.update({ emergencyNotificationSent: true });
+
+                // ここにログ記録機能を追加
+                await createLog(userId, 'emergency_notification', '見守りサービス：緊急通知を送信しました。', {
+                    userData: {
+                        name: userData.name || '不明',
+                        phone: userData.phone || '不明',
+                        emergencyContact: userData.emergencyContact || EMERGENCY_CONTACT_PHONE_NUMBER
+                    }
+                });
             }
         }
         console.log("✅ cron: 見守りサービスのチェックが完了しました。");
