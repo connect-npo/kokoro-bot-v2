@@ -1,6 +1,7 @@
+// watch-service.js
+// 見守りサービス（Cron用・単体実行）— OKボタン付きFlex送信 & 緊急通知（住所ほか全部入り）
+
 // --- Firebase & LINE 初期化 ---
-// この部分は、このJSファイルが独立して動作するようにするためのものです。
-// Node.jsの環境で実行することを想定しています。
 const admin = require('firebase-admin');
 const { Timestamp } = require('firebase-admin/firestore');
 const line = require('@line/bot-sdk');
@@ -13,29 +14,27 @@ if (!admin.apps.length) {
     );
     admin.initializeApp({ credential: admin.credential.cert(credentials) });
   } catch (err) {
-    console.error("❌ Firebaseの初期化に失敗しました。環境変数FIREBASE_CREDENTIALS_BASE64を確認してください。", err);
+    console.error("❌ Firebase初期化失敗: FIREBASE_CREDENTIALS_BASE64 を確認してください。", err);
     process.exit(1);
   }
 }
 const db = admin.firestore();
 
 // LINE
+if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_CHANNEL_SECRET) {
+  console.error("❌ LINEトークン未設定: LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET を設定してください。");
+  process.exit(1);
+}
 const client = new line.Client({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 });
-// LINEのトークンが未設定の場合、早期に終了
-if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_CHANNEL_SECRET) {
-  console.error("❌ LINEトークン未設定: LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET を確認してください。");
-  process.exit(1);
-}
 
 // --- 環境変数 ---
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-// 管理者グループが未設定の場合、警告ログを出力
 if (!OFFICER_GROUP_ID) {
-  console.warn("⚠️ OFFICER_GROUP_ID が未設定です。緊急通知は送られません。");
+  console.warn("⚠️ OFFICER_GROUP_ID が未設定です。緊急通知の送信先がありません。");
 }
 
 // --- ユーティリティ ---
@@ -43,12 +42,95 @@ async function safePushMessage(to, messages) {
   const arr = Array.isArray(messages) ? messages : [messages];
   try {
     await client.pushMessage(to, arr);
-    console.log(`✅ メッセージを ${to} に送信しました。`);
-    // APIリクエスト制限回避のため、短い待機時間を設ける
+    console.log(`✅ Push -> ${to}`);
+    // LINE API Rate対策で少しだけ待つ
     await new Promise(r => setTimeout(r, 120));
   } catch (e) {
-    console.error(`❌ メッセージ送信エラー (${to}):`, e);
+    console.error(`❌ Push失敗 (${to}):`, e);
   }
+}
+
+// --- OKボタン付きのFlex（見守り用） ---
+function buildWatchOkFlex(messageText = "こころちゃんです。元気にしてるかな？") {
+  return {
+    type: 'flex',
+    altText: '見守りメッセージ',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          { type: 'text', text: '見守りメッセージ', weight: 'bold', size: 'lg' },
+          { type: 'text', text: messageText, wrap: true },
+          { type: 'separator', margin: 'md' },
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'md',
+            contents: [
+              {
+                type: 'button',
+                style: 'primary',
+                height: 'sm',
+                action: {
+                  type: 'postback',
+                  label: '✅ 安心です（OK）',
+                  data: 'watch_ok',
+                  displayText: 'OK'
+                }
+              }
+              // 相談ボタンを付けるなら↓を有効化
+              // {
+              //   type: 'button',
+              //   style: 'secondary',
+              //   margin: 'sm',
+              //   height: 'sm',
+              //   action: { type: 'postback', label: '🆘 相談する', data: 'watch_help', displayText: '相談' }
+              // }
+            ]
+          }
+        ]
+      }
+    }
+  };
+}
+
+// --- 緊急通知（管理者向け）Flex ---
+function buildEmergencyFlex(u, fallbackPhone, address) {
+  return {
+    type: 'flex',
+    altText: '見守りサービス緊急通知',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          { type: 'text', text: '🚨 見守りサービス緊急通知', weight: 'bold', size: 'lg', color: '#D32F2F' },
+          { type: 'separator', margin: 'sm' },
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'md',
+            contents: [
+              { type: 'text', text: `👤 氏名：${u.full_name || '未登録'}`, wrap: true, size: 'sm' },
+              { type: 'text', text: `📱 登録者電話：${u.phone || '未登録'}`, wrap: true, size: 'sm' },
+              { type: 'text', text: `👤 緊急先氏名：${u.emergency_contact_name || '未登録'}`, wrap: true, size: 'sm' },
+              { type: 'text', text: `📞 緊急先電話：${u.emergency_phone || fallbackPhone}`, wrap: true, size: 'sm' },
+              { type: 'text', text: `🤝 関係性：${u.emergency_contact_relationship || '未登録'}`, wrap: true, size: 'sm' },
+              { type: 'text', text: `🏠 住所：${address}`, wrap: true, size: 'sm' },
+              { type: 'text', text: `🆔 LINE ID：${u.line_user_id || '未登録'}`, wrap: true, size: 'sm' }
+            ]
+          },
+          { type: 'separator', margin: 'sm' },
+          { type: 'text', text: '※29時間以上応答がないため自動送信されています', size: 'xs', color: '#666' }
+        ]
+      }
+    }
+  };
 }
 
 // --- 見守りメッセージ（30種類） ---
@@ -88,7 +170,7 @@ const watchMessages = [
 // --- 本体 ---
 async function runWatchService() {
   try {
-    console.log("⏰ 見守りサービスのステータスをチェックします...");
+    console.log("⏰ 見守りステータス確認開始");
     const now = Timestamp.now().toDate();
     const oneDayMs = 24 * 60 * 60 * 1000;
 
@@ -100,22 +182,23 @@ async function runWatchService() {
         const user = doc.data();
         const userId = doc.id;
 
-        // lastOkResponseとlastScheduledWatchMessageSentのうち、新しい方の日時を取得
+        // 直近アクション（OK or 直近の定期送信）
         const lastOk = user.lastOkResponse ? user.lastOkResponse.toDate() : new Date(0);
         const lastSched = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : new Date(0);
         const lastAction = lastOk > lastSched ? lastOk : lastSched;
         const diffMs = now.getTime() - lastAction.getTime();
 
-        // ユーザーが作成されてから3日以上経過しているかのチェック
+        // 初回暴発ガード（ユーザー作成から72h以上）
         const createdAt = user.createdAt ? user.createdAt.toDate() : null;
         const eligibleForNewMessage =
           diffMs >= 3 * oneDayMs &&
           (!createdAt || (now.getTime() - createdAt.getTime()) >= 3 * oneDayMs);
 
-        // 3日経過（=72h）: 新規メッセージ送信（初回暴発ガード）
+        // 3日経過：OKボタン付きメッセージ
         if (eligibleForNewMessage) {
           const msg = watchMessages[Math.floor(Math.random() * watchMessages.length)];
-          await safePushMessage(userId, { type: 'text', text: msg });
+          const flex = buildWatchOkFlex(msg);
+          await safePushMessage(userId, flex);
           await doc.ref.update({
             lastScheduledWatchMessageSent: Timestamp.now(),
             firstReminderSent: false,
@@ -124,27 +207,25 @@ async function runWatchService() {
           continue;
         }
 
-        // 24時間経過: リマインドメッセージ送信
+        // 24時間経過：リマインド（まだ送っていない場合）
         if (diffMs >= oneDayMs && !user.firstReminderSent) {
-          await safePushMessage(userId, { type: 'text', text: '前回のメッセージから24時間経ちました。大丈夫ですか？' });
+          await safePushMessage(userId, { type: 'text', text: '前回のメッセージから24時間が経過しました。大丈夫ですか？' });
           await doc.ref.update({ firstReminderSent: true });
         }
 
-        // 29時間経過: 緊急通知（管理者グループへ）
+        // 29時間経過：管理者に緊急通知（氏名/電話/関係性/住所/LINE ID 全部）
         else if (diffMs >= 29 * 60 * 60 * 1000 && user.firstReminderSent && !user.emergencyNotificationSent) {
-          const text = [
-            '🚨【見守りサービス緊急通知】🚨',
-            `👤 氏名：${user.full_name || '未登録'}`,
-            `📱 登録者電話番号：${user.phone || '未登録'}`,
-            `👤 緊急連絡先氏名：${user.emergency_contact_name || '未登録'}`,
-            `📞 緊急連絡先電話番号：${user.emergency_phone || EMERGENCY_CONTACT_PHONE_NUMBER}`,
-            `🤝 関係性：${user.emergency_contact_relationship || '未登録'}`,
-            `🏠 住所：${user.city || '未登録'}`,
-            `\n✅ この通知は、${user.full_name || '未登録'}さんが29時間以上応答がないため送信されました。`
-          ].join('\n');
+          // 住所はあるものを結合してフル化
+          const address =
+            user.address_full ||
+            [user.prefecture, user.city, user.address_line1, user.address_line2]
+              .filter(Boolean)
+              .join(' ') ||
+            user.city || '未登録';
 
           if (OFFICER_GROUP_ID) {
-            await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text });
+            const flex = buildEmergencyFlex(user, EMERGENCY_CONTACT_PHONE_NUMBER, address);
+            await safePushMessage(OFFICER_GROUP_ID, flex);
           }
           await doc.ref.update({ emergencyNotificationSent: true });
         }
@@ -152,19 +233,21 @@ async function runWatchService() {
         console.error(`ユーザー ${doc.id} 処理中エラー:`, e);
       }
     }
-    console.log("✅ 見守りサービスのチェックが完了しました。");
+    console.log("✅ 見守りステータス確認完了");
   } catch (err) {
-    console.error("❌ エラーが発生しました:", err);
+    console.error("❌ 実行エラー:", err);
   }
 }
 
 // --- 実行（RenderのCronから呼ばれる想定） ---
 if (require.main === module) {
-  runWatchService().then(() => {
-    console.log("見守りサービス実行が正常に終了しました。");
-    process.exit(0);
-  }).catch((err) => {
-    console.error("見守りサービス実行中にエラーが発生しました:", err);
-    process.exit(1);
-  });
+  runWatchService()
+    .then(() => {
+      console.log("🏁 watch-service.js 正常終了");
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error("💥 watch-service.js 実行中エラー:", err);
+      process.exit(1);
+    });
 }
