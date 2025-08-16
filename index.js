@@ -2202,86 +2202,75 @@ if (handled) return;
   return;               // ← （任意）イベント処理の終了が明確になる
 }                        // ★ ここで handleEvent(event) を閉じる “唯一” のカッコ
 
-// --- Postbackイベントハンドラ ---
+/**
+ * Postbackイベントを処理する関数。
+ * @param {Object} event - LINEプラットフォームから送られてきたイベントオブジェクト
+ */
 async function handlePostbackEvent(event) {
-  if (!event.source || !event.source.userId) return;
-  const userId = event.source.userId;
-  const data = new URLSearchParams(event.postback.data);
-  const action = data.get('action');
+    console.log(`Received postback event: ${JSON.stringify(event)}`);
+    const userId = event.source.userId;
+    const data = event.postback.data;
+    const action = new URLSearchParams(data).get('action');
 
-  try {
-    const user = await getUserData(userId);
-    const usersCollection = db.collection('users');
+    try {
+        // Firestoreからユーザーデータを取得
+        const usersCollection = db.collection('users');
+        const userDoc = await usersCollection.doc(userId).get();
+        const user = userDoc.exists ? userDoc.data() : { registrationStep: null, completedRegistration: false, membershipType: "guest" };
+        
+        let replyText = '';
+        let logType = '';
 
-    // PostbackのデータによってFirestoreの情報を更新
-    if (action === 'watch_ok' || action === 'watch_somewhat' || action === 'watch_tired' || action === 'watch_talk') {
-      await usersCollection.doc(userId).update({
-        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-        lastScheduledWatchMessageSent: null, // 定期メッセージ送信状態をリセット
-        firstReminderSent: false, // 24時間リマインダー状態をリセット
-        emergencyNotificationSent: false // 緊急通知状態をリセット
-      });
+        // アクションごとの返信テキスト
+        switch (action) {
+            case 'watch_ok':
+                replyText = "OKありがとう！元気そうで安心したよ💖";
+                logType = 'watch_service_ok_response';
+                break;
+            case 'watch_somewhat':
+                replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
+                logType = 'watch_service_status_somewhat';
+                break;
+            case 'watch_tired':
+                replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
+                logType = 'watch_service_status_tired';
+                break;
+            case 'watch_talk':
+                replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
+                logType = 'watch_service_status_talk';
+                break;
+            case 'request_withdrawal':
+                if (user && user.completedRegistration) {
+                    // 登録済みユーザーの場合、退会確認のステップに移行
+                    await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+                    replyText = '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？';
+                    logType = 'request_withdrawal';
+                } else {
+                    // 未登録ユーザーの場合、退会できないことを伝える
+                    replyText = "ごめんね、まだ登録が完了していないみたい。退会手続きはできないよ。";
+                    logType = 'request_withdrawal_unregistered';
+                }
+                break;
+            default:
+                // ここに来ない想定だが保険
+                replyText = "ごめんね、その操作はまだできないみたい…💦";
+                logType = 'unknown_postback_action';
+        }
+
+        // 返信とログの保存
+        if (replyText) {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: replyText
+            });
+            await logToDb(userId, `postback action: ${action}`, replyText, 'こころちゃん（Postback）', logType);
+        }
+
+    } catch (err) {
+        console.error("❌ Postbackイベント処理中にエラーが発生しました:", err);
+        const userId = event.source.userId || 'unknown';
+        await logErrorToDb(userId, 'Postback処理エラー', { event: JSON.stringify(event), error: err.message });
     }
-
-    let replyText = "";
-    let logType = "postback_action";
-
-    // アクションごとの返信テキスト
-    switch (action) {
-      case 'watch_ok':
-        replyText = "OKありがとう！元気そうで安心したよ💖";
-        logType = 'watch_service_ok_response';
-        break;
-      case 'watch_somewhat':
-        replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
-        logType = 'watch_service_status_somewhat';
-        break;
-      case 'watch_tired':
-        replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
-        logType = 'watch_service_status_tired';
-        break;
-      case 'watch_talk':
-        replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
-        logType = 'watch_service_status_talk';
-        break;
-     case 'request_withdrawal':
-        if (user && user.completedRegistration) {
-          // 登録済みユーザーの場合、退会確認のステップに移行
-          await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
-          replyText = '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？';
-          logType = 'request_withdrawal';
-        } else {
-          // 未登録ユーザーの場合、退会できないことを伝える
-          replyText = "ごめんね、まだ登録が完了していないみたい。退会手続きはできないよ。";
-          logType = 'request_withdrawal_unregistered';
-        }
-        break;
-      default:
-        // ここに来ない想定だが保険
-        replyText = "ごめんね、その操作はまだできないみたい…💦";
-        logType = 'unknown_postback_action';
-    }
-
-    if (replyText) {
-      try {
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
-      } catch (replyError) {
-        // replyMessageが失敗した場合、pushMessageでフォールバック
-        await safePushMessage(userId, { type: 'text', text: replyText });
-        await logErrorToDb(
-          userId,
-          `Watch service postback replyMessage失敗、safePushMessageでフォールバック`,
-          { error: replyError.message, userMessage: `Postback: ${event.postback.data}` }
-        );
-      }
-    }
-    return; // ここで終了
-  } catch (error) {
-    console.error(`❌ Postback応答処理エラー (${action}):`, error.message);
-    await logErrorToDb(userId, `Postback応答処理エラー (${action})`, { error: error.message, userId });
-    return;
-  }
 }
 
  // ⭐ 退会リクエストPostbackの処理 ⭐
