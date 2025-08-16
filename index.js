@@ -2206,7 +2206,7 @@ async function handlePostbackEvent(event) {
   // ⭐ 退会リクエストPostbackの処理 ⭐
   if (action === 'request_withdrawal') {
     if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
-      await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+     await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
       try {
         await client.replyMessage(event.replyToken, {
           type: 'text',
