@@ -289,7 +289,7 @@ async function getUserData(userId) {
     }
 
     let userData = doc.data();
-    // ⭐ 既存ユーザーでも、管理者の場合はmembershipTypeを上書き ⭐
+    // ⭐  AIモデルを選択する関数。はmembershipTypeを上書き ⭐
     if (isAdminUser && userData.membershipType !== "admin") {
         if (process.env.NODE_ENV !== 'production') {
             console.log(`Admin user ${userId} found with non-admin membership. Updating to 'admin'.`);
@@ -337,15 +337,6 @@ async function getUserData(userId) {
     }
 
     return userData;
-}
-/**
- * ユーザーの会員情報をFirestoreに保存する関数。
- * @param {string} userId - LINEユーザーID
- * @param {Object} data - 更新するユーザーデータ
- */
-async function updateUserData(userId, data) {
-    const userRef = db.collection('users').doc(userId);
-    await userRef.update(data);
 }
 
 // --- ユーザー情報取得関数 ---
@@ -957,28 +948,6 @@ const SCAM_FLEX_MESSAGE = {
     }
 };
 
-// ⭐ ClariSとNPOコネクトの繋がりに関する新しい固定応答 ⭐
-// より「わかる人にはわかる」ニュアンスに調整
-const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋ぎたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
-const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
-// --- 固定応答 (SpecialRepliesMap) ---
-const specialRepliesMap = new Map([
-    // ⭐ ClariSとNPOコネクトの繋がりに関するトリガーを最優先で追加 ⭐
-    // 直接的なキーワードの組み合わせ
-    [/claris.*(関係|繋がり|関連|一緒|同じ|名前|由来).*(コネクト|団体|npo|法人|ルミナス|カラフル)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/(コネクト|団体|npo|法人|ルミナス|カラフル).*(関係|繋がり|関連|一緒|同じ|名前|由来).*claris/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    // ユーザーの実際の質問例をカバー
-    [/君のいるところと一緒の団体名だね\s*関係ある？/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // "君のいるところ"を明示的にカバー
-    [/clarisと関係あるのか聴いたんだけど/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // ユーザーの再度の問いかけ
-    [/clarisの歌を真似したのかな/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // ユーザーの推測もカバー
-    [/NPOコネクトとClariSのコネクト繋がり/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // ユーザーの具体的な質問例に対応
-    [/clarisとコネクト/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisと団体名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisと法人名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisとルミナス/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisとカラフル/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisと.*(繋がり|関係)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-
     // ⭐ 既存の固定応答（一部修正・調整） ⭐
     [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
@@ -1081,7 +1050,7 @@ async function getUserData(userId) {
     }
 
     let userData = doc.data();
-    // ⭐ 既存ユーザーでも、管理者の場合はmembershipTypeを上書き ⭐
+    // ⭐  AIモデルを選択する関数。はmembershipTypeを上書き ⭐
     if (isAdminUser && userData.membershipType !== "admin") {
         if (process.env.NODE_ENV !== 'production') {
             console.log(`Admin user ${userId} found with non-admin membership. Updating to 'admin'.`);
