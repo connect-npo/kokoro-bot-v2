@@ -974,7 +974,7 @@ const SCAM_FLEX_MESSAGE = {
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
    [/ClariSの(なんて|どの|なんの)曲が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
-]);
+
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
     for (const [key, value] of specialRepliesMap) {
