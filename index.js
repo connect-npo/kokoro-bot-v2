@@ -2465,12 +2465,6 @@ async function logErrorToDb(userId, errorType, details) {
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 サーバーはポート${PORT}で実行されています`);
+  console.log(`🚀 サーバーはポート${PORT}で実行されています`);
 });
-
-// --- watch-service.jsにdb, client, admin, saveConversationHistory, logErrorToDb をエクスポートして共有 ---
-module.exports = { db, client, admin, saveConversationHistory, logErrorToDb };
-
-// --- watch-service.js を読み込み、定期実行処理を有効化 ---
-// ⭐注意: FirebaseとLINEクライアントの初期化後に読み込むことが重要
-require('./watch-service.js');
+    
