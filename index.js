@@ -137,11 +137,53 @@ const MESSAGE_SEND_INTERVAL_MS = 1500; // LINE APIのレートリミットを考
  * @param {string} to - 送信先のユーザーIDまたはグループID
  * @param {Array<Object>|Object} messages - 送信するメッセージオブジェクトの配列、または単一のメッセージオブジェクト
  */
-async function safePushMessage(to, messages) {
-    const messagesArray = Array.isArray(messages) ? messages : [messages];
-    messageQueue.push({ to, messages: messagesArray });
-    startMessageQueueWorker();
+/* ====== START: 解除メッセージ処理ヘルパー ====== */
+async function maybeHandleWatchUnregisterFromMessage({
+  event, userId, userMessage, user, usersCollection
+}) {
+  const lowerUserMessage = (userMessage || '').trim().toLowerCase();
+  if (lowerUserMessage !== '解除' && lowerUserMessage !== 'かいじょ') return false;
+
+  let replyTextForUnregister = "", logTypeForUnregister = "";
+  if (user && user.watchServiceEnabled) {
+    try {
+      await usersCollection.doc(userId).update({
+        watchServiceEnabled: false,
+        phoneNumber: admin.firestore.FieldValue.delete(),
+        guardianName: admin.firestore.FieldValue.delete(),
+        guardianPhoneNumber: admin.firestore.FieldValue.delete(),
+        'address.city': admin.firestore.FieldValue.delete(),
+        name: admin.firestore.FieldValue.delete(),
+        kana: admin.firestore.FieldValue.delete(),
+        age: admin.firestore.FieldValue.delete(),
+        category: admin.firestore.FieldValue.delete(),
+        completedRegistration: false,
+        lastScheduledWatchMessageSent: null,
+        firstReminderSent: false,
+        emergencyNotificationSent: false,
+      });
+      replyTextForUnregister = "見守りサービスを解除したよ🌸 またいつでも登録できるからね💖\n※登録情報も初期化されました。";
+      logTypeForUnregister = 'watch_service_unregister';
+    } catch (error) {
+      console.error("❌ 見守りサービス解除処理エラー:", error.message);
+      await logErrorToDb(userId, "見守りサービス解除処理エラー", { error: error.message, userId });
+      replyTextForUnregister = "ごめんね、解除処理中にエラーが起きたみたい…💦 もう一度試してみてくれるかな？";
+      logTypeForUnregister = 'watch_service_unregister_error';
+    }
+  } else {
+    replyTextForUnregister = "見守りサービスは登録されていないみたいだよ🌸 登録したい場合は「見守り」と話しかけてね💖";
+    logTypeForUnregister = 'watch_service_not_registered_on_unregister';
+  }
+  try {
+    await client.replyMessage(event.replyToken, { type: 'text', text: replyTextForUnregister });
+  } catch {
+    await safePushMessage(userId, { type: 'text', text: replyTextForUnregister });
+  }
+  await logToDb(userId, userMessage, replyTextForUnregister, "System", logTypeForUnregister);
+  return true;
 }
+/* ====== END: 解除メッセージ処理ヘルパー ====== */
+
 
 /**
  * メッセージキューを処理するワーカー関数。
@@ -1325,86 +1367,59 @@ async function handleWatchServiceRegistration(event, userId, userMessage, user) 
         return false;
     }
     if (lowerUserMessage.includes("まあまあかな")) {
-        if (user && user.watchServiceEnabled) {
-            try {
-                // OK応答と同様に、状態をリセット
-                await usersCollection.doc(userId).update(
-                    {
-                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-                        lastScheduledWatchMessageSent: null,
-                        firstReminderSent: false,
-                        emergencyNotificationSent: false
-                    }
-                );
-                // replyMessageを使用
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖'
-                });
-                logToDb(userId, userMessage, 'そうだね、まあまあな日もあるよね🌸 焦らず、あなたのペースで過ごしてね💖', 'こころちゃん（見守り応答）', 'watch_service_status_somewhat', true);
-                return true;
-            } catch (error) {
-                console.error("❌ 見守りサービス「まあまあ」応答処理エラー:", error.message);
-                logErrorToDb(userId, "見守りサービス「まあまあ」応答処理エラー", { error: error.message, userId: userId });
-                return false;
-            }
-        }
-        return false;
+          if (user && user.watchServiceEnabled) {
+    try {
+      await usersCollection.doc(userId).update({
+        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+        lastScheduledWatchMessageSent: null,
+        firstReminderSent: false,
+        emergencyNotificationSent: false
+      });
+
+      // アクションごとの返信テキスト
+      switch (action) {
+        case 'watch_ok':
+          replyText = "OKありがとう！元気そうで安心したよ💖";
+          logType = 'watch_service_ok_response';
+          break;
+        case 'watch_somewhat':
+          replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
+          logType = 'watch_service_status_somewhat';
+          break;
+        case 'watch_tired':
+          replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
+          logType = 'watch_service_status_tired';
+          break;
+        case 'watch_talk':
+          replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
+          logType = 'watch_service_status_talk';
+          break;
+        default:
+          // ここに来ない想定だが保険
+          replyText = "ごめんね、その操作はまだできないみたい…💦";
+          logType = 'unknown_postback_action';
+      }
+
+      try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+      } catch (replyError) {
+        await safePushMessage(userId, { type: 'text', text: replyText });
+        await logErrorToDb(
+          userId,
+          `Watch service postback replyMessage失敗、safePushMessageでフォールバック`,
+          { error: replyError.message, userMessage: `Postback: ${event.postback.data}` }
+        );
+      }
+      return; // ここで終了
+    } catch (error) {
+      console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
+      await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId });
+      return;
     }
-    if (lowerUserMessage.includes("少し疲れた…")) {
-        if (user && user.watchServiceEnabled) {
-            try {
-                // OK応答と同様に、状態をリセット
-                await usersCollection.doc(userId).update(
-                    {
-                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-                        lastScheduledWatchMessageSent: null,
-                        firstReminderSent: false,
-                        emergencyNotificationSent: false
-                    }
-                );
-                // replyMessageを使用
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: '大変だったね、疲れてしまったんだね…💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖'
-                });
-                logToDb(userId, userMessage, '大変だったね、疲れてしまったんだね！💦 無理しないで休んでね。こころはいつでもあなたの味方だよ💖', 'こころちゃん（見守り応答）', 'watch_service_status_tired', true);
-                return true;
-            } catch (error) {
-                console.error("❌ 見守りサービス「疲れた」応答処理エラー:", error.message);
-                logErrorToDb(userId, "見守りサービス「疲れた」応答処理エラー", { error: error.message, userId: userId });
-                return false;
-            }
-        }
-        return false;
-    }
-    if (lowerUserMessage.includes("話を聞いて")) {
-        if (user && user.watchServiceEnabled) {
-            try {
-                // OK応答と同様に、状態をリセット
-                await usersCollection.doc(userId).update(
-                    {
-                        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
-                        lastScheduledWatchMessageSent: null,
-                        firstReminderSent: false,
-                        emergencyNotificationSent: false
-                    }
-                );
-                // replyMessageを使用
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖'
-                });
-                logToDb(userId, userMessage, 'うん、いつでも聞くよ🌸 何か話したいことがあったら、いつでも話してね💖', 'こころちゃん（見守り応答）', 'watch_service_status_talk', true);
-                return true;
-            } catch (error) {
-                console.error("❌ 見守りサービス「話を聞いて」応答処理エラー:", error.message);
-                logErrorToDb(userId, "見守りサービス「話を聞いて」応答処理エラー", { error: error.message, userId: userId });
-                return false;
-            }
-        }
-        return false;
-    }
+  }
+
+  // ここまで来たら watch_* 以外の分岐。既存の default 応答に続く。
 
     // ⭐ 見守りサービス解除はPostbackからも、メッセージからも可能にする ⭐
     // メッセージからの「解除」はここで処理。PostbackはhandlePostbackEventで処理される。
@@ -2065,15 +2080,29 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
     // --- 会話履歴の取得 ---
     const conversationHistory = await getConversationHistory(userId);
 
-    // --- AIモデルの選択 ---
-    let modelToUse = getAIModelForUser(user, userMessage); // ⭐ ここでモデルを動的に決定 ⭐
+   /* ====== START: DROP-IN（AIモデル決定＋解除の早期処理） ====== */
 
-    // 相談モードの場合、Gemini 1.5 Proを使用し、モードを終了する
-    if (user.isInConsultationMode) {
-        modelToUse = "gemini-1.5-pro-latest";
-        await updateUserData(userId, { isInConsultationMode: false }); // 1回でモード終了
-        logType = 'consultation_message';
-    }
+// ① 先にユーザー情報とコレクションを用意
+const usersCollection = db.collection('users');
+const user = await getUserData(userId);
+
+// ② AIモデルの選択（user を使って決定）
+let modelToUse = getAIModelForUser(user, userMessage);
+
+// ③ 相談モードなら1回だけ Pro を使って終了
+if (user?.isInConsultationMode) {
+  modelToUse = "gemini-1.5-pro-latest";
+  await updateUserData(userId, { isInConsultationMode: false });
+  if (typeof logType !== 'undefined') logType = 'consultation_message';
+}
+
+// ④ 「解除」「かいじょ」は AI 応答に行く前に処理して抜ける
+const handled = await maybeHandleWatchUnregisterFromMessage({
+  event, userId, userMessage, user, usersCollection
+});
+if (handled) return;
+
+/* ====== END: DROP-IN（AIモデル決定＋解除の早期処理） ====== */
 
      // --- AI応答生成 ---
   try {
@@ -2089,45 +2118,72 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
   return;               // ← （任意）イベント処理の終了が明確になる
 }                        // ★ ここで handleEvent(event) を閉じる “唯一” のカッコ
 
-// --- Leaveイベントハンドラ (グループ退出時) ---
-async function handleLeaveEvent(event) {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('👋 グループ/ルームから退出しました', event.source);
-  }
-  return;
-}
+// --- Postbackイベントハンドラ ---
+async function handlePostbackEvent(event) {
+  if (!event.source || !event.source.userId) return;
+  const userId = event.source.userId;
 
-    const data = new URLSearchParams(event.postback.data);
-    const action = data.get('action');
+  const data = new URLSearchParams(event.postback?.data || "");
+  const action = data.get('action');
 
-    let replyText = "";
-    let logType = "postback_action";
-    let user = await getUserData(userId); // 最新のユーザーデータを取得
-    const usersCollection = db.collection('users');
+  let replyText = "";
+  let logType = "postback_action";
+  let user = await getUserData(userId); // 最新のユーザーデータを取得
+  const usersCollection = db.collection('users');
 
-    // ⭐ 退会リクエストPostbackの処理 ⭐
-    if (action === 'request_withdrawal') {
-        if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
-            await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
-            await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
-            });
-            await logToDb(userId, `Postback: ${event.postback.data}`, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
-        } else {
-            await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: 'まだ会員登録されていないみたいだよ🌸\n退会手続きは、会員登録済みの方のみ行えるんだ。'
-            });
-            await logToDb(userId, `Postback: ${event.postback.data}`, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
-        }
-        return;
+  // ⭐ 退会リクエストPostbackの処理 ⭐
+  if (action === 'request_withdrawal') {
+    if (user.completedRegistration) { // 登録済みユーザーのみ退会確認
+      await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+      try {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
+        });
+      } catch (e) {
+        // reply が間に合わなかったときの保険
+        await safePushMessage(userId, {
+          type: 'text',
+          text: '本当に退会するの？（返信が間に合わなかったのでPushで送ったよ）'
+        });
+      }
+      await logToDb(userId, `Postback: ${event.postback.data}`, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
+    } else {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'まだ会員登録されていないみたいだよ🌸\n退会手続きは、会員登録済みの方のみ行えるんだ。'
+      });
+      await logToDb(userId, `Postback: ${event.postback.data}`, '未登録ユーザーの退会リクエスト', 'こころちゃん（退会フロー）', 'withdrawal_unregistered_user');
     }
+    return;
+  }
 
-    // ⭐ 見守りサービス解除Postbackの処理 ⭐
-    if (action === 'watch_unregister') {
-        let replyTextForUnregister = "";
-        let logTypeForUnregister = "";
+
+  // ⭐ 見守りサービス解除Postbackの処理 ⭐
+if (action === 'watch_unregister') {
+  // ここに解除の実処理（例）
+  await updateUserData(userId, { watchServiceEnabled: false });
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '見守りサービスを解除しました。いつでも再登録できます🌸'
+  });
+  await logToDb(userId, `Postback: ${event.postback?.data || ''}`, '見守りサービス解除', 'こころちゃん（見守り）', 'watch_unregister');
+  return;                 // ← ここで終了（デフォルトへ落ちない）
+}                         // ★ ← これが “watch_unregister の if” を閉じるカッコ
+
+// --- デフォルト応答（どの分岐にも当てはまらなかった時） ---
+try {
+  replyText = replyText || 'ごめんね、操作をうまく読み取れなかったみたい💦';
+  await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+} catch (replyError) {
+  await safePushMessage(userId, { type: 'text', text: replyText });
+  await logErrorToDb(userId, 'Postback reply失敗→Pushにフォールバック', {
+    error: replyError.message,
+    raw: event.postback?.data || ''
+  });
+}
+} // ← ★ここで handlePostbackEvent を閉じる
+
 
         if (user && user.watchServiceEnabled) {
             try {
