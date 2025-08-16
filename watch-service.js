@@ -38,7 +38,6 @@ if (!OFFICER_GROUP_ID) {
   console.warn("⚠️ OFFICER_GROUP_ID が未設定です。緊急通知は送られません。");
 }
 
-
 // --- ユーティリティ ---
 async function safePushMessage(to, messages) {
   const arr = Array.isArray(messages) ? messages : [messages];
@@ -46,7 +45,7 @@ async function safePushMessage(to, messages) {
     await client.pushMessage(to, arr);
     console.log(`✅ メッセージを ${to} に送信しました。`);
     // APIリクエスト制限回避のため、短い待機時間を設ける
-    await new Promise(r => setTimeout(r, 120)); 
+    await new Promise(r => setTimeout(r, 120));
   } catch (e) {
     console.error(`❌ メッセージ送信エラー (${to}):`, e);
   }
@@ -100,7 +99,7 @@ async function runWatchService() {
       try {
         const user = doc.data();
         const userId = doc.id;
-  
+
         // lastOkResponseとlastScheduledWatchMessageSentのうち、新しい方の日時を取得
         const lastOk = user.lastOkResponse ? user.lastOkResponse.toDate() : new Date(0);
         const lastSched = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : new Date(0);
@@ -109,10 +108,10 @@ async function runWatchService() {
 
         // ユーザーが作成されてから3日以上経過しているかのチェック
         const createdAt = user.createdAt ? user.createdAt.toDate() : null;
-        const eligibleForNewMessage = 
+        const eligibleForNewMessage =
           diffMs >= 3 * oneDayMs &&
           (!createdAt || (now.getTime() - createdAt.getTime()) >= 3 * oneDayMs);
-  
+
         // 3日経過（=72h）: 新規メッセージ送信（初回暴発ガード）
         if (eligibleForNewMessage) {
           const msg = watchMessages[Math.floor(Math.random() * watchMessages.length)];
@@ -124,23 +123,26 @@ async function runWatchService() {
           });
           continue;
         }
-  
+
         // 24時間経過: リマインドメッセージ送信
         if (diffMs >= oneDayMs && !user.firstReminderSent) {
           await safePushMessage(userId, { type: 'text', text: '前回のメッセージから24時間経ちました。大丈夫ですか？' });
           await doc.ref.update({ firstReminderSent: true });
         }
-  
+
         // 29時間経過: 緊急通知（管理者グループへ）
         else if (diffMs >= 29 * 60 * 60 * 1000 && user.firstReminderSent && !user.emergencyNotificationSent) {
           const text = [
             '🚨【見守りサービス緊急通知】🚨',
-            `👤 氏名：${user.name || '未登録'}`,
-            `📱 電話番号：${user.phone || '未登録'}`,
-            `📞 緊急連絡先：${user.emergencyContact || EMERGENCY_CONTACT_PHONE_NUMBER}`,
-            `\n✅ この通知は、${user.name || '未登録'}さんが29時間以上応答がないため送信されました。`
+            `👤 氏名：${user.full_name || '未登録'}`,
+            `📱 登録者電話番号：${user.phone || '未登録'}`,
+            `👤 緊急連絡先氏名：${user.emergency_contact_name || '未登録'}`,
+            `📞 緊急連絡先電話番号：${user.emergency_phone || EMERGENCY_CONTACT_PHONE_NUMBER}`,
+            `🤝 関係性：${user.emergency_contact_relationship || '未登録'}`,
+            `🏠 住所：${user.city || '未登録'}`,
+            `\n✅ この通知は、${user.full_name || '未登録'}さんが29時間以上応答がないため送信されました。`
           ].join('\n');
-  
+
           if (OFFICER_GROUP_ID) {
             await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text });
           }
