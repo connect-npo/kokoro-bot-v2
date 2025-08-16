@@ -2138,14 +2138,80 @@ if (handled) return;
 async function handlePostbackEvent(event) {
   if (!event.source || !event.source.userId) return;
   const userId = event.source.userId;
-
-  const data = new URLSearchParams(event.postback?.data || "");
+  const data = new URLSearchParams(event.postback.data);
   const action = data.get('action');
 
-  let replyText = "";
-  let logType = "postback_action";
-  let user = await getUserData(userId); // 最新のユーザーデータを取得
-  const usersCollection = db.collection('users');
+  try {
+    const user = await getUserData(userId);
+    const usersCollection = db.collection('users');
+
+    // PostbackのデータによってFirestoreの情報を更新
+    if (action === 'watch_ok' || action === 'watch_somewhat' || action === 'watch_tired' || action === 'watch_talk') {
+      await usersCollection.doc(userId).update({
+        lastOkResponse: admin.firestore.FieldValue.serverTimestamp(),
+        lastScheduledWatchMessageSent: null, // 定期メッセージ送信状態をリセット
+        firstReminderSent: false, // 24時間リマインダー状態をリセット
+        emergencyNotificationSent: false // 緊急通知状態をリセット
+      });
+    }
+
+    let replyText = "";
+    let logType = "postback_action";
+
+    // アクションごとの返信テキスト
+    switch (action) {
+      case 'watch_ok':
+        replyText = "OKありがとう！元気そうで安心したよ💖";
+        logType = 'watch_service_ok_response';
+        break;
+      case 'watch_somewhat':
+        replyText = "そっか、ちょっと元気がないんだね…。無理しないで、いつでもこころに話してね🌸";
+        logType = 'watch_service_status_somewhat';
+        break;
+      case 'watch_tired':
+        replyText = "疲れてるんだね、ゆっくり休んでね。こころはいつでもあなたの味方だよ💖";
+        logType = 'watch_service_status_tired';
+        break;
+      case 'watch_talk':
+        replyText = "お話したいんだね！どんなことでも、こころに話してね🌸";
+        logType = 'watch_service_status_talk';
+        break;
+      case 'request_withdrawal':
+        if (user && user.completedRegistration) {
+          await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
+          replyText = '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？';
+        } else {
+          replyText = "ごめんね、まだ登録が完了していないみたい。退会手続きはできないよ。";
+        }
+        logType = 'request_withdrawal';
+        break;
+      default:
+        // ここに来ない想定だが保険
+        replyText = "ごめんね、その操作はまだできないみたい…💦";
+        logType = 'unknown_postback_action';
+    }
+
+    if (replyText) {
+      try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        await logToDb(userId, `Postback: ${event.postback.data}`, replyText, "System", logType);
+      } catch (replyError) {
+        // replyMessageが失敗した場合、pushMessageでフォールバック
+        await safePushMessage(userId, { type: 'text', text: replyText });
+        await logErrorToDb(
+          userId,
+          `Watch service postback replyMessage失敗、safePushMessageでフォールバック`,
+          { error: replyError.message, userMessage: `Postback: ${event.postback.data}` }
+        );
+      }
+    }
+    return; // ここで終了
+  } catch (error) {
+    console.error(`❌ Postback応答処理エラー (${action}):`, error.message);
+    await logErrorToDb(userId, `Postback応答処理エラー (${action})`, { error: error.message, userId });
+    return;
+  }
+}
 
   // ⭐ 退会リクエストPostbackの処理 ⭐
   if (action === 'request_withdrawal') {
