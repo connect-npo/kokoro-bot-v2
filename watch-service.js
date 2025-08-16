@@ -24,6 +24,12 @@ const client = new line.Client({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 });
+// LINEのトークンが未設定の場合、早期に終了
+if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_CHANNEL_SECRET) {
+  console.error("❌ LINEトークン未設定: LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET を確認してください。");
+  process.exit(1);
+}
+
 
 // --- 環境変数 ---
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
@@ -42,7 +48,7 @@ async function safePushMessage(to, messages) {
 
 // --- 見守りメッセージ（30種類） ---
 const watchMessages = [
-  "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
+  "こんにちは� こころちゃんだよ！ 今日も元気にしてるかな？💖",
   "やっほー！ こころだよ😊 いつも応援してるね！",
   "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
   "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
@@ -61,7 +67,7 @@ const watchMessages = [
   "やっほー😊 久しぶりにメッセージしちゃった！元気にしてる？",
   "ねぇ、こころだよ🌸 今、何してるのかな？💖",
   "元気？😊 こころちゃんです！何か良いことあった？",
-  "こんにちは✨ こころだよ！もし疲れたら無理しないでね�",
+  "こんにちは✨ こころだよ！もし疲れたら無理しないでね💖",
   "やっほー！今日も一日お疲れ様🌸 ゆっくり休んでね😊",
   "ねぇねぇ、こころだよ💖 忙しい毎日だけど、息抜きも大切だよ✨",
   "元気にしてるかな？こころちゃんはいつもここにいるよ😊",
@@ -85,47 +91,51 @@ async function runWatchService() {
     const snapshot = await q.get();
 
     for (const doc of snapshot.docs) {
-      const user = doc.data();
-      const userId = doc.id;
-
-      // lastOkResponseとlastScheduledWatchMessageSentのうち、新しい方の日時を取得
-      const lastOk = user.lastOkResponse ? user.lastOkResponse.toDate() : new Date(0);
-      const lastSched = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : new Date(0);
-      const lastAction = lastOk > lastSched ? lastOk : lastSched;
-      const diffMs = now.getTime() - lastAction.getTime();
-
-      // 3日経過（=72h）: 新規メッセージ送信
-      if (diffMs >= 3 * oneDayMs) {
-        const msg = watchMessages[Math.floor(Math.random() * watchMessages.length)];
-        await safePushMessage(userId, { type: 'text', text: msg });
-        await doc.ref.update({
-          lastScheduledWatchMessageSent: Timestamp.now(),
-          firstReminderSent: false,
-          emergencyNotificationSent: false
-        });
-        continue;
-      }
-
-      // 24時間経過: リマインドメッセージ送信
-      if (diffMs >= oneDayMs && !user.firstReminderSent) {
-        await safePushMessage(userId, { type: 'text', text: '前回のメッセージから24時間経ちました。大丈夫ですか？' });
-        await doc.ref.update({ firstReminderSent: true });
-      }
-
-      // 29時間経過: 緊急通知（管理者グループへ）
-      else if (diffMs >= 29 * 60 * 60 * 1000 && user.firstReminderSent && !user.emergencyNotificationSent) {
-        const text = [
-          '🚨【見守りサービス緊急通知】🚨',
-          `👤 氏名：${user.name || '未登録'}`,
-          `📱 電話番号：${user.phone || '未登録'}`,
-          `📞 緊急連絡先：${user.emergencyContact || '未登録'}`,
-          `\n✅ この通知は、${user.name || '未登録'}さんが29時間以上応答がないため送信されました。`
-        ].join('\n');
-
-        if (OFFICER_GROUP_ID) {
-          await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text });
+      try {
+        const user = doc.data();
+        const userId = doc.id;
+  
+        // lastOkResponseとlastScheduledWatchMessageSentのうち、新しい方の日時を取得
+        const lastOk = user.lastOkResponse ? user.lastOkResponse.toDate() : new Date(0);
+        const lastSched = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : new Date(0);
+        const lastAction = lastOk > lastSched ? lastOk : lastSched;
+        const diffMs = now.getTime() - lastAction.getTime();
+  
+        // 3日経過（=72h）: 新規メッセージ送信
+        if (diffMs >= 3 * oneDayMs) {
+          const msg = watchMessages[Math.floor(Math.random() * watchMessages.length)];
+          await safePushMessage(userId, { type: 'text', text: msg });
+          await doc.ref.update({
+            lastScheduledWatchMessageSent: Timestamp.now(),
+            firstReminderSent: false,
+            emergencyNotificationSent: false
+          });
+          continue;
         }
-        await doc.ref.update({ emergencyNotificationSent: true });
+  
+        // 24時間経過: リマインドメッセージ送信
+        if (diffMs >= oneDayMs && !user.firstReminderSent) {
+          await safePushMessage(userId, { type: 'text', text: '前回のメッセージから24時間経ちました。大丈夫ですか？' });
+          await doc.ref.update({ firstReminderSent: true });
+        }
+  
+        // 29時間経過: 緊急通知（管理者グループへ）
+        else if (diffMs >= 29 * 60 * 60 * 1000 && user.firstReminderSent && !user.emergencyNotificationSent) {
+          const text = [
+            '🚨【見守りサービス緊急通知】🚨',
+            `👤 氏名：${user.name || '未登録'}`,
+            `📱 電話番号：${user.phone || '未登録'}`,
+            `📞 緊急連絡先：${user.emergencyContact || EMERGENCY_CONTACT_PHONE_NUMBER}`,
+            `\n✅ この通知は、${user.name || '未登録'}さんが29時間以上応答がないため送信されました。`
+          ].join('\n');
+  
+          if (OFFICER_GROUP_ID) {
+            await safePushMessage(OFFICER_GROUP_ID, { type: 'text', text });
+          }
+          await doc.ref.update({ emergencyNotificationSent: true });
+        }
+      } catch (e) {
+        console.error(`ユーザー ${doc.id} 処理中エラー:`, e);
       }
     }
     console.log("✅ 見守りサービスのチェックが完了しました。");
