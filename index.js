@@ -1826,26 +1826,27 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
     let user = await getUserData(userId);
     const usersCollection = db.collection('users');
 
-    // ⭐ 管理者コマンド処理 ⭐
-    if (isAdmin && userMessage.startsWith('!')) {
-        const command = userMessage.substring(1).split(' ')[0];
-        const args = userMessage.substring(command.length + 1).trim();
-        let targetUserId = userId; // 管理者コマンドのtargetUserIdもここで定義
+   // ⭐ 管理者コマンド処理 ⭐
+        if (isAdmin && userMessage.startsWith('!')) {
+            const command = userMessage.substring(1).split(' ')[0];
+            const args = userMessage.substring(command.length + 1).trim();
+            let targetUserId = userId; // 管理者コマンドのtargetUserIdもここで定義
 
-        if (command === "set" && args.startsWith('user ')) {
-            const parts = args.split(' ');
-            if (parts.length >= 2) {
-                targetUserId = parts[1];
-                const newMembershipType = parts[2];
-                if (MEMBERSHIP_CONFIG[newMembershipType]) {
-                    await updateUserData(targetUserId, { membershipType: newMembershipType });
-                    await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
-                    await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
-                    return;
-                } else {
-                    await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
-                    await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
-                    return;
+            if (command === "set" && args.startsWith('user ')) {
+                const parts = args.split(' ');
+                if (parts.length >= 2) {
+                    targetUserId = parts[1];
+                    const newMembershipType = parts[2];
+                    if (MEMBERSHIP_CONFIG[newMembershipType]) {
+                        await updateUserData(targetUserId, { membershipType: newMembershipType });
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
+                        await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
+                        return;
+                    } else {
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
+                        await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
+                        return;
+                    }
                 }
             }
         }
