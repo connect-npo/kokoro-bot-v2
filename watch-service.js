@@ -30,10 +30,14 @@ if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_CHANNEL_SECRET) 
   process.exit(1);
 }
 
-
 // --- 環境変数 ---
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+// 管理者グループが未設定の場合、警告ログを出力
+if (!OFFICER_GROUP_ID) {
+  console.warn("⚠️ OFFICER_GROUP_ID が未設定です。緊急通知は送られません。");
+}
+
 
 // --- ユーティリティ ---
 async function safePushMessage(to, messages) {
@@ -41,6 +45,8 @@ async function safePushMessage(to, messages) {
   try {
     await client.pushMessage(to, arr);
     console.log(`✅ メッセージを ${to} に送信しました。`);
+    // APIリクエスト制限回避のため、短い待機時間を設ける
+    await new Promise(r => setTimeout(r, 120)); 
   } catch (e) {
     console.error(`❌ メッセージ送信エラー (${to}):`, e);
   }
@@ -48,7 +54,7 @@ async function safePushMessage(to, messages) {
 
 // --- 見守りメッセージ（30種類） ---
 const watchMessages = [
-  "こんにちは� こころちゃんだよ！ 今日も元気にしてるかな？💖",
+  "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
   "やっほー！ こころだよ😊 いつも応援してるね！",
   "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
   "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
@@ -100,9 +106,15 @@ async function runWatchService() {
         const lastSched = user.lastScheduledWatchMessageSent ? user.lastScheduledWatchMessageSent.toDate() : new Date(0);
         const lastAction = lastOk > lastSched ? lastOk : lastSched;
         const diffMs = now.getTime() - lastAction.getTime();
+
+        // ユーザーが作成されてから3日以上経過しているかのチェック
+        const createdAt = user.createdAt ? user.createdAt.toDate() : null;
+        const eligibleForNewMessage = 
+          diffMs >= 3 * oneDayMs &&
+          (!createdAt || (now.getTime() - createdAt.getTime()) >= 3 * oneDayMs);
   
-        // 3日経過（=72h）: 新規メッセージ送信
-        if (diffMs >= 3 * oneDayMs) {
+        // 3日経過（=72h）: 新規メッセージ送信（初回暴発ガード）
+        if (eligibleForNewMessage) {
           const msg = watchMessages[Math.floor(Math.random() * watchMessages.length)];
           await safePushMessage(userId, { type: 'text', text: msg });
           await doc.ref.update({
