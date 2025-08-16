@@ -1,24 +1,15 @@
-// watch-service.js
-// 見守りサービス（Cron用・単体実行）— OKボタン付きFlex送信 & 緊急通知（住所ほか全部入り）
-
-// --- Firebase & LINE 初期化 ---
+// Firebase Admin SDKの初期化とFirestoreの取得
 const admin = require('firebase-admin');
-const { Timestamp } = require('firebase-admin/firestore');
-const line = require('@line/bot-sdk');
+const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString());
 
-// Firebase
 if (!admin.apps.length) {
-  try {
-    const credentials = JSON.parse(
-      Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString()
-    );
-    admin.initializeApp({ credential: admin.credential.cert(credentials) });
-  } catch (err) {
-    console.error("❌ Firebase初期化失敗: FIREBASE_CREDENTIALS_BASE64 を確認してください。", err);
-    process.exit(1);
-  }
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
 }
+
 const db = admin.firestore();
+const usersCollection = db.collection('users');
 
 // LINE
 if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_CHANNEL_SECRET) {
