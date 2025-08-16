@@ -1428,12 +1428,6 @@ if (lowerUserMessage.includes("まあまあかな")) {
         );
       }
       return; // ここで終了
- } catch (error) {   
-      console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
-      await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId });
-      return;
-    }
-  }
 
   // ここまで来たら watch_* 以外の分岐。既存の default 応答に続く。
 
