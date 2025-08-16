@@ -122,8 +122,8 @@ if (GEMINI_API_KEY) {
 
 // ⭐重複しているclientの宣言を削除
 // const client = new Client({
-//       channelAccessToken: CHANNEL_ACCESS_TOKEN,
-//       channelSecret: CHANNEL_SECRET,
+//          channelAccessToken: CHANNEL_ACCESS_TOKEN,
+//          channelSecret: CHANNEL_SECRET,
 // });
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -165,11 +165,37 @@ async function handleEvent(event) {
         const displayName = profile.displayName;
         const userMessage = event.message.type === 'text' ? event.message.text : '';
         const lowerUserMessage = userMessage.toLowerCase();
+        const isAdmin = BOT_ADMIN_IDS.includes(userId);
 
         // Firestoreからユーザーデータを取得
         const usersCollection = db.collection('users');
         const userDoc = await usersCollection.doc(userId).get();
         const user = userDoc.exists ? userDoc.data() : { registrationStep: null, completedRegistration: false, membershipType: "guest" };
+
+        // ⭐ 管理者コマンド処理 ⭐
+        if (isAdmin && userMessage.startsWith('!')) {
+            const command = userMessage.substring(1).split(' ')[0];
+            const args = userMessage.substring(command.length + 1).trim();
+            let targetUserId = userId; // 管理者コマンドのtargetUserIdもここで定義
+
+            if (command === "set" && args.startsWith('user ')) {
+                const parts = args.split(' ');
+                if (parts.length >= 2) {
+                    targetUserId = parts[1];
+                    const newMembershipType = parts[2];
+                    if (MEMBERSHIP_CONFIG[newMembershipType]) {
+                        await updateUserData(targetUserId, { membershipType: newMembershipType });
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定しました。` });
+                        await logToDb(userId, userMessage, `ユーザー ${targetUserId} の会員種別を ${newMembershipType} に設定`, "AdminCommand", 'admin_set_membership');
+                        return;
+                    } else {
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員種別です: ${newMembershipType}` });
+                        await logToDb(userId, userMessage, `無効な会員種別: ${newMembershipType}`, "AdminCommand", 'admin_command_invalid_membership');
+                        return;
+                    }
+                }
+            }
+        }
 
         // ⭐ 退会フローを優先
         if (user.registrationStep === 'confirm_withdrawal') {
@@ -194,6 +220,7 @@ async function handleEvent(event) {
                     type: 'text',
                     text: '「はい」か「いいえ」で教えてね！'
                 });
+                await logToDb(userId, userMessage, '退会確認の再プロンプト', 'こころちゃん（退会フロー）', 'withdrawal_reprompt');
                 return;
             }
         }
@@ -204,7 +231,7 @@ async function handleEvent(event) {
                 await updateUserData(userId, { registrationStep: 'confirm_withdrawal' });
                 await client.replyMessage(event.replyToken, {
                     type: 'text',
-                    text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？💦\n「はい」か「いいえ」で教えてくれるかな？'
+                    text: '本当に退会するの？\n一度退会すると、今までの情報が消えちゃうけど、本当に大丈夫？\n「はい」か「いいえ」で教えてくれるかな？'
                 });
                 await logToDb(userId, userMessage, '退会確認メッセージ表示', 'こころちゃん（退会フロー）', 'withdrawal_request');
                 return;
@@ -318,17 +345,17 @@ const dangerWords = [
 ];
 // ⭐詐欺関連ワードリスト -- ここから貼り付け
 const scamWords = [
-    /詐欺(かも|だ|です|ですか|かもしれない)?/i,
-    /騙(す|される|された)/i,
-    /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
-    /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
-    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
-    /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
-    /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
-    /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /蓋をしないと、安全に関する警告が発せられなくなる場合があります。修理費/i, /遠隔操作/i, /セキュリティ警告/i, /年金/i, /健康保険/i, /給付金/i,
-    /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
-    /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
-    /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
+    /詐欺(かも|だ|です|ですか|かもしれない)?/i,
+    /騙(す|される|された)/i,
+    /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
+    /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
+    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
+    /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
+    /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
+    /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /蓋をしないと、安全に関する警告が発せられなくなる場合があります。修理費/i, /遠隔操作/i, /セキュリティ警告/i, /年金/i, /健康保険/i, /給付金/i,
+    /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
+    /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
+    /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
 ];
 // ⭐詐欺関連ワードリスト -- ここまで貼り付け
 const inappropriateWords = [
@@ -351,7 +378,7 @@ const empatheticTriggers = [
 ];
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
 
-// --- AIモデルと会員種別ごとの設定 ---
+// ⭐追加: ダミーのMEMBERSHIP_CONFIG定数 ⭐
 const MEMBERSHIP_CONFIG = {
     "guest": {
         dailyLimit: 5,
@@ -409,6 +436,49 @@ const MEMBERSHIP_CONFIG = {
         `
     },
 };
+
+// ⭐追加: ユーザーデータを更新する汎用関数 ⭐
+/**
+ * Firestoreのユーザーデータを更新する関数。
+ * @param {string} userId - 更新するユーザーのID
+ * @param {Object} data - 更新するデータ（フィールドと値のペア）
+ */
+async function updateUserData(userId, data) {
+    console.log(`🟡 ユーザー ${userId} のデータを更新中...`, data);
+    try {
+        await db.collection('users').doc(userId).set(data, { merge: true });
+        console.log(`✅ ユーザー ${userId} のデータを更新しました。`);
+    } catch (error) {
+        console.error(`❌ ユーザー ${userId} のデータ更新に失敗しました:`, error);
+        await logErrorToDb(userId, 'ユーザーデータ更新失敗', { error: error.message, data });
+    }
+}
+
+// ⭐追加: データベースにログを記録する汎用関数 ⭐
+/**
+ * データベースにイベントログを記録する関数。
+ * @param {string} userId - イベントを発生させたユーザーID
+ * @param {string} userMessage - ユーザーが送信したメッセージ
+ * @param {string} botResponse - ボットが返信した内容
+ * @param {string} botName - ボットの名前（'こころちゃん'など）
+ * @param {string} eventType - イベントの種類（'text', 'sticker', 'withdrawal_request'など）
+ */
+async function logToDb(userId, userMessage, botResponse, botName, eventType) {
+    console.log(`🔵 イベントログを記録中: ユーザー: ${userId}, タイプ: ${eventType}`);
+    try {
+        await db.collection('logs').add({
+            userId,
+            userMessage,
+            botResponse,
+            botName,
+            eventType,
+            timestamp: Timestamp.now()
+        });
+        console.log("✅ ログをデータベースに記録しました。");
+    } catch (error) {
+        console.error("🚨 データベースへのログ記録に失敗しました:", error);
+    }
+}
 
 // --- AIモデルの安全性設定 ---
 const AI_SAFETY_SETTINGS = [
