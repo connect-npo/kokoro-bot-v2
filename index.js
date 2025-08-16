@@ -143,9 +143,6 @@ const EMERGENCY_FLEX_MESSAGE = {
     }
 };
 
-// --- Flex Message テンプレート (見守りサービス案内) ---
-// このテンプレートのURIは handleWatchServiceRegistration 関数内で動的に生成されます。
-
 // --- 会員登録と属性変更、退会を含む新しいFlex Messageテンプレート ---
 const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
     "type": "bubble",
@@ -956,31 +953,6 @@ const SCAM_FLEX_MESSAGE = {
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "警察相談専用電話", "uri": "tel:9110" }, "color": "#32CD32" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "国民生活センター", "uri": "https://www.kokusen.go.jp/" }, "color": "#FFA500" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "こころちゃん事務局(電話)", "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` }, "color": "#ff69b4" }
-        ]
-    }
-};
-
-// --- 会員登録と属性変更、退会を含む新しいFlex Messageテンプレート ---
-// REGISTRATION_AND_CHANGE_BUTTONS_FLEX は handleEvent 関数内の「会員登録」または「登録したい」のブロックで直接Flex Messageを生成する形に修正されます。
-// そのため、この定数は使われなくなりますが、定義は残しておきます。
-const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "contents": [
-            { "type": "text", "text": "会員登録・情報変更メニュー🌸", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
-            { "type": "text", "text": "新しい会員登録、または登録情報の変更を選んでね！", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
-        ]
-    },
-    "footer": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "sm",
-        "contents": [
-            // デフォルトは成人用、ユーザーが選択肢を選ぶ形。uriは動的に設定されます。
-            { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": ADULT_FORM_BASE_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" }, // ⭐ 修正済み: ADULT_FORM_BASE_URLを使用 ⭐
-            { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
         ]
     }
 };
