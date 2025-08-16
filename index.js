@@ -1428,7 +1428,7 @@ if (lowerUserMessage.includes("まあまあかな")) {
         );
       }
       return; // ここで終了
-    } catch (error) {
+ } catch (error) {   
       console.error(`❌ 見守りサービスPostback応答処理エラー (${action}):`, error.message);
       await logErrorToDb(userId, `見守りサービスPostback応答処理エラー (${action})`, { error: error.message, userId });
       return;
