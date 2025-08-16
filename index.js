@@ -2075,21 +2075,27 @@ if (await handleWatchServiceRegistration(event, userId, userMessage, user)) {
         logType = 'consultation_message';
     }
 
-
-   // --- AI応答生成 ---
-try {
+     // --- AI応答生成 ---
+  try {
     const aiResponse = await generateAIReply(userMessage, modelToUse, userId, user, conversationHistory);
     replyText = aiResponse;
     await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-} catch (error) {
+  } catch (error) {
     console.error("❌ AI応答の送信中にエラーが発生しました:", error);
     await logErrorToDb(userId, "AI応答送信エラー", { error: error.message, userMessage: userMessage });
     await safePushMessage(userId, { type: 'text', text: "ごめんね、今ちょっとお返事できないみたい💦 もう一度試してくれるかな？" });
-}
+  }
+
+  return;               // ← （任意）イベント処理の終了が明確になる
+}                        // ★ ここで handleEvent(event) を閉じる “唯一” のカッコ
 
 // --- Leaveイベントハンドラ (グループ退出時) ---
 async function handleLeaveEvent(event) {
-// ...
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('👋 グループ/ルームから退出しました', event.source);
+  }
+  return;
+}
 
     const data = new URLSearchParams(event.postback.data);
     const action = data.get('action');
@@ -2467,4 +2473,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 サーバーはポート${PORT}で実行されています`);
 });
-
