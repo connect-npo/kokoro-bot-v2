@@ -2086,7 +2086,7 @@ try {
     await logErrorToDb(userId, "AI応答送信エラー", { error: error.message, userMessage: userMessage });
     await safePushMessage(userId, { type: 'text', text: "ごめんね、今ちょっとお返事できないみたい💦 もう一度試してくれるかな？" });
 }
-}
+
 // --- Leaveイベントハンドラ (グループ退出時) ---
 async function handleLeaveEvent(event) {
 // ...
@@ -2307,7 +2307,7 @@ async function handleFollowEvent(event) {
     }
     return;
 }
-}
+
 // --- Unfollowイベントハンドラ ---
 async function handleUnfollowEvent(event) {
     if (!event.source || !event.source.userId) {
