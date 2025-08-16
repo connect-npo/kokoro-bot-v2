@@ -54,63 +54,40 @@ const watchMessages = [
 ];
 
 // --- cronジョブ定義 ---
-// 3日に一度、見守りサービス登録ユーザーにランダムメッセージを送信
-cron.schedule('0 12 */3 * *', async () => {
+// 毎日12時に見守りサービスのチェックを実行
+cron.schedule('0 12 * * *', async () => {
     try {
-        console.log("⏰ cron: 見守りサービスのメッセージ送信を開始します...");
-        const usersRef = db.collection('users').where('watchServiceEnabled', '==', true);
-        const snapshot = await usersRef.get();
-        for (const doc of snapshot.docs) {
-            const userData = doc.data();
-            const randomIndex = Math.floor(Math.random() * watchMessages.length);
-            const randomMessage = watchMessages[randomIndex];
-            await safePushMessage(doc.id, { type: 'text', text: randomMessage });
-            await doc.ref.update({ lastScheduledWatchMessageSent: Timestamp.now() });
-        }
-        console.log("✅ cron: 見守りサービスのメッセージ送信が完了しました。");
-    } catch (error) {
-        console.error("❌ cron: 見守りサービスのメッセージ送信中にエラーが発生しました:", error);
-    }
-}, {
-    timezone: "Asia/Tokyo"
-});
-
-// 24時間後にリマインダーを送信
-cron.schedule('0 */1 * * *', async () => {
-    try {
-        console.log("⏰ cron: 24時間後リマインダーをチェックします...");
+        console.log("⏰ cron: 見守りサービスのステータスをチェックします...");
         const now = Timestamp.now().toDate();
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        const fiveHoursMs = 5 * 60 * 60 * 1000;
+
         const usersRef = db.collection('users').where('watchServiceEnabled', '==', true);
         const snapshot = await usersRef.get();
+
         for (const doc of snapshot.docs) {
             const userData = doc.data();
-            const lastActivity = userData.lastOkResponse ? userData.lastOkResponse.toDate() : new Date(0);
-            if (lastActivity < oneDayAgo && !userData.firstReminderSent) {
-                await safePushMessage(doc.id, { type: 'text', text: '前回のメッセージから24時間経ちました。大丈夫ですか？' });
-                await doc.ref.update({ firstReminderSent: true });
+            const userId = doc.id;
+            const lastActivityTime = userData.lastOkResponse ? userData.lastOkResponse.toDate() : new Date(0);
+            const lastScheduledTime = userData.lastScheduledWatchMessageSent ? userData.lastScheduledWatchMessageSent.toDate() : new Date(0);
+            const lastActionTime = lastActivityTime > lastScheduledTime ? lastActivityTime : lastScheduledTime;
+            const timeSinceLastAction = now.getTime() - lastActionTime.getTime();
+
+            // 3日経過したユーザーに新しい見守りメッセージを送信
+            if (timeSinceLastAction > 3 * oneDayMs) {
+                const randomIndex = Math.floor(Math.random() * watchMessages.length);
+                const randomMessage = watchMessages[randomIndex];
+                await safePushMessage(userId, { type: 'text', text: randomMessage });
+                await doc.ref.update({ lastScheduledWatchMessageSent: Timestamp.now(), firstReminderSent: false, emergencyNotificationSent: false });
+                continue;
             }
-        }
-        console.log("✅ cron: 24時間後リマインダーのチェックが完了しました。");
-    } catch (error) {
-        console.error("❌ cron: 24時間後リマインダーのチェック中にエラーが発生しました:", error);
-    }
-}, {
-    timezone: "Asia/Tokyo"
-});
 
-// 5時間後に緊急通知を送信
-cron.schedule('0 */1 * * *', async () => {
-    try {
-        console.log("⏰ cron: 5時間後緊急通知をチェックします...");
-        const now = Timestamp.now().toDate();
-        const fiveHoursAgo = new Date(now.getTime() - 5 * 60 * 60 * 1000);
-        const usersRef = db.collection('users').where('watchServiceEnabled', '==', true).where('firstReminderSent', '==', true);
-        const snapshot = await usersRef.get();
-        for (const doc of snapshot.docs) {
-            const userData = doc.data();
-            const lastActivity = userData.lastOkResponse ? userData.lastOkResponse.toDate() : new Date(0);
-            if (lastActivity < fiveHoursAgo && !userData.emergencyNotificationSent) {
+            // 3日以内のメッセージに返信がない場合のリマインダーと緊急通知
+            if (timeSinceLastAction > 24 * 60 * 60 * 1000 && !userData.firstReminderSent) {
+                await safePushMessage(userId, { type: 'text', text: '前回のメッセージから24時間経ちました。大丈夫ですか？' });
+                await doc.ref.update({ firstReminderSent: true });
+            } else if (timeSinceLastAction > 29 * 60 * 60 * 1000 && userData.firstReminderSent && !userData.emergencyNotificationSent) {
+                // 24時間後リマインダーから5時間経過
                 const flexMessage = {
                     type: 'flex',
                     altText: '緊急通知',
@@ -119,7 +96,15 @@ cron.schedule('0 */1 * * *', async () => {
                         body: {
                             type: 'box',
                             layout: 'vertical',
-                            contents: [{ type: 'text', text: `🚨 緊急通知 🚨\n\nユーザー: ${doc.id}と5時間以上連絡が取れていません。\n\n緊急連絡先: ${EMERGENCY_CONTACT_PHONE_NUMBER}`, wrap: true }]
+                            contents: [
+                                { type: 'text', text: '🚨 【見守りサービス緊急通知】 🚨', weight: 'bold', color: '#ff0000', size: 'md' },
+                                { type: 'separator', margin: 'md' },
+                                { type: 'box', layout: 'vertical', margin: 'md', contents: [
+                                    { type: 'text', text: `👤 氏名：${userData.name || '不明'}`, size: 'sm', wrap: true },
+                                    { type: 'text', text: `📱 電話番号：${userData.phone || '不明'}`, size: 'sm', wrap: true },
+                                    { type: 'text', text: `📞 緊急連絡先：${userData.emergencyContact || EMERGENCY_CONTACT_PHONE_NUMBER}`, size: 'sm', wrap: true }
+                                ]}
+                            ]
                         }
                     }
                 };
@@ -129,14 +114,13 @@ cron.schedule('0 */1 * * *', async () => {
                 await doc.ref.update({ emergencyNotificationSent: true });
             }
         }
-        console.log("✅ cron: 5時間後緊急通知のチェックが完了しました。");
+        console.log("✅ cron: 見守りサービスのチェックが完了しました。");
     } catch (error) {
-        console.error("❌ cron: 5時間後緊急通知のチェック中にエラーが発生しました:", error);
+        console.error("❌ cron: 見守りサービスのチェック中にエラーが発生しました:", error);
     }
 }, {
     timezone: "Asia/Tokyo"
 });
-
 
 // 危険・詐欺ワードの定期チェック
 cron.schedule('*/5 * * * *', async () => {
@@ -150,4 +134,3 @@ cron.schedule('*/5 * * * *', async () => {
 if (require.main === module) {
     console.log("▶️ watch-service.js が起動しました。cronジョブが実行されます。");
 }
-
