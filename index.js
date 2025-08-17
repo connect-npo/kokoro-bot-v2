@@ -96,12 +96,6 @@ try {
     process.exit(1);
 }
 
-// --- LINEクライアントの初期化 ---
-client = new line.Client({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
-});
-
 // --- グローバル変数 ---
 const models = {};
 if (GEMINI_API_KEY) {
