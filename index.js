@@ -604,7 +604,7 @@ async function handleEventSafely(event) {
         const user = await getUserData(userId);
         const today = new Date().toISOString().slice(0, 10);
         
-        // ⭐ 退会フローを優先
+        // ⭐ 退会フローを最優先
         if (user.registrationStep === 'confirm_withdrawal') {
             if (lowerUserMessage === 'はい') {
                 await db.collection('users').doc(userId).delete();
@@ -637,7 +637,7 @@ async function handleEventSafely(event) {
             }
         }
 
-        // ⭐ 固定応答のチェックを最優先に実行 ⭐
+        // ⭐ まずは固定応答のチェックを最優先に実行 ⭐
         const specialReply = checkSpecialReply(userMessage);
         if (specialReply) {
             console.log("🌸 固定応答を送信します。");
@@ -674,7 +674,7 @@ async function handleEventSafely(event) {
             }
             return;
         }
-        
+
         // --- 通常の応答処理 ---
 
         // --- 会員登録・属性変更フロー ---
