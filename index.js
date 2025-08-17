@@ -5,7 +5,8 @@
 /* eslint-disable no-use-before-define */
 
 "use strict";
-require("dotenv").config();
+// require("dotenv").config(); // Render環境では不要なためコメントアウト
+
 const line = require("@line/bot-sdk");
 const express = require("express");
 const admin = require("firebase-admin");
@@ -486,15 +487,12 @@ async function generateAIReply(userMessage, modelToUse, userId, user) {
     const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
     const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
     const isUserChildCategory = (user && (user.category === '小学生' || user.category === '中学生～大学生'));
-    let systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
-ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
+    let systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
 必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
 共感・安心・やさしさが最優先です。
 「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
 医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
-${userConfig.systemInstructionModifier}
-`;
-
+${userConfig.systemInstructionModifier}`;
     if (modelToUse === "gpt-4o") {
         systemInstruction += `
         ユーザーは危険または詐欺の可能性のある内容を話しています。
@@ -574,7 +572,8 @@ function getAIModelForUser(user, userMessage) {
 
 // ---- Webhook（最短ACKパターン） ----
 const app = express();
-app.use(express.json()); // JSONボディをパース
+
+// ✅ 修正された express.json() の位置
 app.post('/webhook', line.middleware(config), (req, res) => {
     // 1) まず即ACK（< 500ms目標）
     res.status(200).end();
@@ -588,6 +587,8 @@ app.post('/webhook', line.middleware(config), (req, res) => {
         }
     });
 });
+
+app.use(express.json()); // ✅ 他のAPIエンドポイント用に後方へ移動
 
 /**
  * LINEのイベントを安全に処理するメイン関数。
@@ -653,7 +654,7 @@ async function handleEventSafely(event) {
         }
 
         if (isScam) {
-            console.log("🚨 詐欺ワードを検知。注意喚起をFlexメッセージで送信します。");
+            console.log("🚨 詐欺ワードを検知。詐欺対策情報をFlexメッセージで送信します。");
             await client.replyMessage(event.replyToken, SCAM_FLEX_MESSAGE);
             await logToDb(userId, userMessage, JSON.stringify(SCAM_FLEX_MESSAGE), "こころちゃん", "scam_word_triggered");
             // オフィサーグループへの通知ロジックも追加
@@ -663,65 +664,52 @@ async function handleEventSafely(event) {
             }
             return;
         }
-
-        if (isInappropriate) {
-            console.log("⚠️ 不適切ワードを検知。固定応答を送信します。");
-            await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね💦 そのお話は、わたしにはちょっと難しいみたい。別のことを話してくれるとうれしいな🌸' });
-            await logToDb(userId, userMessage, '不適切ワードに対する固定応答', 'こころちゃん', 'inappropriate_word_triggered');
-            return;
-        }
-
-        // ⭐ 固定応答のチェック ⭐
+        
+        // --- 通常の応答処理 ---
         const specialReply = checkSpecialReply(userMessage);
         if (specialReply) {
+            console.log("🌸 固定応答を送信します。");
             await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
-            await logToDb(userId, userMessage, specialReply, 'こころちゃん', 'special_reply');
+            await logToDb(userId, userMessage, specialReply, "こころちゃん", "special_reply");
             return;
         }
 
-        // ⭐ 組織関連の問い合わせチェック ⭐
-        if (isOrganizationInquiry(userMessage)) {
-            const ORGANIZATION_REPLY_MESSAGE = "うん、NPO法人コネクトのこと、もっと知りたいんだね🌸　コネクトは、子どもたちや高齢者の方々、そしてみんなが安心して相談できる場所を目指している団体なんだよ😊　困っている人が安心して相談できたり、助け合えるような社会を社会をつくりたいって願って、活動しているんだ。\nもっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org";
-            await client.replyMessage(event.replyToken, { type: 'text', text: ORGANIZATION_REPLY_MESSAGE });
-            await logToDb(userId, userMessage, ORGANIZATION_REPLY_MESSAGE, 'こころちゃん', 'organization_inquiry_fixed');
+        // --- 会員登録・属性変更フロー ---
+        if (lowerUserMessage === '会員登録' || lowerUserMessage === 'かいんとうろく' || lowerUserMessage === '属性変更' || lowerUserMessage === 'ぞくせいへんこう') {
+            await client.replyMessage(event.replyToken, REGISTRATION_AND_CHANGE_BUTTONS_FLEX);
+            logToDb(userId, userMessage, JSON.stringify(REGISTRATION_AND_CHANGE_BUTTONS_FLEX), "こころちゃん", "registration_buttons_display");
             return;
         }
 
-        // ⭐ AIモデルの選択と応答生成 ⭐
+        // 会話数制限チェック
         const modelToUse = getAIModelForUser(user, userMessage);
-        
-        // ⭐ 利用回数制限のチェック ⭐
         if (modelToUse === "limit_exceeded") {
-            const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
+            const userConfig = MEMBERSHIP_CONFIG[user.membershipType];
             await client.replyMessage(event.replyToken, { type: 'text', text: userConfig.exceedLimitMessage });
-            await logToDb(userId, userMessage, userConfig.exceedLimitMessage, 'こころちゃん', 'daily_limit_exceeded');
+            logToDb(userId, userMessage, userConfig.exceedLimitMessage, "こころちゃん", "conversation_limit_exceeded");
             return;
         }
+
+        // --- AI応答生成と送信 ---
+        const aiReply = await generateAIReply(userMessage, modelToUse, userId, user);
+        await client.replyMessage(event.replyToken, { type: 'text', text: aiReply });
         
-        let aiResponse = await generateAIReply(userMessage, modelToUse, userId, user);
+        // 会話数をカウントアップ
+        const todayCount = (user.dailyCounts[today] || 0) + 1;
+        await updateUserData(userId, { dailyCounts: { ...user.dailyCounts, [today]: todayCount } });
+        logToDb(userId, userMessage, aiReply, "こころちゃん", "normal_chat_reply");
 
-        // 応答があった場合のみユーザーに返信
-        if (aiResponse) {
-            await client.replyMessage(event.replyToken, { type: 'text', text: aiResponse });
-        } else {
-            console.error("❌ AIからの応答がありませんでした。");
-            await logErrorToDb(userId, 'AIからの応答が空', { userMessage });
+    } catch (error) {
+        console.error("❌ イベント処理中にエラーが発生しました:", error);
+        await logErrorToDb(userId, 'イベント処理中の予期せぬエラー', { event: event, error: error.message });
+        if (event.replyToken) {
+            await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、今ちょっと調子が悪いの。少し時間を置いてからまた話しかけてくれるかな？' });
         }
-
-        // メッセージカウントを更新
-        const newDailyCounts = user.dailyCounts;
-        newDailyCounts[today] = (newDailyCounts[today] || 0) + 1;
-        await updateUserData(userId, { dailyCounts: newDailyCounts });
-        await logToDb(userId, userMessage, aiResponse, 'こころちゃん', 'normal_conversation');
-
-    } catch (err) {
-        console.error("❌ イベント処理中にエラーが発生しました:", err);
-        await logErrorToDb(userId, 'イベント処理エラー', { event: JSON.stringify(event), error: err.message });
     }
 }
 
-// サーバー起動
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+// --- サーバー起動 ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 サーバーはポート${PORT}で実行されています`);
 });
