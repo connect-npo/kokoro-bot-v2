@@ -205,7 +205,7 @@ const specialRepliesMap = new Map([
     [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
-    [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY], // 好きな曲の質問にはこの固定応答
+    [/ClariSのなんて曲が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY], // 好きな曲の質問にはこの固定応答
 ]);
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
@@ -650,15 +650,6 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-// 例：イベント処理の安全ラッパ
-async function handleEventSafely(event) {
-    try {
-        await handleEvent(event); // ここは今まで通り
-    } catch (err) {
-        console.error('handleEvent error:', err);
-    }
-}
-
 // ⭐ Webhookの後にexpress.json()を配置 ⭐
 // LINEの署名検証はRAWボディを必要とするため、Webhookの後に配置する
 app.use(express.json());
@@ -667,8 +658,6 @@ app.use(express.json());
  * LINEのイベントを処理するメイン関数。
  * @param {Object} event - LINEプラットフォームから送られてきたイベントオブジェクト
  */
-async function handleEvent(event) {
-    console.log(`Received event: ${JSON.stringify(event)}`);
 
     try {
         const userId = event.source.userId;
@@ -2180,41 +2169,6 @@ async function shouldRespond(userId) {
     return true;
 }
 
-// --- LINEイベントハンドラ ---
-async function handleEvent(event) { // ⭐ async キーワードがここにあることを確認 ⭐
-    if (!event || !event.source || !event.message || event.message.type !== 'text') {
-        if (process.env.NODE_ENV !== 'production') {
-            console.log("Non-text message or malformed event received. Ignoring:", event);
-        }
-        return;
-    }
-
-    let userId;
-    let sourceId;
-
-    if (event.source.type === 'user') {
-        userId = event.source.userId;
-        sourceId = event.source.userId;
-    } else if (event.source.type === 'group') {
-        userId = event.source.userId;
-        sourceId = event.source.groupId;
-    } else {
-        if (process.env.NODE_ENV !== 'production') {
-            console.log("Unsupported event source type. Ignoring event:", event);
-        }
-        return;
-    }
-
-    if (!isBotAdmin(userId)) {
-        if (!(await shouldRespond(userId))) {
-            return;
-        }
-    }
-
-    const userMessage = event.message.text;
-    const lowerUserMessage = userMessage.toLowerCase();
-    const isAdmin = isBotAdmin(userId);
-
     // ⭐ ユーザーデータを最初に取得し、常に最新の状態を保つ ⭐
     let user = await getUserData(userId);
     const usersCollection = db.collection('users');
@@ -2329,8 +2283,6 @@ async function handleEvent(event) { // ⭐ async キーワードがここにあ�
     let replyText = "";
     let responsedBy = "AI";
     let logType = "normal_conversation";
-
-async function handleEvent(event) {
     
     // ⭐ 退会フローのハンドリングを最優先 ⭐
     if (lowerUserMessage === '退会' || lowerUserMessage === 'たいかい') {
@@ -2362,15 +2314,102 @@ async function handleEvent(event) {
         }
     }
 
- async function handleEvent(event) {
-    // ... （元のhandleEvent関数はそのまま）
-    if (event.type !== 'message' || event.message.type !== 'text') {
+/**
+ * LINEプラットフォームからのWebhookイベントを安全に処理するラッパー関数
+ * @param {object} event - LINEからのイベントオブジェクト
+ * @returns {Promise<void>}
+ */
+async function handleEventSafely(event) {
+    try {
+        await handleEvent(event);
+    } catch (err) {
+        console.error('handleEventSafely内でエラーをキャッチしました:', err);
+        await logErrorToDb(event ? event.source.userId : null, "handleEventSafely処理エラー", { error: err.message });
+        if (event && event.replyToken) {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'ごめんなさい、ちょっと調子が悪いみたいです。後でまた話しかけてね。'
+            });
+        }
+    }
+}
+
+/**
+ * LINEプラットフォームからのWebhookイベントを処理するハンドラ関数
+ * この関数は、handleEventSafelyから呼び出されます
+ * @param {object} event - LINEからのイベントオブジェクト
+ * @returns {Promise<void>}
+ */
+async function handleEvent(event) {
+    // try-catchブロックはhandleEventSafelyが処理するので、ここでは不要です。
+    const userId = event.source.userId;
+    const eventSourceType = event.source.type;
+
+    // イベントソースタイプが 'グループ'の場合
+    if (eventSourceType === 'group' || eventSourceType === 'room') {
+        const groupId = event.source.groupId || event.source.roomId;
+        const message = {
+            type: 'text',
+            text: `⚠︎\nこのグループは現在「こころちゃん」のサービス対象外です。\n\n「こころちゃん」の個別チャットは、私を友達追加して1:1で話しかけてください。\n\n友達追加はこちら\n${process.env.LINE_FRIEND_ADD_URL}`
+        };
+        if (OFFICER_GROUP_ID && groupId === OFFICER_GROUP_ID && event.type === 'message') {
+            return; // オフィサーグループでのメッセージは無視する
+        }
+        // グループ・ルームには応答しない
         return;
     }
 
-    const userId = event.source.userId;
-    const userMessage = event.message.text;
-    const lowerUserMessage = userMessage.toLowerCase();
+    // ユーザーが存在するか確認
+    const userDoc = await usersCollection.doc(userId).get();
+    if (!userDoc.exists) {
+        console.warn(`⚠️ 未知のユーザーからのイベントを受信しました: ${userId}`);
+        // 新規ユーザーとして登録を促すメッセージを送信
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: '🌸はじめまして！「こころちゃん」です。\nこのアカウントは、1対1のチャット専用です。友達追加ありがとうございます！\n\nあなたのことを少しだけ教えてくれると嬉しいな😊'
+        });
+        await logsCollection.add({
+            userId: userId,
+            userMessage: '新規ユーザー登録促し',
+            botResponse: '新規登録メッセージを送信',
+            module: 'webhook',
+            type: 'new_user_prompt',
+            timestamp: Timestamp.now()
+        });
+        return;
+    }
+
+    // ユーザー情報を取得
+    const userData = userDoc.data();
+    const userStatus = userData.status;
+    const watchServiceEnabled = userData.watchServiceEnabled;
+
+    // ユーザーからの応答を処理
+    if (watchServiceEnabled) {
+        await usersCollection.doc(userId).update({
+            firstReminderSent: false,
+            emergencyNotificationSent: false,
+            lastResponseAt: Timestamp.now()
+        });
+        console.log(`✅ ユーザー ${userId} からの応答を確認しました。見守りステータスをリセットします。`);
+    }
+
+    // イベントのタイプに応じた処理
+    if (event.type === 'message' && event.message.type === 'text') {
+        // テキストメッセージの処理
+        const userMessage = event.message.text;
+        console.log(`💬 ユーザーからのテキストメッセージ: ${userMessage}`);
+        await logToDb(userId, userMessage, null, 'webhook', 'user_message');
+        // ... ここにAI応答のロジックを続ける
+        // (例) const response = await getGeminiResponse(userMessage, userId);
+        // await client.replyMessage(event.replyToken, { type: 'text', text: response });
+    } else {
+        // テキストメッセージ以外の処理
+        console.log(`🖼️ テキスト以外のメッセージを受信: ${event.type}`);
+        await logToDb(userId, null, 'テキスト以外のメッセージ', 'webhook', 'non_text_message');
+        // ... 必要に応じてスタンプや画像の応答ロジックを追加
+    }
+}
 
     // ユーザーデータを取得
     let user = await getUserData(userId);
