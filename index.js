@@ -157,6 +157,12 @@ const specialRepliesMap = new Map([
     [/clarisとルミナス/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisとカラフル/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと.*(繋がり|関係)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    // ↑↑↑ここまでは前回の修正通りです。これらに加えて、より柔軟なパターンを追加します。
+    [/(コネクト).*(団体|npo|法人)?.*(関係|繋がり|由来|同じ|元ネタ|曲|歌)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
+    [/claris.*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
+    [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
+
     // ⭐ 既存の固定応答（一部修正・調整） ⭐
     [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
@@ -172,15 +178,15 @@ const specialRepliesMap = new Map([
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
-    [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
-    [/コネクトのホームページだよ？/i, "教えてくれてありがとう😊 コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
+    // ⭐ HP URL修正とパターン追加 ⭐
+    [/ホームページ.*(教えて|ある|あるの|ある？|ありますか|URL|url|アドレス)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
+    [/コネクト.*ホームページ/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
     [/使えないな/i, "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
     [/サービス辞めるわ/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
     [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
     [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
-    [/ClariSのなんて曲が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY], // 好きな曲の質問にはこの固定応答
 ]);
 
 // --- 危険・詐欺・不適切ワードリスト ---
@@ -321,7 +327,6 @@ function shouldLogMessage(logType) {
         'watch_service_unregister', 'watch_service_unregister_error', 'watch_service_not_registered_on_unregister',
         'registration_info_change_guide', 'registration_info_change_unknown_category',
         'duplicate_message_ignored'
-        // 'normal_chat_reply' ← これを削除する
     ];
     if (defaultLogTypes.includes(logType)) {
         return true;
@@ -346,10 +351,10 @@ async function logErrorToDb(userId, message, details = {}) {
 }
 
 async function updateUserData(userId, data) {
-    console.log(`🟡 ユーザー ${userId} のデータを更新中...`, data);
+    // console.log(`🟡 ユーザー ${userId} のデータを更新中...`, data); // コメントアウトしてログを静かにします
     try {
         await db.collection('users').doc(userId).set(data, { merge: true });
-        console.log(`✅ ユーザー ${userId} のデータを更新しました。`);
+        // console.log(`✅ ユーザー ${userId} のデータを更新しました。`); // コメントアウトしてログを静かにします
     } catch (error) {
         console.error(`❌ ユーザー ${userId} のデータ更新に失敗しました:`, error);
         await logErrorToDb(userId, 'ユーザーデータ更新失敗', { error: error.message, data });
@@ -360,7 +365,7 @@ async function logToDb(userId, userMessage, botResponse, botName, eventType) {
     if (!shouldLogMessage(eventType)) {
         return;
     }
-    console.log(`🔵 イベントログを記録中: ユーザー: ${userId}, タイプ: ${eventType}`);
+    // console.log(`🔵 イベントログを記録中: ユーザー: ${userId}, タイプ: ${eventType}`);
     try {
         await db.collection('logs').add({
             userId,
@@ -370,7 +375,7 @@ async function logToDb(userId, userMessage, botResponse, botName, eventType) {
             eventType,
             timestamp: Timestamp.now()
         });
-        console.log("✅ ログをデータベースに記録しました。");
+        // console.log("✅ ログをデータベースに記録しました。");
     } catch (error) {
         console.error("🚨 データベースへのログ記録に失敗しました:", error);
     }
@@ -574,7 +579,6 @@ function getAIModelForUser(user, userMessage) {
 // ---- Webhook（最短ACKパターン） ----
 const app = express();
 
-// ✅ 修正された express.json() の位置
 app.post('/webhook', line.middleware(config), (req, res) => {
     // 1) まず即ACK（< 500ms目標）
     res.status(200).end();
@@ -589,7 +593,7 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-app.use(express.json()); // ✅ 他のAPIエンドポイント用に後方へ移動
+app.use(express.json());
 
 /**
  * LINEのイベントを安全に処理するメイン関数。
@@ -599,9 +603,20 @@ async function handleEventSafely(event) {
     const userId = event.source.userId;
     const userMessage = event.message.type === 'text' ? event.message.text : '';
     const lowerUserMessage = userMessage.toLowerCase();
+    
+    // ⭐ 直前トピック（5分）有効期限 ⭐
+    const saidClarisNow = /claris|クラリス/i.test(userMessage);
+    const user = await getUserData(userId);
+    const now = Date.now();
+    const lastClarisTs = user?.tempRegistrationData?.lastClarisTs || 0;
+    const recentClaris = now - lastClarisTs < 5 * 60 * 1000;
+    if (saidClarisNow) {
+        await updateUserData(userId, { 
+            tempRegistrationData: { ...(user.tempRegistrationData||{}), lastClarisTs: now }
+        });
+    }
 
     try {
-        const user = await getUserData(userId);
         const today = new Date().toISOString().slice(0, 10);
         
         // ⭐ 退会フローを最優先
@@ -638,11 +653,17 @@ async function handleEventSafely(event) {
         }
 
         // ⭐ まずは固定応答のチェックを最優先に実行 ⭐
-        const specialReply = checkSpecialReply(userMessage);
+        let specialReply = checkSpecialReply(userMessage);
+        // 直前ClariSがある時、「コネクト 関係ある？」系だけでも包括返答を出す
+        if (!specialReply && recentClaris && /(コネクト).*(関係|繋がり|由来|同じ|元ネタ|曲|歌)/i.test(userMessage)) {
+            specialReply = CLARIS_CONNECT_COMPREHENSIVE_REPLY;
+        }
+
         if (specialReply) {
             console.log("🌸 固定応答を送信します。");
             await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
-            await logToDb(userId, userMessage, specialReply, "こころちゃん", "special_reply");
+            // 通常会話ではないため、ログは記録
+            logToDb(userId, userMessage, specialReply, "こころちゃん", "special_reply");
             return;
         }
 
@@ -672,6 +693,14 @@ async function handleEventSafely(event) {
                 const message = `🚨【詐欺ワード検知】🚨\nユーザーID: ${userId}\nメッセージ: ${userMessage}`;
                 await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: message });
             }
+            return;
+        }
+        
+        if (isInappropriate) {
+            console.log("❌ 不適切ワードを検知しました。");
+            const responseMessage = `ごめんなさい、その言葉はわたしにはわからないな。別の言葉でお話してほしいな。🌸`;
+            await client.replyMessage(event.replyToken, { type: 'text', text: responseMessage });
+            await logToDb(userId, userMessage, responseMessage, "こころちゃん", "inappropriate_word_triggered");
             return;
         }
 
