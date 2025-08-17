@@ -9,6 +9,7 @@ const { Client } = require('@line/bot-sdk');
 const crypto = require('crypto');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
+const cron = require('node-cron'); // cronモジュールを追加
 
 // --- 環境変数 ---
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -17,6 +18,41 @@ const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313';
 const WATCH_MESSAGE_ENABLED = process.env.WATCH_MESSAGE_ENABLED === 'true';
+
+// ⭐--- 30通りの見守りメッセージを直接コードに定義 ---⭐
+// これでwatch-db.jsonがなくてもメッセージを送信できます
+const watchMessages = [
+    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
+    "やっほー！ こころだよ😊 いつも応援してるね！",
+    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
+    "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
+    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+    "お元気ですか？こころちゃんです😊 素敵な一日を過ごせていますように！",
+    "こんにちは！こころだよ🌸 毎日がんばっていて偉いね✨",
+    "やっほー！今日も一日お疲れ様💖 少しでもホッとできる時間がありますように。",
+    "ねぇ、こころだよ😊 困ったことがあったらいつでも話してね！",
+    "こんにちは🌸 あなたのことが気になってメッセージしちゃった💖",
+    "やっほー！こころちゃんです😊 元気に過ごしてるかな？",
+    "元気出してね！こころちゃんはいつもあなたの味方だよ💖",
+    "こんにちは✨ こころちゃん、あなたのことを想ってるよ😊",
+    "やっほー！気分転換に何か楽しいこと見つかったかな？�",
+    "元気かな？🌸 こころだよ！もしよかったらお話しようね😊",
+    "こんにちは💖 こころちゃんです！あなたの笑顔が見たいな✨",
+    "やっほー😊 久しぶりにメッセージしちゃった！元気にしてる？",
+    "ねぇ、こころだよ🌸 今、何してるのかな？💖",
+    "元気？😊 こころちゃんです！何か良いことあった？",
+    "こんにちは✨ こころだよ！もし疲れたら無理しないでね💖",
+    "やっほー！今日も一日お疲れ様🌸 ゆっくり休んでね😊",
+    "ねぇねぇ、こころだよ💖 忙しい毎日だけど、息抜きも大切だよ✨",
+    "元気にしてるかな？こころちゃんはいつもここにいるよ😊",
+    "こんにちは！🌸 こころだよ！あなたのこと、いつも考えてるよ💖",
+    "やっほー！こころちゃんです😊 お話するの、楽しみにしているね！",
+    "元気？💖 もしよかったら、最近のことを話してくれないかな？",
+    "こんにちは✨ こころだよ！何か手伝えることがあったら言ってね😊",
+    "やっほー！今日もがんばってるね🌸 応援してるよ💖",
+    "ねぇ、こころだよ😊 あなたの存在が、私にとって大切だよ✨",
+    "元気かな？💖 こころちゃんです！あなたの毎日が幸せでありますように！"
+];
 
 // --- Firebase Admin SDKの初期化 ---
 let db;
@@ -124,7 +160,6 @@ function safePushMessage(to, messages) {
     startMessageQueueWorker();
 }
 
-
 // --- 汎用関数 ---
 function getRandomInt(min, max) {
   min = Math.ceil(min);
@@ -139,65 +174,57 @@ async function getUserData(userId) {
   return { id: userDoc.id, ...userDoc.data() };
 }
 
-// ランダムな見守りメッセージを取得する関数
+// ⭐--- ランダムな見守りメッセージを取得する関数を修正 ---⭐
+// watchMessages配列からランダムにメッセージを取得するように変更
 async function getRandomWatchMessage() {
-  const snapshot = await watchMessagesCollection.get();
-  const messages = [];
-  snapshot.forEach(doc => {
-    const data = doc.data();
-    if (data.message) {
-      messages.push(data.message);
-    }
-  });
-
-  if (messages.length > 0) {
-    const randomIndex = Math.floor(Math.random() * messages.length);
-    return messages[randomIndex];
+  if (watchMessages.length > 0) {
+    const randomIndex = Math.floor(Math.random() * watchMessages.length);
+    return watchMessages[randomIndex];
   }
   return null;
 }
 
 // 緊急通知を送信する関数
 async function sendEmergencyNotification(user) {
-  console.log(`🚨 緊急通知を送信します。ユーザーID: ${user.id}`);
-  const logDetails = {
-    userId: user.id,
-    type: 'emergency_notification'
-  };
+    console.log(`🚨 緊急通知を送信します。ユーザーID: ${user.id}`);
+    const logDetails = {
+        userId: user.id,
+        type: 'emergency_notification'
+    };
 
-  const emergencyMessage = {
-    type: 'text',
-    text: `🚨【緊急】${user.name}さんからの応答がありません。緊急事態が懸念されます。\n緊急連絡先: ${user.guardianName}様\n電話番号: ${user.guardianPhoneNumber}\n`
-  };
+    const emergencyMessage = {
+        type: 'text',
+        text: `🚨【緊急】${user.name}さんからの応答がありません。緊急事態が懸念されます。\n緊急連絡先: ${user.guardianName}様\n電話番号: ${user.guardianPhoneNumber}\n`
+    };
 
-  const pushEmergencyMessage = async (targetId) => {
-    try {
-      await client.pushMessage(targetId, emergencyMessage);
-      console.log(`✅ 緊急通知を ${targetId} に送信しました。`);
-      logDetails.pushMessageTo = targetId;
-      await logToDb(user.id, '緊急通知送信', '緊急通知を送信しました', 'watch-service', 'emergency_push_success');
-    } catch (e) {
-      console.error(`❌ 緊急通知の送信失敗 to ${targetId}:`, e);
-      logDetails.pushMessageError = e.message;
-      await logErrorToDb(user.id, `緊急通知送信失敗 to ${targetId}`, { error: e.message });
+    const pushEmergencyMessage = async (targetId) => {
+        try {
+            await client.pushMessage(targetId, emergencyMessage);
+            console.log(`✅ 緊急通知を ${targetId} に送信しました。`);
+            logDetails.pushMessageTo = targetId;
+            await logToDb(user.id, '緊急通知送信', '緊急通知を送信しました', 'watch-service', 'emergency_push_success');
+        } catch (e) {
+            console.error(`❌ 緊急通知の送信失敗 to ${targetId}:`, e);
+            logDetails.pushMessageError = e.message;
+            await logErrorToDb(user.id, `緊急通知送信失敗 to ${targetId}`, { error: e.message });
+        }
+    };
+
+    // 担当者グループへ通知
+    if (OFFICER_GROUP_ID) {
+        await pushEmergencyMessage(OFFICER_GROUP_ID);
     }
-  };
 
-  // 担当者グループへ通知
-  if (OFFICER_GROUP_ID) {
-    await pushEmergencyMessage(OFFICER_GROUP_ID);
-  }
+    // 緊急連絡先へメッセージを送信（LINE）
+    if (user.guardianLineUserId) {
+        await pushEmergencyMessage(user.guardianLineUserId);
+    }
 
-  // 緊急連絡先へメッセージを送信（LINE）
-  if (user.guardianLineUserId) {
-    await pushEmergencyMessage(user.guardianLineUserId);
-  }
-
-  // 最後の緊急通知時間を記録
-  await usersCollection.doc(user.id).update({
-    lastEmergencyNotificationSent: admin.firestore.FieldValue.serverTimestamp(),
-    emergencyNotificationSent: true
-  });
+    // 最後の緊急通知時間を記録
+    await usersCollection.doc(user.id).update({
+        lastEmergencyNotificationSent: admin.firestore.FieldValue.serverTimestamp(),
+        emergencyNotificationSent: true
+    });
 }
 
 // --- 本体 ---
