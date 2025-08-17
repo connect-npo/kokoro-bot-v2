@@ -77,7 +77,6 @@ function addParamToFormUrl(baseUrl, paramName, paramValue) {
 
 // --- Firebase Admin SDKの初期化 ---
 let db;
-let client;
 try {
     if (!getApps().length) {
         if (!FIREBASE_CREDENTIALS_BASE64) {
