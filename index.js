@@ -58,8 +58,8 @@ const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // AIモデル定義
 const models = {
-    geminiPro: genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest", systemInstruction: "こころちゃんとして振る舞ってください。" }),
-    geminiFlash: genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest", systemInstruction: "こころちゃんとして振る舞ってください。" }),
+    geminiPro: genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" }),
+    geminiFlash: genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" }),
     gpt4o: openai,
     gpt4omini: openai
 };
@@ -143,24 +143,22 @@ const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、も�
 // --- 固定応答 (SpecialRepliesMap) ---
 const specialRepliesMap = new Map([
     // ⭐ ClariSとNPOコネクトの繋がりに関するトリガーを最優先で追加 ⭐
-    // 直接的なキーワードの組み合わせ
+    // ユーザーの実際の質問例をカバー
     [/claris.*(関係|繋がり|関連|一緒|同じ|名前|由来).*(コネクト|団体|npo|法人|ルミナス|カラフル)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/(コネクト|団体|npo|法人|ルミナス|カラフル).*(関係|繋がり|関連|一緒|同じ|名前|由来).*claris/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    // ユーザーの実際の質問例をカバー
-    [/君のいるところと一緒の団体名だね\s*関係ある？/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // "君のいるところ"を明示的にカバー
-    [/clarisと関係あるのか聴いたんだけど/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // ユーザーの再度の問いかけ
-    [/clarisの歌を真似したのかな/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // ユーザーの推測もカバー
-    [/NPOコネクトとClariSのコネクト繋がり/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY], // ユーザーの具体的な質問例に対応
+    [/君のいるところと一緒の団体名だね\s*関係ある？/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    [/clarisと関係あるのか聴いたんだけど/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    [/clarisの歌を真似したのかな/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    [/NPOコネクトとClariSのコネクト繋がり/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisとコネクト/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと団体名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと法人名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisとルミナス/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisとカラフル/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと.*(繋がり|関係)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    // ↑↑↑ここまでは前回の修正通りです。これらに加えて、より柔軟なパターンを追加します。
-    [/(コネクト).*(団体|npo|法人)?.*(関係|繋がり|由来|同じ|元ネタ|曲|歌)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    [/ClariS.*(じゃない|じゃなかった|違う|ちがう)/i, CLARIS_SONG_FAVORITE_REPLY],
+    [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
-    [/claris.*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
 
     // ⭐ 既存の固定応答（一部修正・調整） ⭐
@@ -168,7 +166,8 @@ const specialRepliesMap = new Map([
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
-    [/どこの団体なの？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
+    [/(どこの\s*)?団体(なの|ですか)?[？\?~～]?/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
+    [/団体.*(どこ|なに|何)/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/コネクトってどんな団体？/i, "NPO法人コネクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　わたしはそのイメージキャラクターとしてがんばってます🌸"],
     [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援しているよ🌸"], // 返答を調整
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
@@ -179,8 +178,8 @@ const specialRepliesMap = new Map([
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
     // ⭐ HP URL修正とパターン追加 ⭐
-    [/ホームページ.*(教えて|ある|あるの|ある？|ありますか|URL|url|アドレス)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
-    [/コネクト.*ホームページ/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
+    [/(ホームページ|HP|ＨＰ|サイト|公式|リンク).*(教えて|ある|ありますか|URL|url|アドレス|どこ)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
+    [/(コネクト|connect).*(ホームページ|HP|ＨＰ|サイト|公式|リンク)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
     [/使えないな/i, "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
     [/サービス辞めるわ/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
     [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
@@ -493,21 +492,34 @@ async function generateAIReply(userMessage, modelToUse, userId, user) {
     const userMembershipType = user && user.membershipType ? user.membershipType : "guest";
     const userConfig = MEMBERSHIP_CONFIG[userMembershipType] || MEMBERSHIP_CONFIG["guest"];
     const isUserChildCategory = (user && (user.category === '小学生' || user.category === '中学生～大学生'));
-    let systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
-必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
-共感・安心・やさしさが最優先です。
-「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
-医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
+    
+    // ⭐ 通常時の基本ペルソナ ⭐
+    let systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
+フレンドリーで、素直で、具体的に答えるようにしてください。
+質問には可能な範囲でハッキリと答えてください。
+事実関係（所属やHPなど）は曖昧にせず、簡潔に答えてください。
 ${userConfig.systemInstructionModifier}`;
-    if (modelToUse === "gpt-4o") {
+
+    // ⭐ 危険・詐欺時のみ、危機対応の追加指示を足す ⭐
+    const isDangerous = checkContainsDangerWords(userMessage);
+    const isScam = checkContainsScamWords(userMessage);
+    if (isDangerous || isScam) {
         systemInstruction += `
-        ユーザーは危険または詐欺の可能性のある内容を話しています。
-        あなたは、まずユーザーの感情に寄り添い、安心させる言葉をかけてください。
-        次に、「一人で抱え込まないでね」「専門の人が助けてくれるから安心して」といった言葉で、サポートがあることを伝えてください。
+        # 危険・詐欺が疑われる時の追加指示
+        あなたはユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
+        共感・安心・やさしさが最優先です。「一人で抱え込まないでね」「いつでも私がそばにいるよ」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
         具体的な対処法や連絡先については、この応答の後に表示されるボタンやメッセージで案内されることを示唆するような形で、直接的な連絡先の記載は避けてください。（例: 「詳しい情報は、このあとに表示されるメッセージを確認してね」）
         あくまで、共感と安心感を与えることを最優先し、ユーザーを落ち着かせてください。
         `;
-    } else if (modelToUse === "gpt-4o-mini") {
+    } else {
+        // ⭐ 通常時のペルソナ補足 ⭐
+        systemInstruction += `
+        # 通常時の追加指示
+        医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。
+        `;
+    }
+
+    if (modelToUse === "gpt-4o-mini") {
         if (!isUserChildCategory) {
             systemInstruction += `
             ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
@@ -526,13 +538,13 @@ ${userConfig.systemInstructionModifier}`;
         let messages = [{ role: 'system', content: systemInstruction }, { role: 'user', content: userMessage }];
 
         if (modelToUse.startsWith("gemini")) {
-            const chat = genAI.getGenerativeModel({ model: modelToUse });
-            const result = await chat.generateContent({ contents: [{ role: "user", parts: [{ text: messages[0].content + messages[1].content }] }] });
+            const chat = genAI.getGenerativeModel({ model: modelToUse, systemInstruction: systemInstruction });
+            const result = await chat.generateContent(userMessage);
             aiResponse = result.response.text();
         } else { // GPT
             const response = await openai.chat.completions.create({
                 model: modelToUse,
-                messages: messages,
+                messages: [{ role: 'system', content: systemInstruction }, { role: 'user', content: userMessage }],
             });
             aiResponse = response.choices[0].message.content;
         }
@@ -600,8 +612,11 @@ app.use(express.json());
  * @param {Object} event - LINEプラットフォームから送られてきたイベントオブジェクト
  */
 async function handleEventSafely(event) {
-    const userId = event.source.userId;
-    const userMessage = event.message.type === 'text' ? event.message.text : '';
+    const userId = event?.source?.userId || 'unknown';
+    const userMessage = (event?.message && event.message.type === 'text') ? event.message.text : '';
+
+    if (!userMessage) return; // ⭐ 非テキストイベントはここで終了 ⭐
+
     const lowerUserMessage = userMessage.toLowerCase();
     
     // ⭐ 直前トピック（5分）有効期限 ⭐
@@ -654,16 +669,32 @@ async function handleEventSafely(event) {
 
         // ⭐ まずは固定応答のチェックを最優先に実行 ⭐
         let specialReply = checkSpecialReply(userMessage);
-        // 直前ClariSがある時、「コネクト 関係ある？」系だけでも包括返答を出す
         if (!specialReply && recentClaris && /(コネクト).*(関係|繋がり|由来|同じ|元ネタ|曲|歌)/i.test(userMessage)) {
             specialReply = CLARIS_CONNECT_COMPREHENSIVE_REPLY;
         }
 
         if (specialReply) {
             console.log("🌸 固定応答を送信します。");
-            await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
-            // 通常会話ではないため、ログは記録
+            try {
+                await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
+            } catch (e) {
+                console.error('replyMessage failed on specialReply:', e?.statusCode, e?.message);
+                await logErrorToDb(userId, 'replyMessage specialReply failed', { err: e?.message });
+            }
             logToDb(userId, userMessage, specialReply, "こころちゃん", "special_reply");
+            return;
+        }
+        
+        // ⭐ 組織関連の問い合わせはAIに振らず固定返答に寄せる ⭐
+        if (isOrganizationInquiry(userMessage)) {
+            const reply = "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸";
+            try {
+                await client.replyMessage(event.replyToken, { type: 'text', text: reply });
+            } catch (e) {
+                console.error('replyMessage failed on organization inquiry:', e?.statusCode, e?.message);
+                await logErrorToDb(userId, 'replyMessage organization inquiry failed', { err: e?.message });
+            }
+            logToDb(userId, userMessage, reply, "こころちゃん", "organization_inquiry_fixed");
             return;
         }
 
@@ -729,7 +760,7 @@ async function handleEventSafely(event) {
         // 会話数をカウントアップ
         const todayCount = (user.dailyCounts[today] || 0) + 1;
         await updateUserData(userId, { dailyCounts: { ...user.dailyCounts, [today]: todayCount } });
-        logToDb(userId, userMessage, aiReply, "こころちゃん", "normal_chat_reply");
+        // logToDbは呼び出さない (shouldLogMessageにnormal_chat_replyが無いので不要)
 
     } catch (error) {
         console.error("❌ イベント処理中にエラーが発生しました:", error);
