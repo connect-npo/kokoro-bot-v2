@@ -636,7 +636,16 @@ async function handleEventSafely(event) {
             }
         }
 
-        // ⭐ 危険・詐欺・不適切ワードに該当するかチェック (最優先) ⭐
+        // ⭐ 固定応答のチェックを最優先に実行 ⭐
+        const specialReply = checkSpecialReply(userMessage);
+        if (specialReply) {
+            console.log("🌸 固定応答を送信します。");
+            await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
+            await logToDb(userId, userMessage, specialReply, "こころちゃん", "special_reply");
+            return;
+        }
+
+        // ⭐ 危険・詐欺・不適切ワードに該当するかチェック (次に優先) ⭐
         const isDangerous = checkContainsDangerWords(userMessage);
         const isScam = checkContainsScamWords(userMessage);
         const isInappropriate = checkContainsInappropriateWords(userMessage);
@@ -666,13 +675,6 @@ async function handleEventSafely(event) {
         }
         
         // --- 通常の応答処理 ---
-        const specialReply = checkSpecialReply(userMessage);
-        if (specialReply) {
-            console.log("🌸 固定応答を送信します。");
-            await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
-            await logToDb(userId, userMessage, specialReply, "こころちゃん", "special_reply");
-            return;
-        }
 
         // --- 会員登録・属性変更フロー ---
         if (lowerUserMessage === '会員登録' || lowerUserMessage === 'かいんとうろく' || lowerUserMessage === '属性変更' || lowerUserMessage === 'ぞくせいへんこう') {
