@@ -18,7 +18,16 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 
-const FIREBASE_CREDENTIALS = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString());
+// ⭐ Firebase 資格情報フォールバック ⭐
+let FIREBASE_CREDENTIALS;
+try {
+  FIREBASE_CREDENTIALS = process.env.FIREBASE_CREDENTIALS_BASE64
+    ? JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString())
+    : require('./serviceAccountKey.json');
+} catch (e) {
+  console.error('Firebase credentials load failed:', e.message);
+  process.exit(1);
+}
 
 // Firebase初期化
 if (!firebaseAdmin.apps.length) {
@@ -122,7 +131,7 @@ const scamWords = [
     /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
 ];
 
-// --- 年齢・コンプラ系ガード ⭐ここから追加⭐ ---
+// --- 年齢・コンプラ系ガード ---
 const sensitiveBlockers = [
   // 服飾/身体寸法（性的連想/個人情報誘発）
   /(パンツ|ショーツ|下着|ランジェリー|ブラ|ブラジャー|キャミ|ストッキング)/i,
@@ -146,9 +155,8 @@ const sensitiveBlockers = [
 function hitSensitiveBlockers(txt) {
   return sensitiveBlockers.some(r => r.test(txt));
 }
-// ⭐ここまで追加⭐
 
-// ⭐不適切ワード判定の精度向上⭐
+// 不適切ワード判定の精度向上
 const inappropriateWords = [
     "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
     "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
@@ -184,7 +192,6 @@ function checkContainsInappropriateWords(text) {
   const lower = (text || '').toLowerCase().replace(/\s/g, '');
   return inappropriateWords.some(w => lower.includes(w.toLowerCase().replace(/\s/g, '')));
 }
-// ⭐ここまで修正⭐
 
 //
 // メイン処理
@@ -199,11 +206,15 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 });
 
 const handleEventSafely = async (event) => {
-  const userId = event.source.userId;
-  const userMessage = event.message.text;
+  // ⭐非テキストイベントの早期リターン⭐
+  if (!event || event.type !== 'message' || !event.message || event.message.type !== 'text') {
+    return; // 画像・スタンプ・フォローイベントなどは無視
+  }
+  const userId = event.source?.userId;
+  const userMessage = event.message.text || '';
+  // ⭐ここまで追加⭐
 
   // 1. 不適切ワードのチェック
-  // ⭐修正済み関数を使用⭐
   if (checkContainsInappropriateWords(userMessage)) {
     const messages = [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。でも他のことなら一緒に話したいな🌸" }];
     await client.replyMessage({ replyToken: event.replyToken, messages });
@@ -236,7 +247,7 @@ const handleEventSafely = async (event) => {
     return;
   }
   
-  // ❗コンプラ/年齢ガード（AIに渡す前に終了） ⭐追加⭐
+  // ❗コンプラ/年齢ガード（AIに渡す前に終了）
   if (hitSensitiveBlockers(userMessage)) {
     await client.replyMessage({
       replyToken: event.replyToken,
@@ -244,7 +255,6 @@ const handleEventSafely = async (event) => {
     });
     return;
   }
-  // ⭐追加ここまで⭐
 
   // 4. 相談モードのチェック
   const isConsultation = userMessage.includes('相談') || userMessage.includes('そうだん');
@@ -273,7 +283,7 @@ const handleEventSafely = async (event) => {
     // AIモデルの決定
     let modelToUse;
     if (userMessage.length <= 50) {
-      modelToUse = 'gemini-1.5-flash-latest'; // ⭐修正⭐
+      modelToUse = 'gemini-1.5-flash-latest';
     } else {
       modelToUse = userConfig.model;
     }
@@ -380,7 +390,7 @@ const handleEventSafely = async (event) => {
     if (modelToUse === 'gpt-4o-mini') {
       replyContent = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o-mini');
     } else {
-      replyContent = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-flash-latest'); // ⭐修正⭐
+      replyContent = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-flash-latest');
     }
     
     // Firestoreの利用回数を更新
@@ -403,7 +413,7 @@ const handleEventSafely = async (event) => {
 };
 
 //
-// ヘルパー関数 (変更なし)
+// ヘルパー関数
 //
 const getOpenAIResponse = async (message, instruction, model = 'gpt-4o') => {
   const payload = {
@@ -443,6 +453,22 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
   const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers });
   return response.data.candidates[0].content.parts[0].text.trim();
 };
+
+// ⭐緊急通知の再試行関数⭐
+async function safePush(to, messages, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try { 
+      await client.pushMessage({ to, messages }); 
+      return; 
+    } catch (e) {
+      if (e.statusCode === 429 && i < retries) {
+        await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+      } else { 
+        throw e; 
+      }
+    }
+  }
+}
 
 const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
   const systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子。
@@ -505,13 +531,18 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
   
   await client.replyMessage({ replyToken, messages });
   
-  // 管理者グループに通知
-  const profile = await client.getProfile(userId);
-  const notificationMessage = `🚨【${type}ワード検知】🚨\n\n👤 ユーザー名: ${profile.displayName}\n🆔 ID: ${userId}\n💬 メッセージ: ${userMessage}\n\n👆 上記のユーザーから、${type}に関連するメッセージが検出されました。`;
-  await client.pushMessage({
-    to: OFFICER_GROUP_ID,
-    messages: [{ type: 'text', text: notificationMessage }]
-  });
+  // ⭐getProfileの例外対策と通知時の再試行⭐
+  let profileName = '不明';
+  try {
+    const profile = await client.getProfile(userId);
+    profileName = profile?.displayName || profileName;
+  } catch (e) {
+    console.warn('getProfile failed:', e.statusCode || e.message);
+  }
+
+  const notificationMessage = `🚨【${type}ワード検知】🚨\n\n👤 ユーザー名: ${profileName}\n🆔 ID: ${userId}\n💬 メッセージ: ${userMessage}\n\n👆 上記のユーザーから、${type}に関連するメッセージが検出されました。`;
+  await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
+  // ⭐ここまで修正⭐
 };
 
 const sendConsultationResponse = async (userId, replyToken, userMessage) => {
@@ -570,13 +601,18 @@ const sendWatchServiceMessages = async () => {
       const diffHours = (now.getTime() - lastRepliedAt.getTime()) / (1000 * 60 * 60);
 
       if (diffHours >= WATCH_SERVICE_INTERVAL_HOURS) {
-        // オフィサーグループに通知
-        const profile = await client.getProfile(userId);
-        const notificationMessage = `🚨【見守りサービス通知】🚨\n\n👤 ユーザー名: ${profile.displayName}\n🆔 ID: ${userId}\n💬 メッセージ: ${user.watchService.lastRepliedMessage}\n\n👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
-        await client.pushMessage({
-          to: OFFICER_GROUP_ID,
-          messages: [{ type: 'text', text: notificationMessage }]
-        });
+        // ⭐getProfileの例外対策と通知時の再試行⭐
+        let profileName = '不明';
+        try {
+          const profile = await client.getProfile(userId);
+          profileName = profile?.displayName || profileName;
+        } catch (e) {
+          console.warn('getProfile failed:', e.statusCode || e.message);
+        }
+
+        const notificationMessage = `🚨【見守りサービス通知】🚨\n\n👤 ユーザー名: ${profileName}\n🆔 ID: ${userId}\n💬 メッセージ: ${user.watchService.lastRepliedMessage}\n\n👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
+        await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
+        // ⭐ここまで修正⭐
         
         // Firestoreの最終通知時間を更新
         await db.collection('users').doc(userId).update({
@@ -586,6 +622,10 @@ const sendWatchServiceMessages = async () => {
     }
   }
 };
+
+// ⭐ヘルスチェックエンドポイントの追加⭐
+app.get('/healthz', (_, res) => res.status(200).send('ok'));
+// ⭐ここまで追加⭐
 
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
