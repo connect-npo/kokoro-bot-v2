@@ -1,23 +1,11 @@
-{
-  "name": "kokoro-chat-bot",
-  "version": "1.0.0",
-  "description": "",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "@line/bot-sdk": "^9.0.0",
-    "axios": "^1.7.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "firebase-admin": "^12.1.0",
-    "node-cron": "^3.0.3",
-    "openai": "^4.0.0"
-  }
+"dependencies": {
+  "@google/generative-ai": "^0.21.0",
+  "axios": "^1.7.2",
+  "cors": "^2.8.5",
+  "dotenv": "^16.4.5",
+  "express": "^4.19.2",
+  "firebase-admin": "^12.1.0",
+  "@line/bot-sdk": "^9.0.0",
+  "node-cron": "^3.0.3",
+  "openai": "^4.0.0"
 }
