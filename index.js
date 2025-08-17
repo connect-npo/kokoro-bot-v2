@@ -3,7 +3,7 @@ require('dotenv').config();
 
 // --- 必要なモジュールのインポート ---
 const express = require('express');
-const { Client } = require('@line/bot-sdk');
+const line = require('@line/bot-sdk');
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OpenAI } = require('openai');
