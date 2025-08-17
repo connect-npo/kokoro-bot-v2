@@ -321,6 +321,7 @@ function shouldLogMessage(logType) {
         'watch_service_unregister', 'watch_service_unregister_error', 'watch_service_not_registered_on_unregister',
         'registration_info_change_guide', 'registration_info_change_unknown_category',
         'duplicate_message_ignored'
+        // 'normal_chat_reply' ← これを削除する
     ];
     if (defaultLogTypes.includes(logType)) {
         return true;
