@@ -97,7 +97,7 @@ try {
 }
 
 // --- LINEクライアントの初期化 ---
-client = new Client({
+client = new line.Client({
     channelAccessToken: CHANNEL_ACCESS_TOKEN,
     channelSecret: CHANNEL_SECRET,
 });
@@ -634,30 +634,34 @@ async function startMessageQueueWorker() {
 
 // ---- Webhook（最短ACKパターン） ----
 app.post('/webhook', line.middleware(config), (req, res) => {
-  // 1) まず即ACK（< 500ms目標）
-  res.status(200).end();
+    // 1) まず即ACK（< 500ms目標）
+    res.status(200).end();
 
-  // 2) 処理はACKの後で非同期実行（イベントが空でも安全）
-  const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    // 2) 処理はACKの後で非同期実行（イベントが空でも安全）
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
 
-  // ACKのフラッシュを優先（キューに積む）
-  setImmediate(async () => {
-    try {
-      await Promise.allSettled(events.map(handleEventSafely));
-    } catch (e) {
-      console.error('post-ACK error:', e);
-    }
-  });
+    // ACKのフラッシュを優先（キューに積む）
+    setImmediate(async () => {
+        try {
+            await Promise.allSettled(events.map(handleEventSafely));
+        } catch (e) {
+            console.error('post-ACK error:', e);
+        }
+    });
 });
 
 // 例：イベント処理の安全ラッパ
 async function handleEventSafely(event) {
-  try {
-    await handleEvent(event); // ここは今まで通り
-  } catch (err) {
-    console.error('handleEvent error:', err);
-  }
+    try {
+        await handleEvent(event); // ここは今まで通り
+    } catch (err) {
+        console.error('handleEvent error:', err);
+    }
 }
+
+// ⭐ Webhookの後にexpress.json()を配置 ⭐
+// LINEの署名検証はRAWボディを必要とするため、Webhookの後に配置する
+app.use(express.json());
 
 /**
  * LINEのイベントを処理するメイン関数。
@@ -2994,7 +2998,5 @@ async function logToDb(userId, userMessage, responseMessage, botPersona = 'こ�
     
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 サーバーはポート${PORT}で実行されています`);
-});
+app.listen(PORT, () => console.log(`🚀 サーバーはポート${PORT}で実行中`));
 }
