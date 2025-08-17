@@ -632,28 +632,32 @@ async function startMessageQueueWorker() {
     isProcessingQueue = false;
 }
 
-// --- LINE Webhook ---
-app.post('/webhook', async (req, res) => {
-    const signature = req.headers['x-line-signature'];
-    if (!signature) {
-        return res.status(400).send('Signature header is missing').end();
-    }
-    const signatureMatch = crypto.createHmac('sha256', CHANNEL_SECRET)
-        .update(JSON.stringify(req.body))
-        .digest('base64');
-    if (signature !== signatureMatch) {
-        return res.status(401).send('Invalid signature').end();
-    }
+// ---- Webhook（最短ACKパターン） ----
+app.post('/webhook', line.middleware(config), (req, res) => {
+  // 1) まず即ACK（< 500ms目標）
+  res.status(200).end();
 
+  // 2) 処理はACKの後で非同期実行（イベントが空でも安全）
+  const events = Array.isArray(req.body?.events) ? req.body.events : [];
+
+  // ACKのフラッシュを優先（キューに積む）
+  setImmediate(async () => {
     try {
-        const events = req.body.events;
-        await Promise.all(events.map(event => handleEvent(event)));
-        res.status(200).end();
-    } catch (err) {
-        console.error(err);
-        res.status(500).end();
+      await Promise.allSettled(events.map(handleEventSafely));
+    } catch (e) {
+      console.error('post-ACK error:', e);
     }
+  });
 });
+
+// 例：イベント処理の安全ラッパ
+async function handleEventSafely(event) {
+  try {
+    await handleEvent(event); // ここは今まで通り
+  } catch (err) {
+    console.error('handleEvent error:', err);
+  }
+}
 
 /**
  * LINEのイベントを処理するメイン関数。
