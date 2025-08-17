@@ -632,6 +632,13 @@ async function startMessageQueueWorker() {
     isProcessingQueue = false;
 }
 
+// LINEボットSDKの設定オブジェクト
+const config = {
+    channelAccessToken: CHANNEL_ACCESS_TOKEN,
+    channelSecret: CHANNEL_SECRET,
+};
+const client = new line.Client(config);
+
 // ---- Webhook（最短ACKパターン） ----
 app.post('/webhook', line.middleware(config), (req, res) => {
     // 1) まず即ACK（< 500ms目標）
