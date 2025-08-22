@@ -6,10 +6,13 @@ const express = require('express');
 const firebaseAdmin = require('firebase-admin');
 const axios = require('axios');
 const cron = require('node-cron');
+const http = require('http'); // ⭐httpモジュールをインポート⭐
+const https = require('https'); // ⭐httpsモジュールをインポート⭐
 
 // 環境変数の設定
 const config = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+    // ⭐middlewareの引数整理に対応⭐
     channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
@@ -41,6 +44,15 @@ if (!firebaseAdmin.apps.length) {
 const db = firebaseAdmin.firestore();
 const app = express();
 const client = new line.messagingApi.MessagingApiClient(config);
+
+// ⭐ Axios共通クライアントの導入 ⭐
+const httpAgent = new http.Agent({ keepAlive: true });
+const httpsAgent = new https.Agent({ keepAlive: true });
+const httpInstance = axios.create({
+  timeout: 10000,
+  httpAgent,
+  httpsAgent
+});
 
 // ⭐ 修正箇所: /webhook には body-parser を適用しない ⭐
 // LINEの署名検証は生のボディで行われるため、/webhook よりも前に express.json() は適用しない
@@ -326,7 +338,7 @@ function buildRegistrationFlex() {
       contents: [
         { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
         { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
-        { type: "button", action: { type: "postback", label: "退会する", data: "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
+        { type: "button", action: { type: "postback", label: "退会する", "data": "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
       ]
     }
   };
@@ -361,10 +373,7 @@ const handleEventSafely = async (event) => {
         try {
             if (data === 'action=request_withdrawal') {
                 await db.collection('users').doc(userId).set({ status: 'requested_withdrawal' }, { merge: true });
-                await client.replyMessage({
-                    replyToken: event.replyToken,
-                    messages: [{ type: 'text', text: '退会リクエストを受け付けたよ。手続き完了まで少し待ってね🌸' }]
-                });
+                await safeReply(event.replyToken, [{ type: 'text', text: '退会リクエストを受け付けたよ。手続き完了まで少し待ってね🌸' }], userId);
                 return;
             }
             if (data === 'action=enable_watch') {
@@ -377,23 +386,17 @@ const handleEventSafely = async (event) => {
                 }, { merge: true });
                 // ⭐見守りON時にtouchWatchを呼び出し⭐
                 await touchWatch(userId, '見守りON');
-                await client.replyMessage({
-                    replyToken: event.replyToken,
-                    messages: [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }]
-                });
+                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }], userId);
                 return;
             }
             if (data === 'action=disable_watch') {
-                // ⭐安全な点更新に修正⭐
-                await db.collection('users').doc(userId).update({
-                    'watchService.isEnabled': false
-                });
+                // ⭐安全なset(..., {merge:true})に修正⭐
+                await db.collection('users').doc(userId).set({
+                    watchService: { isEnabled: false }
+                }, { merge: true });
                 // ⭐見守りOFF時にtouchWatchを呼び出し⭐
                 await touchWatch(userId, '見守りOFF');
-                await client.replyMessage({
-                    replyToken: event.replyToken,
-                    messages: [{ type: 'text', text: '見守りサービスをOFFにしたよ。また必要になったら言ってね🌸' }]
-                });
+                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをOFFにしたよ。また必要になったら言ってね🌸' }], userId);
                 return;
             }
         } catch (e) {
@@ -414,21 +417,18 @@ const handleEventSafely = async (event) => {
 
     // ⭐会員登録メニューの独立判定を追加⭐
     if (/(会員登録|登録情報|会員情報|入会|退会)/i.test(userMessage)) {
-        await client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [
-                { type: 'text', text: '会員登録や情報の変更はここからできるよ！' },
-                // ⭐ビルド関数に差し替え⭐
-                { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex() }
-            ]
-        });
+        await safeReply(event.replyToken, [
+            { type: 'text', text: '会員登録や情報の変更はここからできるよ！' },
+            // ⭐ビルド関数に差し替え⭐
+            { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex() }
+        ], userId);
         return;
     }
     
     // 1. 不適切ワードのチェック
     if (checkContainsInappropriateWords(userMessage)) {
         const messages = [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。でも他のことなら一緒に話したいな🌸" }];
-        await client.replyMessage({ replyToken: event.replyToken, messages });
+        await safeReply(event.replyToken, messages, userId);
         return;
     }
 
@@ -446,26 +446,20 @@ const handleEventSafely = async (event) => {
         // ⭐見守りサービスはFlex Messageを送信する⭐
         if (userMessage.includes('見守り') || userMessage.includes('みまもり') || userMessage.includes('まもり')) {
              try {
-                await client.replyMessage({
-                    replyToken: event.replyToken,
-                    messages: [
-                        { type: 'text', text: specialReply },
-                        { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
-                    ]
-                });
+                await safeReply(event.replyToken, [
+                    { type: 'text', text: specialReply },
+                    { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
+                ], userId);
                 console.log('🎯 special hit: watch service');
              } catch (e) {
                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
              }
         } else {
              try {
-                await client.replyMessage({
-                    replyToken: event.replyToken,
-                    messages: [{
-                        type: 'text',
-                        text: specialReply,
-                    }]
-                });
+                await safeReply(event.replyToken, [{
+                    type: 'text',
+                    text: specialReply,
+                }], userId);
                 console.log('🎯 special hit:', specialReply);
              } catch (e) {
                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
@@ -476,10 +470,9 @@ const handleEventSafely = async (event) => {
 
     // ❗コンプラ/年齢ガード（AIに渡す前に終了）
     if (hitSensitiveBlockers(userMessage)) {
-        await client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。ここでは安全にお話ししたいな🌸 別の話題にしよ？" }]
-        });
+        await safeReply(event.replyToken, [
+            { type: 'text', text: "ごめんね💦 その話題には答えられないんだ。ここでは安全にお話ししたいな🌸 別の話題にしよ？" }
+        ], userId);
         return;
     }
 
@@ -503,7 +496,7 @@ const handleEventSafely = async (event) => {
         // 利用制限のチェック
         if (userConfig.dailyLimit !== -1 && dailyCount > userConfig.dailyLimit) {
             const messages = [{ type: 'text', text: "ごめんなさい、今日の利用回数の上限に達しちゃったみたい。また明日お話しようね！" }];
-            await client.replyMessage({ replyToken: event.replyToken, messages });
+            await safeReply(event.replyToken, messages, userId);
             return;
         }
 
@@ -582,17 +575,13 @@ const handleEventSafely = async (event) => {
         **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
         **特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
         また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
-        「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
+        「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸 教えてくれると嬉しいな💖」と返答してください。
         `;
         
         // systemInstruction += userConfig.systemInstructionModifier;
         
-        if (modelToUse === "gemini-1.5-pro-latest") {
-            systemInstruction += `
-            ユーザーは深刻な相談を求めています。あなたはGemini 1.5 Proの機能を活かし、感情に寄り添い、丁寧で具体的なアドバイスをしてください。長文でも構いません。
-            ただし、あくまで共感と情報提供に徹し、医療行為や法的なアドバイスに踏み込まないように注意してください。
-            `;
-        } else if (isUserChildCategory && (currentHour >= 22 || currentHour < 6)) {
+        // ⭐到達不能コードを整理⭐
+        if (isUserChildCategory && (currentHour >= 22 || currentHour < 6)) {
             if (userMessage.includes("寂しい") || userMessage.includes("眠れない") || userMessage.includes("怖い")) {
                 systemInstruction += `
                 ユーザーは夜間に寂しさ、眠れない、怖さといった感情を表現しています。
@@ -638,10 +627,9 @@ const handleEventSafely = async (event) => {
         await db.collection('users').doc(userId).set(updateData, { merge: true });
 
         // ユーザーへ返信
-        await client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [{ type: 'text', text: replyContent }]
-        });
+        await safeReply(event.replyToken, [
+            { type: 'text', text: replyContent }
+        ], userId);
 
     } catch (error) {
         console.error(error);
@@ -665,7 +653,7 @@ const getOpenAIResponse = async (message, instruction, model = 'gpt-4o') => {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
     };
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', payload, { headers });
+    const response = await httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers });
     return response.data.choices[0].message.content.trim();
 };
 
@@ -686,9 +674,22 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
     const headers = {
         'Content-Type': 'application/json',
     };
-    const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers });
+    const response = await httpInstance.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers });
     return response.data.candidates[0].content.parts[0].text.trim();
 };
+
+// ⭐ replyMessageの代替送信関数 ⭐
+async function safeReply(replyToken, messages, userId) {
+  try {
+    await client.replyMessage({ replyToken, messages });
+  } catch (e) {
+    console.warn('replyMessage failed:', e.statusCode || e.message);
+    // ⭐ userIdが存在し、ユーザーとの個別チャットの場合のみpushで代替 ⭐
+    if (userId && e.statusCode !== 400) {
+      await safePush(userId, messages);
+    }
+  }
+}
 
 // ⭐見守り最終応答時刻を更新する関数⭐
 async function touchWatch(userId, message) {
@@ -750,7 +751,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
         "contents": buildEmergencyFlex(type)
     }];
     
-    await client.replyMessage({ replyToken, messages });
+    await safeReply(replyToken, messages, userId);
     
     // ⭐getProfileの引数形式を修正し、例外対策も追加⭐
     let profileName = '不明';
@@ -806,10 +807,7 @@ const sendConsultationResponse = async (userId, replyToken, userMessage) => {
       console.error('getGeminiResponse failed (consultation):', error);
     }
 
-    await client.replyMessage({
-        replyToken,
-        messages: [{ type: 'text', text: aiResponse }]
-    });
+    await safeReply(replyToken, [{ type: 'text', text: aiResponse }], userId);
 };
 
 function checkSpecialReply(text) {
