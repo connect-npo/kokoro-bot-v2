@@ -9,10 +9,13 @@ const axios = require('axios');
 const cron = require('node-cron');
 const http = require('http');
 const https = require('https');
-const rateLimit = require('express-rate-limit'); // ⭐追加⭐ レート制限
-const crypto = require('crypto'); // ⭐追加⭐ 匿名化用
+const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 
-// ⭐ 起動時に必須環境変数をチェック ⭐
+// ⭐修正⭐ PORTを定義
+const PORT = Number(process.env.PORT) || 3000;
+
+// ⭐起動時に必須環境変数をチェック⭐
 ['LINE_CHANNEL_SECRET', 'LINE_CHANNEL_ACCESS_TOKEN', 'OPENAI_API_KEY', 'GEMINI_API_KEY'].forEach(name => {
   if (!process.env[name]) {
     console.error(`Missing required environment variable: ${name}`);
@@ -63,11 +66,11 @@ const httpInstance = axios.create({
   httpsAgent
 });
 
-// ⭐追加⭐ Expressのセキュリティ強化とボディサイズ制限
+// ⭐追加⭐ Expressのセキュリティ強化とプロキシ設定
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: '1mb' }));
-// ⭐追加⭐ 受信レート制御（DoS/誤爆防止）
-app.use('/webhook', rateLimit({
+// ⭐修正⭐ レート制限が効くように、proxy設定をwebhookより前に置く
+app.set('trust proxy', 1);
+app.use(rateLimit({
   windowMs: 60 * 1000,
   max: 300,
   standardHeaders: true,
@@ -77,13 +80,16 @@ app.use('/webhook', rateLimit({
 //
 // メイン処理
 //
+// ⭐修正⭐ JSONパーサの前にwebhookを登録
 app.post('/webhook', line.middleware(middlewareConfig), (req, res) => {
     res.status(200).end();
-    const events = req.body.events || [];
+    const events = req.body.body || req.body.events || []; // bodyをreq.body.eventsに統一
     setImmediate(async () => {
         await Promise.allSettled(events.map(handleEventSafely));
     });
 });
+// ⭐修正⭐ 他のAPIエンドポイント用にJSONパーサを有効化
+app.use(express.json({ limit: '1mb' }));
 
 //
 // 設定・固定データ
@@ -290,30 +296,9 @@ const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
     }
 };
 
-const WATCH_MENU_FLEX = {
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "contents": [
-            { "type": "text", "text": "見守りサービス", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
-            { "type": "text", "text": "24〜29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
-        ]
-    },
-    "footer": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "sm",
-        "contents": [
-            { "type": "button", "action": { "type": "postback", "label": "見守りサービスをONにする", "data": "action=enable_watch" }, "style": "primary", "height": "sm", "margin": "md", "color": "#32CD32" },
-            { "type": "button", "action": { "type": "postback", "label": "見守りサービスをOFFにする", "data": "action=disable_watch" }, "style": "primary", "height": "sm", "margin": "md", "color": "#FF4500" }
-        ]
-    }
-};
-
 function buildRegistrationFlex() {
   const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
-  const privacyPolicyUrl = `${url}/privacy_policy`; // プライバシーポリシーURLの仮設定
+  const privacyPolicyUrl = `${url}/privacy_policy`;
   return {
     ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX,
     footer: {
@@ -356,7 +341,7 @@ const handleEventSafely = async (event) => {
       if (s.exists) return false;
       tx.set(lockRef, {
         at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
-        ttlAt: firebaseAdmin.firestore.Timestamp.fromDate(new Date(Date.now() + 3*24*60*60*1000)) // 3日で自動削除
+        ttlAt: firebaseAdmin.firestore.Timestamp.fromDate(new Date(Date.now() + 3*24*60*60*1000))
       });
       return true;
     });
@@ -382,7 +367,6 @@ const handleEventSafely = async (event) => {
                 return;
             }
             if (data === 'action=enable_watch') {
-                // ⭐追加⭐ 見守りON時の同意の証跡を明示
                 await db.collection('users').doc(userId).set({
                     watchService: {
                         isEnabled: true,
@@ -482,7 +466,6 @@ const handleEventSafely = async (event) => {
         const userDoc = await db.collection('users').doc(userId).get();
         const user = userDoc.exists ? userDoc.data() : { membershipType: 'guest', dailyCounts: {}, isChildCategory: false };
 
-        // ⭐追加⭐ 日次上限の競合防止（原子的インクリメント）
         const today = new Date().toISOString().slice(0,10);
         const userRef = db.collection('users').doc(userId);
         let overLimit = false;
@@ -587,7 +570,7 @@ const handleEventSafely = async (event) => {
             }
         }
         
-        let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな💖';
+        let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな�';
         
         if (process.env.NODE_ENV !== 'production') {
             console.log(`💡 AI Model Being Used: ${modelToUse}`);
@@ -619,6 +602,14 @@ const handleEventSafely = async (event) => {
 //
 // ヘルパー関数
 //
+// ⭐追加⭐ 監査ログ/メッセージプレビュー用サニタイズ関数
+function sanitizeForLog(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/\d{3,}/g, '＊')
+    .replace(/https?:\/\/\S+/g, '(URL省略)');
+}
+
 function chunkTextForLine(text, max = 1900) {
   const chunks = [];
   for (let i = 0; i < text.length; i += max) {
@@ -690,7 +681,7 @@ const getOpenAIResponse = async (message, instruction, model, userTag) => {
     return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
-const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-latest') => {
+const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-flash-latest') => {
     const payload = {
         contents: [
             {
@@ -752,9 +743,13 @@ async function touchWatch(userId, message) {
             const snap = await tx.get(ref);
             const enabled = snap.exists && snap.data()?.watchService?.isEnabled;
             if (!enabled) return;
+
+            // ⭐修正⭐ メッセージプレビューもサニタイズ
+            const preview = sanitizeForLog(message).slice(0, 140);
+            
             tx.update(ref, {
                 'watchService.lastRepliedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp(),
-                'watchService.lastRepliedMessage': (message || '').slice(0, 140),
+                'watchService.lastRepliedMessage': preview,
             });
         });
     } catch (e) {
@@ -826,7 +821,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     const snap = await db.collection('users').doc(userId).get();
     const u = snap.exists ? snap.data() : {};
     const v = (x) => (x ? String(x) : '未登録');
-    const enriched = `🚨【${type}ワード検知】🚨
+    const notificationMessage = `🚨【${type}ワード検知】🚨
     
 👤 氏名：${v(u.realName)}
 📱 電話番号：${v(u.phone)}
@@ -844,7 +839,6 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
 最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}`;
 
     if (OFFICER_GROUP_ID) {
-      // ⭐追加⭐ 匿名通知をデフォルトONにする設定
       const anonymize = process.env.OFFICER_ANON !== '0';
       const text = anonymize
         ? `🚨【${type}ワード検知】🚨\n\nメッセージ: 「${userMessage}」\n（匿名モードで通知中）`
@@ -859,7 +853,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
       type,
       at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
       userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
-      messagePreview: String(userMessage).slice(0,120)
+      messagePreview: sanitizeForLog(userMessage).slice(0,120) // ⭐修正⭐
     });
 };
 
@@ -997,7 +991,6 @@ const sendWatchServiceMessages = async () => {
 
 app.get('/healthz', (_, res) => res.status(200).send('ok'));
 
-// ⭐追加⭐ 優雅な終了
 const server = app.listen(PORT, () => {
     console.log(`🚀 サーバーはポート${PORT}で実行されています`);
 });
