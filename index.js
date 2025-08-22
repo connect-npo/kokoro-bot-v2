@@ -461,7 +461,12 @@ const handleEventSafely = async (event) => {
         }
 
         const isUserChildCategory = user.isChildCategory || false;
-        const currentHour = new Date().getHours();
+        
+        // ⭐ JSTで時刻を取得するように修正 ⭐
+        const currentHour = Number(
+          new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', hour12: false })
+            .format(new Date())
+        );
 
         let systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
         ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
@@ -588,6 +593,22 @@ function batchMessages(msgs, size = 5) {
     out.push(msgs.slice(i, i + size));
   }
   return out;
+}
+
+// ⭐ getProfileの互換性を担保するラッパー関数 ⭐
+async function getProfileCompat(client, userId) {
+  try {
+    const profile = await client.getProfile({ userId });
+    return profile;
+  } catch (e1) {
+    try {
+      // 古いSDK形式で再試行
+      const profile = await client.getProfile(userId);
+      return profile;
+    } catch (e2) {
+      throw e2;
+    }
+  }
 }
 
 // ⭐ リトライ機能のヘルパー関数 ⭐
@@ -761,9 +782,8 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     
     let profileName = '不明';
     try {
-        const profile = typeof userId === 'string'
-          ? (await client.getProfile?.({ userId })) || (await client.getProfile(userId))
-          : await client.getProfile({ userId });
+        // ⭐ getProfileCompat を使用 ⭐
+        const profile = await getProfileCompat(client, userId);
         profileName = profile?.displayName || profileName;
     } catch (e) {
         console.warn('getProfile failed:', e.statusCode || e.message);
@@ -889,10 +909,9 @@ const sendWatchServiceMessages = async () => {
 
                 let profileName = '不明';
                 try {
-                  const profile = typeof userId === 'string'
-                    ? (await client.getProfile?.({ userId })) || (await client.getProfile(userId))
-                    : await client.getProfile({ userId });
-                  profileName = profile?.displayName || profileName;
+                    // ⭐ getProfileCompat を使用 ⭐
+                    const profile = await getProfileCompat(client, userId);
+                    profileName = profile?.displayName || profileName;
                 } catch (e) {
                     console.warn('getProfile failed:', e.statusCode || e.message);
                 }
