@@ -589,7 +589,7 @@ const handleEventSafely = async (event) => {
         
         if (modelToUse === "gemini-1.5-pro-latest") {
             systemInstruction += `
-            ユーザーは深刻な相談を求めています。あなたはGemini 1.5 Proとして、最も高度で詳細な情報を提供し、深く共感し、専門的な視点から問題解決を支援してください。
+            ユーザーは深刻な相談を求めています。あなたはGemini 1.5 Proの機能を活かし、感情に寄り添い、丁寧で具体的なアドバイスをしてください。長文でも構いません。
             ただし、あくまで共感と情報提供に徹し、医療行為や法的なアドバイスに踏み込まないように注意してください。
             `;
         } else if (isUserChildCategory && (currentHour >= 22 || currentHour < 6)) {
@@ -608,23 +608,20 @@ const handleEventSafely = async (event) => {
             }
         }
         
-        let replyContent;
+        // ⭐ replyContentの再宣言を削除し、単一の変数として扱うように修正 ⭐
+        let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな💖';
         
         if (process.env.NODE_ENV !== 'production') {
             console.log(`💡 AI Model Being Used: ${modelToUse}`);
         }
 
         if (modelToUse === 'gpt-4o-mini') {
-            // ⭐フォールバックを適用⭐
-            let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな💖';
             try {
                 replyContent = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o-mini');
             } catch (error) {
                 console.error('getOpenAIResponse failed:', error);
             }
         } else {
-            // ⭐フォールバックを適用⭐
-            let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな💖';
             try {
                 replyContent = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-flash-latest');
             } catch (error) {
@@ -755,10 +752,10 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
     
     await client.replyMessage({ replyToken, messages });
     
-    // ⭐getProfileの例外対策と通知時の再試行⭐
+    // ⭐getProfileの引数形式を修正し、例外対策も追加⭐
     let profileName = '不明';
     try {
-        const profile = await client.getProfile(userId);
+        const profile = await client.getProfile({ userId });
         profileName = profile?.displayName || profileName;
     } catch (e) {
         console.warn('getProfile failed:', e.statusCode || e.message);
@@ -785,7 +782,12 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
 見守り: ${u.watchService?.isEnabled ? 'ON' : 'OFF'}
 最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}`;
 
-    await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: enriched }]);
+    // ⭐オフィサー通知に環境変数ガードを追加⭐
+    if (OFFICER_GROUP_ID) {
+      await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: enriched }]);
+    } else {
+      console.warn('OFFICER_GROUP_ID is not set; skip officer notification.');
+    }
 };
 
 const sendConsultationResponse = async (userId, replyToken, userMessage) => {
@@ -861,10 +863,10 @@ const sendWatchServiceMessages = async () => {
                     }
                 }
 
-                // ⭐getProfileの例外対策と通知時の再試行⭐
+                // ⭐getProfileの引数形式を修正し、例外対策も追加⭐
                 let profileName = '不明';
                 try {
-                    const profile = await client.getProfile(userId);
+                    const profile = await client.getProfile({ userId });
                     profileName = profile?.displayName || profileName;
                 } catch (e) {
                     console.warn('getProfile failed:', e.statusCode || e.message);
@@ -889,7 +891,12 @@ const sendWatchServiceMessages = async () => {
                 
 👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
 
-                await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
+                // ⭐オフィサー通知に環境変数ガードを追加⭐
+                if (OFFICER_GROUP_ID) {
+                  await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
+                } else {
+                  console.warn('OFFICER_GROUP_ID is not set; skip watch service notification.');
+                }
                 
                 // Firestoreの最終通知時間を更新
                 await db.collection('users').doc(userId).update({
