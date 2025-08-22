@@ -193,9 +193,10 @@ function hitSensitiveBlockers(txt) {
     return sensitiveBlockers.some(r => r.test(txt));
 }
 
+// ⭐辞書側の小文字化対応⭐
 function checkContainsDangerWords(text) {
-    const lowerText = text.toLowerCase().replace(/\s/g, ''); //空白除去
-    return dangerWords.some(word => lowerText.includes(word));
+    const lowerText = (text || '').toLowerCase().replace(/\s/g, '');
+    return dangerWords.some(word => lowerText.includes(String(word).toLowerCase()));
 }
 
 function checkContainsScamWords(text) {
@@ -204,14 +205,14 @@ function checkContainsScamWords(text) {
         if (word instanceof RegExp) {
             return word.test(lowerText);
         } else {
-            return lowerText.includes(word.toLowerCase());
+            return lowerText.includes(String(word).toLowerCase());
         }
     });
 }
 
 function checkContainsInappropriateWords(text) {
     const lower = (text || '').toLowerCase().replace(/\s/g, '');
-    return inappropriateWords.some(w => lower.includes(w.toLowerCase().replace(/\s/g, '')));
+    return inappropriateWords.some(w => lower.includes(String(w).toLowerCase().replace(/\s/g, '')));
 }
 
 // --- Flex Message テンプレート (詐欺注意喚起) ---
@@ -340,6 +341,8 @@ const handleEventSafely = async (event) => {
                         lastRepliedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp()
                     }
                 }, { merge: true });
+                // ⭐見守りON時にtouchWatchを呼び出し⭐
+                await touchWatch(userId, '見守りON');
                 await client.replyMessage({
                     replyToken: event.replyToken,
                     messages: [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }]
@@ -350,6 +353,8 @@ const handleEventSafely = async (event) => {
                 await db.collection('users').doc(userId).set({
                     watchService: { isEnabled: false }
                 }, { merge: true });
+                // ⭐見守りOFF時にtouchWatchを呼び出し⭐
+                await touchWatch(userId, '見守りOFF');
                 await client.replyMessage({
                     replyToken: event.replyToken,
                     messages: [{ type: 'text', text: '見守りサービスをOFFにしたよ。また必要になったら言ってね🌸' }]
@@ -369,6 +374,21 @@ const handleEventSafely = async (event) => {
     const userId = event.source?.userId;
     const userMessage = event.message.text || '';
 
+    // ⭐見守り最終応答時刻を更新⭐
+    await touchWatch(userId, userMessage);
+
+    // ⭐会員登録メニューの独立判定を追加⭐
+    if (/(会員登録|登録情報|会員情報|入会|退会)/i.test(userMessage)) {
+        await client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [
+                { type: 'text', text: '会員登録や情報の変更はここからできるよ！' },
+                { type: 'flex', altText: '会員登録・情報変更メニュー', contents: REGISTRATION_AND_CHANGE_BUTTONS_FLEX }
+            ]
+        });
+        return;
+    }
+    
     // 1. 不適切ワードのチェック
     if (checkContainsInappropriateWords(userMessage)) {
         const messages = [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。でも他のことなら一緒に話したいな🌸" }];
@@ -382,32 +402,19 @@ const handleEventSafely = async (event) => {
         // ⭐見守りサービスはFlex Messageを送信する⭐
         if (userMessage.includes('見守り') || userMessage.includes('みまもり') || userMessage.includes('まもり')) {
              try {
-                 await client.replyMessage({
-                     replyToken: event.replyToken,
-                     messages: [
-                         { type: 'text', text: specialReply },
-                         { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX } // ⭐修正: WATCH_MENU_FLEXを送信する⭐
-                     ]
-                 });
-                 console.log('🎯 special hit: watch service');
+                await client.replyMessage({
+                    replyToken: event.replyToken,
+                    messages: [
+                        { type: 'text', text: specialReply },
+                        { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
+                    ]
+                });
+                console.log('🎯 special hit: watch service');
              } catch (e) {
-                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
-             }
-        } else if (userMessage.includes('会員登録') || userMessage.includes('登録情報')) {
-             try {
-                 await client.replyMessage({
-                     replyToken: event.replyToken,
-                     messages: [
-                         { type: 'text', text: "会員登録や情報の変更はここからできるよ！" },
-                         { type: 'flex', altText: "会員登録・情報変更メニュー", contents: REGISTRATION_AND_CHANGE_BUTTONS_FLEX }
-                     ]
-                 });
-                 console.log('🎯 special hit: registration');
-             } catch (e) {
-                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+                console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
              }
         } else {
-            try {
+             try {
                 await client.replyMessage({
                     replyToken: event.replyToken,
                     messages: [{
@@ -416,9 +423,9 @@ const handleEventSafely = async (event) => {
                     }]
                 });
                 console.log('🎯 special hit:', specialReply);
-            } catch (e) {
+             } catch (e) {
                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
-            }
+             }
         }
         return;
     }
@@ -446,7 +453,7 @@ const handleEventSafely = async (event) => {
         await sendConsultationResponse(userId, event.replyToken, userMessage);
         return;
     }
-
+    
     // 5. 通常会話の処理
     try {
         const userDoc = await db.collection('users').doc(userId).get();
@@ -638,6 +645,24 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
     return response.data.candidates[0].content.parts[0].text.trim();
 };
 
+// ⭐見守り最終応答時刻を更新する関数⭐
+async function touchWatch(userId, message) {
+    try {
+        const ref = db.collection('users').doc(userId);
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            const enabled = snap.exists && snap.data()?.watchService?.isEnabled;
+            if (!enabled) return;
+            tx.update(ref, {
+                'watchService.lastRepliedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                'watchService.lastRepliedMessage': (message || '').slice(0, 140),
+            });
+        });
+    } catch (e) {
+        console.warn('touchWatch failed:', e?.message || e);
+    }
+}
+
 // ⭐緊急通知の再試行関数⭐
 async function safePush(to, messages, retries = 2) {
     for (let i = 0; i <= retries; i++) {
@@ -683,10 +708,29 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
     } catch (e) {
         console.warn('getProfile failed:', e.statusCode || e.message);
     }
+    
+    // ⭐ Firestore から拡張情報（任意項目）を取得して整形⭐
+    const snap = await db.collection('users').doc(userId).get();
+    const u = snap.exists ? snap.data() : {};
+    const v = (x) => (x ? String(x) : '未登録');
+    const enriched = `🚨【${type}ワード検知】🚨
+    
+👤 氏名：${v(u.realName)}
+📱 電話番号：${v(u.phone)}
+🏠 市区町村：${v(u.city)}
+👨‍👩‍👧‍👦 保護者名：${v(u.guardianName)}
+📞 緊急連絡先：${v(u.emergencyContact)}
+🧬 続柄：${v(u.relationship)}
+    
+メッセージ: 「${userMessage}」
+    
+ユーザー名: ${profileName}
+ユーザーID: ${userId}
+会員区分: ${v(u.membershipType)}
+見守り: ${u.watchService?.isEnabled ? 'ON' : 'OFF'}
+最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}`;
 
-    const notificationMessage = `🚨【${type}ワード検知】🚨\n\n👤 ユーザー名: ${profileName}\n🆔 ID: ${userId}\n💬 メッセージ: ${userMessage}\n\n👆 上記のユーザーから、${type}に関連するメッセージが検出されました。`;
-    await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
-    // ⭐ここまで修正⭐
+    await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: enriched }]);
 };
 
 const sendConsultationResponse = async (userId, replyToken, userMessage) => {
@@ -753,10 +797,27 @@ const sendWatchServiceMessages = async () => {
                 } catch (e) {
                     console.warn('getProfile failed:', e.statusCode || e.message);
                 }
+                
+                // ⭐ Firestore から拡張情報（任意項目）を取得して整形⭐
+                const snap = await db.collection('users').doc(userId).get();
+                const u = snap.exists ? snap.data() : {};
+                const v = (x) => (x ? String(x) : '未登録');
+                const notificationMessage = `🚨【見守りサービス通知】🚨
+                
+👤 氏名：${v(u.realName)}
+📱 電話番号：${v(u.phone)}
+🏠 市区町村：${v(u.city)}
+👨‍👩‍👧‍👦 保護者名：${v(u.guardianName)}
+📞 緊急連絡先：${v(u.emergencyContact)}
+🧬 続柄：${v(u.relationship)}
+                
+ユーザー名: ${profileName}
+ユーザーID: ${userId}
+最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}
+                
+👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
 
-                const notificationMessage = `🚨【見守りサービス通知】🚨\n\n👤 ユーザー名: ${profileName}\n🆔 ID: ${userId}\n💬 メッセージ: ${user.watchService.lastRepliedMessage}\n\n👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
                 await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
-                // ⭐ここまで修正⭐
                 
                 // Firestoreの最終通知時間を更新
                 await db.collection('users').doc(userId).update({
