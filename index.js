@@ -3,12 +3,14 @@
 //
 const line = require('@line/bot-sdk');
 const express = require('express');
-const helmet = require('helmet'); // ⭐追加⭐ Expressのセキュリティ強化
+const helmet = require('helmet');
 const firebaseAdmin = require('firebase-admin');
 const axios = require('axios');
 const cron = require('node-cron');
 const http = require('http');
 const https = require('https');
+const rateLimit = require('express-rate-limit'); // ⭐追加⭐ レート制限
+const crypto = require('crypto'); // ⭐追加⭐ 匿名化用
 
 // ⭐ 起動時に必須環境変数をチェック ⭐
 ['LINE_CHANNEL_SECRET', 'LINE_CHANNEL_ACCESS_TOKEN', 'OPENAI_API_KEY', 'GEMINI_API_KEY'].forEach(name => {
@@ -64,6 +66,14 @@ const httpInstance = axios.create({
 // ⭐追加⭐ Expressのセキュリティ強化とボディサイズ制限
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '1mb' }));
+// ⭐追加⭐ 受信レート制御（DoS/誤爆防止）
+app.use('/webhook', rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
+
 //
 // メイン処理
 //
@@ -311,7 +321,7 @@ function buildRegistrationFlex() {
       contents: [
         { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
         { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
-        { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color: "#FF69B4" }, // ⭐追加⭐ プライバシーポリシー
+        { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color: "#FF69B4" },
         { type: "button", action: { type: "postback", label: "退会する", "data": "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
       ]
     }
@@ -338,13 +348,16 @@ function buildEmergencyFlex(type) {
 const handleEventSafely = async (event) => {
     if (!event) return;
 
-    // ⭐追加⭐ Webhookの冪等化（重複イベント無視）
+    // ⭐追加⭐ Webhookの冪等化（重複イベント無視）とTTL設定
     const eid = String(event?.deliveryContext?.eventId || event?.message?.id || `${event?.timestamp}:${event?.source?.userId}`);
     const lockRef = db.collection('eventLocks').doc(eid);
     const gotLock = await db.runTransaction(async tx => {
       const s = await tx.get(lockRef);
       if (s.exists) return false;
-      tx.set(lockRef, { at: firebaseAdmin.firestore.FieldValue.serverTimestamp() });
+      tx.set(lockRef, {
+        at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+        ttlAt: firebaseAdmin.firestore.Timestamp.fromDate(new Date(Date.now() + 3*24*60*60*1000)) // 3日で自動削除
+      });
       return true;
     });
     if (!gotLock) {
@@ -369,15 +382,18 @@ const handleEventSafely = async (event) => {
                 return;
             }
             if (data === 'action=enable_watch') {
+                // ⭐追加⭐ 見守りON時の同意の証跡を明示
                 await db.collection('users').doc(userId).set({
                     watchService: {
                         isEnabled: true,
                         enrolledAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
-                        lastRepliedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+                        lastRepliedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                        privacyPolicyVersion: process.env.PRIVACY_POLICY_VERSION || 'v1',
+                        consentAgreedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
                     }
                 }, { merge: true });
                 await touchWatch(userId, '見守りON');
-                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。これで安心だね😊　プライバシーポリシーに同意してくれてありがとう！いつでも話しかけてね🌸' }], userId, event.source); // ⭐追加⭐ 同意確認
+                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。これで安心だね😊　プライバシーポリシーに同意してくれてありがとう！いつでも話しかけてね🌸' }], userId, event.source);
                 return;
             }
             if (data === 'action=disable_watch') {
@@ -466,14 +482,20 @@ const handleEventSafely = async (event) => {
         const userDoc = await db.collection('users').doc(userId).get();
         const user = userDoc.exists ? userDoc.data() : { membershipType: 'guest', dailyCounts: {}, isChildCategory: false };
 
-        const today = new Date().toISOString().slice(0, 10);
-        const dailyCount = (user.dailyCounts?.[today] || 0) + 1;
-
+        // ⭐追加⭐ 日次上限の競合防止（原子的インクリメント）
+        const today = new Date().toISOString().slice(0,10);
+        const userRef = db.collection('users').doc(userId);
+        let overLimit = false;
         const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG.guest;
-        
-        if (userConfig.dailyLimit !== -1 && dailyCount > userConfig.dailyLimit) {
-            const messages = [{ type: 'text', text: "ごめんなさい、今日の利用回数の上限に達しちゃったみたい。また明日お話しようね！" }];
-            await safeReply(event.replyToken, messages, userId, event.source);
+        const limit = (userConfig.dailyLimit ?? -1);
+        await db.runTransaction(async tx => {
+          const s = await tx.get(userRef);
+          const cur = s.exists ? (s.data()?.dailyCounts?.[today] || 0) : 0;
+          if (limit !== -1 && cur >= limit) { overLimit = true; return; }
+          tx.set(userRef, { [`dailyCounts.${today}`]: firebaseAdmin.firestore.FieldValue.increment(1) }, { merge:true });
+        });
+        if (overLimit) {
+            await safeReply(event.replyToken, [{ type:'text', text:'ごめんなさい、今日の利用回数の上限に達しちゃったみたい。また明日お話しようね！'}], userId, event.source);
             return;
         }
 
@@ -585,10 +607,6 @@ const handleEventSafely = async (event) => {
             }
         }
         
-        await db.collection('users').doc(userId).set({
-            [`dailyCounts.${today}`]: dailyCount
-        }, { merge: true });
-
         await safeReply(event.replyToken, [
             { type: 'text', text: replyContent }
         ], userId, event.source);
@@ -835,6 +853,14 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     } else {
       console.warn('OFFICER_GROUP_ID is not set; skip officer notification.');
     }
+
+    // ⭐追加⭐ 危険検知の監査ログ（匿名ハッシュでPII回避）
+    await db.collection('alerts').add({
+      type,
+      at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
+      messagePreview: String(userMessage).slice(0,120)
+    });
 };
 
 const sendConsultationResponse = async (userId, replyToken, userMessage, source) => {
@@ -971,7 +997,13 @@ const sendWatchServiceMessages = async () => {
 
 app.get('/healthz', (_, res) => res.status(200).send('ok'));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+// ⭐追加⭐ 優雅な終了
+const server = app.listen(PORT, () => {
     console.log(`🚀 サーバーはポート${PORT}で実行されています`);
 });
+function shutdown(sig){ 
+    console.log(`Received ${sig}. Shutting down...`);
+    server.close(() => { httpAgent.destroy(); httpsAgent.destroy(); process.exit(0); });
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
