@@ -453,10 +453,11 @@ const handleEventSafely = async (event) => {
         }
 
         let modelToUse;
-        if (userMessage.length <= 50) {
-            modelToUse = 'gemini-1.5-flash-latest';
+        const FORCE_OPENAI = process.env.FORCE_OPENAI === '1';
+        if (!FORCE_OPENAI && userMessage.length <= 50) {
+          modelToUse = 'gemini-1.5-flash-latest';
         } else {
-            modelToUse = userConfig.model;
+          modelToUse = userConfig.model;
         }
 
         const isUserChildCategory = user.isChildCategory || false;
@@ -470,7 +471,6 @@ const handleEventSafely = async (event) => {
         医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
         `;
 
-        // ⭐モデル指定の統一⭐
         const openaiModel = OPENAI_MODEL || 'gpt-4o-mini';
         if (modelToUse.startsWith('gpt-')) {
             if (!isUserChildCategory) {
@@ -544,7 +544,6 @@ const handleEventSafely = async (event) => {
 
         if (modelToUse.startsWith('gpt-')) {
             try {
-                // ⭐モデル指定を統一⭐
                 replyContent = await getOpenAIResponse(userMessage, systemInstruction, openaiModel);
             } catch (error) {
                 console.error('getOpenAIResponse failed:', error);
@@ -573,6 +572,15 @@ const handleEventSafely = async (event) => {
 //
 // ヘルパー関数
 //
+// ⭐ 長文を分割する関数を追加 ⭐
+function chunkTextForLine(text, max = 1900) {
+  const chunks = [];
+  for (let i = 0; i < text.length; i += max) {
+    chunks.push(text.slice(i, i + max));
+  }
+  return chunks;
+}
+
 // ⭐ リトライ機能のヘルパー関数 ⭐
 async function callWithRetry(fn, tries = 3) {
   let lastErr;
@@ -582,7 +590,6 @@ async function callWithRetry(fn, tries = 3) {
     } catch (e) {
       lastErr = e;
       const sc = e.statusCode || e.response?.status;
-      // 4xx (429以外) はクライアントエラーなのでリトライしない
       if (sc && sc < 500 && sc !== 429) {
           console.warn(`Non-retriable error: ${sc}. Exiting retry loop.`);
           break;
@@ -609,7 +616,6 @@ const getOpenAIResponse = async (message, instruction, model) => {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
     };
-    // ⭐リトライを適用⭐
     const response = await callWithRetry(() =>
       httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers })
     );
@@ -633,7 +639,6 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
     const headers = {
         'Content-Type': 'application/json',
     };
-    // ⭐リトライを適用⭐
     const response = await callWithRetry(() =>
       httpInstance.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers })
     );
@@ -641,15 +646,24 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
     return text || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
-// ⭐返信フォールバックを送信先に最適化⭐
+// ⭐返信フォールバックを送信先に最適化＆長文を自動分割⭐
 async function safeReply(replyToken, messages, userId, source) {
+  const normalized = [];
+  for (const m of messages) {
+    if (m?.type === 'text' && typeof m.text === 'string' && m.text.length > 1900) {
+      for (const t of chunkTextForLine(m.text)) normalized.push({ type: 'text', text: t });
+    } else {
+      normalized.push(m);
+    }
+  }
+
   try {
-    await client.replyMessage({ replyToken, messages });
+    await client.replyMessage({ replyToken, messages: normalized });
   } catch (e) {
     const sc = e.statusCode || e.response?.status;
     console.warn('replyMessage failed:', sc, e.response?.data || e.message);
     const to = source?.groupId || source?.roomId || userId;
-    if (to) await safePush(to, messages);
+    if (to) await safePush(to, normalized);
   }
 }
 
@@ -671,18 +685,28 @@ async function touchWatch(userId, message) {
 }
 
 async function safePush(to, messages, retries = 2) {
-    for (let i = 0; i <= retries; i++) {
-        try {  
-            await client.pushMessage({ to, messages });  
-            return;  
-        } catch (e) {
-            if (e.statusCode === 429 && i < retries) {
-                await new Promise(r => setTimeout(r, 1200 * (i + 1)));
-            } else {  
-                throw e;  
-            }
-        }
+  const normalized = [];
+  for (const m of messages) {
+    if (m?.type === 'text' && typeof m.text === 'string' && m.text.length > 1900) {
+      for (const t of chunkTextForLine(m.text)) normalized.push({ type: 'text', text: t });
+    } else {
+      normalized.push(m);
     }
+  }
+
+  for (let i = 0; i <= retries; i++) {
+    try {  
+      await client.pushMessage({ to, messages: normalized });  
+      return;  
+    } catch (e) {
+      const sc = e.statusCode || e.response?.status;
+      if (sc === 429 && i < retries) {
+        await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+      } else {  
+        throw e;  
+      }
+    }
+  }
 }
 
 const sendEmergencyResponse = async (userId, replyToken, userMessage, type, source) => {
@@ -740,7 +764,11 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
 最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}`;
 
     if (OFFICER_GROUP_ID) {
-      await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: enriched }]);
+      const anonymize = process.env.OFFICER_ANON === '1';
+      const text = anonymize
+        ? `🚨【${type}ワード検知】🚨\n\nメッセージ: 「${userMessage}」\n（匿名モードで通知中）`
+        : enriched;
+      await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
     } else {
       console.warn('OFFICER_GROUP_ID is not set; skip officer notification.');
     }
@@ -800,7 +828,6 @@ const sendWatchServiceMessages = async () => {
             const diffHours = (now.getTime() - lastRepliedAt.getTime()) / (1000 * 60 * 60);
 
             if (diffHours >= WATCH_SERVICE_INTERVAL_HOURS) {
-                // ⭐ロック機構の導入⭐
                 let lockedByMe = false;
                 const ref = db.collection('users').doc(userId);
                 try {
@@ -820,7 +847,7 @@ const sendWatchServiceMessages = async () => {
                     });
                 } catch (e) {
                     console.error('Transaction failed:', e);
-                    continue; // トランザクション失敗時は次へ
+                    continue;
                 }
                 if (!lockedByMe) continue;
 
@@ -829,7 +856,6 @@ const sendWatchServiceMessages = async () => {
                     const sinceN = (now - lastN) / (1000 * 60 * 60);
                     if (sinceN < 6) {
                         console.log(`Skipping notification for ${userId} (notified ${sinceN.toFixed(1)}h ago)`);
-                        // ロックは解除
                         await ref.update({ 'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete() });
                         continue;
                     }
@@ -862,7 +888,11 @@ const sendWatchServiceMessages = async () => {
 👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
 
                 if (OFFICER_GROUP_ID) {
-                  await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
+                  const anonymize = process.env.OFFICER_ANON === '1';
+                  const text = anonymize
+                    ? `🚨【見守りサービス通知】🚨\n\n見守り中のユーザーから29時間以上応答がありません。\n（匿名モードで通知中）`
+                    : notificationMessage;
+                  await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
                 } else {
                   console.warn('OFFICER_GROUP_ID is not set; skip watch service notification.');
                 }
