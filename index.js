@@ -28,7 +28,8 @@ const middlewareConfig = {
     channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-const client = new line.messagingApi.MessagingApiClient({
+// ⭐修正⭐ 新API（MessagingApiClient）ではなく旧API（Client）を使用
+const client = new line.Client({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
 });
 
@@ -70,20 +71,22 @@ const httpInstance = axios.create({
 app.use(helmet({ contentSecurityPolicy: false }));
 // ⭐修正⭐ レート制限が効くように、proxy設定をwebhookより前に置く
 app.set('trust proxy', 1);
-app.use(rateLimit({
+// ⭐修正⭐ レート制限を/webhookだけに適用
+const webhookRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-}));
+});
 
 //
 // メイン処理
 //
 // ⭐修正⭐ JSONパーサの前にwebhookを登録
-app.post('/webhook', line.middleware(middlewareConfig), (req, res) => {
+app.post('/webhook', webhookRateLimiter, line.middleware(middlewareConfig), (req, res) => {
     res.status(200).end();
-    const events = req.body.body || req.body.events || []; // bodyをreq.body.eventsに統一
+    // ⭐修正⭐ req.body.bodyを削除
+    const events = req.body?.events || [];
     setImmediate(async () => {
         await Promise.allSettled(events.map(handleEventSafely));
     });
@@ -131,7 +134,7 @@ const specialRepliesMap = new Map([
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？　話して聞かせてくれると嬉しいな😊"],
     [/元気かな/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-    [/元気？/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+    [/元気？/i, "うん,元気だよ！あなたは元気？� 何かあったら、いつでも話してね💖"],
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているよ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
@@ -294,6 +297,19 @@ const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
             { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
         ]
     }
+};
+
+// ⭐追加⭐ WATCH_MENU_FLEXを定義
+const WATCH_MENU_FLEX = {
+  type: "bubble",
+  body: { type:"box", layout:"vertical", contents:[
+    { type:"text", text:"見守りサービス", weight:"bold", size:"lg", align:"center", color:"#FF69B4" },
+    { type:"text", text:"24〜29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。", wrap:true, margin:"md", size:"sm", align:"center" }
+  ]},
+  footer: { type:"box", layout:"vertical", spacing:"sm", contents:[
+    { type:"button", action:{ type:"postback", label:"見守りサービスをONにする", data:"action=enable_watch" }, style:"primary", height:"sm", margin:"md", color:"#32CD32" },
+    { type:"button", action:{ type:"postback", label:"見守りサービスをOFFにする", data:"action=disable_watch" }, style:"primary", height:"sm", margin:"md", color:"#FF4500" }
+  ]}
 };
 
 function buildRegistrationFlex() {
@@ -570,7 +586,8 @@ const handleEventSafely = async (event) => {
             }
         }
         
-        let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな�';
+        // ⭐修正⭐ デフォルトのメッセージを修正
+        let replyContent = 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
         
         if (process.env.NODE_ENV !== 'production') {
             console.log(`💡 AI Model Being Used: ${modelToUse}`);
@@ -628,11 +645,12 @@ function batchMessages(msgs, size = 5) {
 
 async function getProfileCompat(client, userId) {
   try {
-    const profile = await client.getProfile({ userId });
+    const profile = await client.getProfile(userId);
     return profile;
-  } catch (e1) {
+  } catch (e) {
+    // 互換性維持のための古い形式の呼び出し
     try {
-      const profile = await client.getProfile(userId);
+      const profile = await client.getProfile({ userId });
       return profile;
     } catch (e2) {
       throw e2;
@@ -669,7 +687,8 @@ const getOpenAIResponse = async (message, instruction, model, userTag) => {
         ],
         max_tokens: 500,
         temperature: 0.7,
-        user: userTag ? String(userTag).slice(0, 80) : undefined,
+        // ⭐修正⭐ userフィールドをハッシュ化
+        user: userTag ? crypto.createHash('sha256').update(String(userTag)).digest('hex') : undefined,
     };
     const headers = {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -717,7 +736,8 @@ async function safeReply(replyToken, messages, userId, source) {
   const batches = batchMessages(normalized, 5);
 
   try {
-    await client.replyMessage({ replyToken, messages: batches[0] });
+    // ⭐修正⭐ 旧APIのシグネチャに合わせる
+    await client.replyMessage(replyToken, batches[0]);
   } catch (e) {
     const sc = e.statusCode || e.response?.status;
     console.warn('replyMessage failed:', sc, e.response?.data || e.message);
@@ -770,7 +790,8 @@ async function safePush(to, messages, retries = 2) {
   for (const batch of batches) {
     for (let i = 0; i <= retries; i++) {
       try {
-        await client.pushMessage({ to, messages: batch });
+        // ⭐修正⭐ 旧APIのシグネチャに合わせる
+        await client.pushMessage(to, batch);
         break;
       } catch (e) {
         const sc = e.statusCode || e.response?.status;
@@ -840,9 +861,10 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
 
     if (OFFICER_GROUP_ID) {
       const anonymize = process.env.OFFICER_ANON !== '0';
+      // ⭐修正⭐ enrichedではなくnotificationMessageを参照
       const text = anonymize
         ? `🚨【${type}ワード検知】🚨\n\nメッセージ: 「${userMessage}」\n（匿名モードで通知中）`
-        : enriched;
+        : notificationMessage;
       await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
     } else {
       console.warn('OFFICER_GROUP_ID is not set; skip officer notification.');
