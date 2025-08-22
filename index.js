@@ -36,7 +36,13 @@ const sanitizeForLog = (s) => {
     .replace(/https?:\/\/\S+/g, '(URL省略)')
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(メール省略)');
 };
-const redact = (s) => sanitizeForLog(s).slice(0, 120);
+
+// ⭐修正⭐ 文字化け防止：絵文字・結合文字を壊さずに切る
+const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+const toGraphemes = (s) => Array.from(seg.segment(String(s || '')), it => it.segment);
+const gSlice = (s, start, end) => toGraphemes(s).slice(start, end).join('');
+const gTrunc = (s, n) => gSlice(s, 0, n);
+const redact = (s) => gTrunc(sanitizeForLog(s), 120);
 const audit = (kind, payload = {}) => {
   if (LOG_MODE === 'SILENT') return;
   const allow = new Set(['DANGER', 'SCAM', 'WATCH', 'INAPPROPRIATE']);
@@ -334,36 +340,36 @@ const WATCH_MENU_FLEX = {
 };
 
 function buildRegistrationFlex() {
-  const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
-  const privacyPolicyUrl = `${url}/privacy_policy`;
-  return {
-    ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX,
-    footer: {
-      ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX.footer,
-      contents: [
-        { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
-        { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
-        { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color: "#FF69B4" },
-        { type: "button", action: { type: "postback", label: "退会する", "data": "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
-      ]
-    }
-  };
+    const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
+    const privacyPolicyUrl = `${url}/privacy_policy`;
+    return {
+      ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX,
+      footer: {
+        ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX.footer,
+        contents: [
+          { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
+          { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
+          { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color: "#FF69B4" },
+          { type: "button", action: { type: "postback", label: "退会する", "data": "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
+        ]
+      }
+    };
 }
 
 function buildEmergencyFlex(type) {
-  const base = (type === '危険') ? EMERGENCY_FLEX_MESSAGE : SCAM_FLEX_MESSAGE;
-  const hasTel = !!EMERGENCY_CONTACT_PHONE_NUMBER;
-  const footer = { ...base.footer };
-  if (!hasTel) {
-    footer.contents = footer.contents.filter(c => !String(c?.action?.label || '').includes('こころちゃん事務局'));
-  } else {
-    footer.contents = footer.contents.map(c =>
-      String(c?.action?.label || '').includes('こころちゃん事務局')
-        ? { ...c, action: { ...c.action, uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` } }
-        : c
-    );
-  }
-  return { ...base, footer };
+    const base = (type === '危険') ? EMERGENCY_FLEX_MESSAGE : SCAM_FLEX_MESSAGE;
+    const hasTel = !!EMERGENCY_CONTACT_PHONE_NUMBER;
+    const footer = { ...base.footer };
+    if (!hasTel) {
+      footer.contents = footer.contents.filter(c => !String(c?.action?.label || '').includes('こころちゃん事務局'));
+    } else {
+      footer.contents = footer.contents.map(c =>
+        String(c?.action?.label || '').includes('こころちゃん事務局')
+          ? { ...c, action: { ...c.action, uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` } }
+          : c
+      );
+    }
+    return { ...base, footer };
 }
 
 
@@ -447,6 +453,14 @@ const handleEventSafely = async (event) => {
         return;
     }
     
+    // ⭐修正⭐ 危険・詐欺ワードのチェックを不適切ワードの前に移動
+    const isDangerous = checkContainsDangerWords(userMessage);
+    const isScam = checkContainsScamWords(userMessage);
+    if (isDangerous || isScam) {
+        await sendEmergencyResponse(userId, event.replyToken, userMessage, isDangerous ? '危険' : '詐欺', event.source);
+        return;
+    }
+
     // ⭐追加⭐ 不適切メッセージ検知時のログ保存
     if (checkContainsInappropriateWords(userMessage)) {
         audit('INAPPROPRIATE', { userIdHash: userHash(userId), preview: redact(userMessage) });
@@ -454,39 +468,32 @@ const handleEventSafely = async (event) => {
             type: 'inappropriate',
             at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
             userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
-            messagePreview: sanitizeForLog(userMessage).slice(0, 120),
+            messagePreview: gTrunc(sanitizeForLog(userMessage), 120),
         });
         const messages = [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。でも他のことなら一緒に話したいな🌸" }];
         await safeReply(event.replyToken, messages, userId, event.source);
         return;
     }
 
-    const isDangerous = checkContainsDangerWords(userMessage);
-    const isScam = checkContainsScamWords(userMessage);
-    if (isDangerous || isScam) {
-        await sendEmergencyResponse(userId, event.replyToken, userMessage, isDangerous ? '危険' : '詐欺', event.source);
-        return;
-    }
-    
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
         if (userMessage.includes('見守り') || userMessage.includes('みまもり') || userMessage.includes('まもり')) {
              try {
-                await safeReply(event.replyToken, [
-                    { type: 'text', text: specialReply },
-                    { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
-                ], userId, event.source);
+               await safeReply(event.replyToken, [
+                   { type: 'text', text: specialReply },
+                   { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
+               ], userId, event.source);
              } catch (e) {
-                briefErr('replyMessage failed (specialReply)', e);
+               briefErr('replyMessage failed (specialReply)', e);
              }
         } else {
              try {
-                await safeReply(event.replyToken, [{
-                    type: 'text',
-                    text: specialReply,
-                }], userId, event.source);
+               await safeReply(event.replyToken, [{
+                   type: 'text',
+                   text: specialReply,
+               }], userId, event.source);
              } catch (e) {
-                briefErr('replyMessage failed (specialReply)', e);
+               briefErr('replyMessage failed (specialReply)', e);
              }
         }
         return;
@@ -504,7 +511,7 @@ const handleEventSafely = async (event) => {
         await sendConsultationResponse(userId, event.replyToken, userMessage, event.source);
         return;
     }
-    
+
     try {
         const userDoc = await db.collection('users').doc(userId).get();
         const user = userDoc.exists ? userDoc.data() : { membershipType: 'guest', dailyCounts: {}, isChildCategory: false };
@@ -645,67 +652,57 @@ const handleEventSafely = async (event) => {
 //
 // ヘルパー関数
 //
-// ⭐追加⭐ 監査ログ/メッセージプレビュー用サニタイズ関数
-// ⭐修正⭐ この重複する関数定義を削除
-/*
-function sanitizeForLog(s) {
-  if (!s) return '';
-  return String(s)
-    .replace(/\d{3,}/g, '＊')
-    .replace(/https?:\/\/\S+/g, '(URL省略)')
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(メール省略)');
-}
-*/
 function chunkTextForLine(text, max = 1900) {
+  const g = toGraphemes(text);
   const chunks = [];
-  for (let i = 0; i < text.length; i += max) {
-    chunks.push(text.slice(i, i + max));
+  for (let i = 0; i < g.length; i += max) {
+    chunks.push(g.slice(i, i + max).join(''));
   }
   return chunks;
 }
 
 function batchMessages(msgs, size = 5) {
-  const out = [];
-  for (let i = 0; i < msgs.length; i += size) {
-    out.push(msgs.slice(i, i + size));
-  }
-  return out;
+    const out = [];
+    for (let i = 0; i < msgs.length; i += size) {
+        out.push(msgs.slice(i, i + size));
+    }
+    return out;
 }
 
 async function getProfileCompat(client, userId) {
-  try {
-    const profile = await client.getProfile(userId);
-    return profile;
-  } catch (e) {
-    briefErr('getProfile failed', e);
-    // 互換性維持のための古い形式の呼び出し
     try {
-      const profile = await client.getProfile({ userId });
+      const profile = await client.getProfile(userId);
       return profile;
-    } catch (e2) {
-      throw e2;
+    } catch (e) {
+      briefErr('getProfile failed', e);
+      // 互換性維持のための古い形式の呼び出し
+      try {
+        const profile = await client.getProfile({ userId });
+        return profile;
+      } catch (e2) {
+        throw e2;
+      }
     }
-  }
 }
 
 async function callWithRetry(fn, tries = 3) {
-  let lastErr;
-  for (let i = 0; i < tries; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      lastErr = e;
-      const sc = e.statusCode || e.response?.status;
-      if (sc && sc < 500 && sc !== 429) {
-          debug(`Non-retriable error: ${sc}. Exiting retry loop.`);
-          break;
+    let lastErr;
+    for (let i = 0; i < tries; i++) {
+      try {
+        return await fn();
+      } catch (e) {
+        lastErr = e;
+        const sc = e.statusCode || e.response?.status;
+        if (sc && sc < 500 && sc !== 429) {
+            debug(`Non-retriable error: ${sc}. Exiting retry loop.`);
+            break;
+        }
+        const delay = 500 * Math.pow(2, i);
+        debug(`Retriable error: ${sc}. Retrying in ${delay}ms... (Attempt ${i + 1})`);
+        await new Promise(r => setTimeout(r, delay));
       }
-      const delay = 500 * Math.pow(2, i);
-      debug(`Retriable error: ${sc}. Retrying in ${delay}ms... (Attempt ${i + 1})`);
-      await new Promise(r => setTimeout(r, delay));
     }
-  }
-  throw lastErr;
+    throw lastErr;
 }
 
 const getOpenAIResponse = async (message, instruction, model, userTag) => {
@@ -755,34 +752,34 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-flash
 };
 
 async function safeReply(replyToken, messages, userId, source) {
-  const normalized = [];
-  for (const m of messages) {
-    if (m?.type === 'text' && typeof m.text === 'string' && m.text.length > 1900) {
-      for (const t of chunkTextForLine(m.text)) normalized.push({ type: 'text', text: t });
-    } else {
-      normalized.push(m);
-    }
-  }
-  const batches = batchMessages(normalized, 5);
-
-  try {
-    // ⭐修正⭐ 旧APIのシグネチャに合わせる
-    await client.replyMessage(replyToken, batches[0]);
-  } catch (e) {
-    briefErr('replyMessage failed', e);
-    const to = source?.groupId || source?.roomId || userId;
-    if (to) await safePush(to, normalized);
-    return;
-  }
-
-  if (batches.length > 1) {
-    const to = source?.groupId || source?.roomId || userId;
-    if (to) {
-      for (let i = 1; i < batches.length; i++) {
-        await safePush(to, batches[i]);
+    const normalized = [];
+    for (const m of messages) {
+      if (m?.type === 'text' && typeof m.text === 'string' && m.text.length > 1900) {
+        for (const t of chunkTextForLine(m.text)) normalized.push({ type: 'text', text: t });
+      } else {
+        normalized.push(m);
       }
     }
-  }
+    const batches = batchMessages(normalized, 5);
+
+    try {
+      // ⭐修正⭐ 旧APIのシグネチャに合わせる
+      await client.replyMessage(replyToken, batches[0]);
+    } catch (e) {
+      briefErr('replyMessage failed', e);
+      const to = source?.groupId || source?.roomId || userId;
+      if (to) await safePush(to, normalized);
+      return;
+    }
+
+    if (batches.length > 1) {
+      const to = source?.groupId || source?.roomId || userId;
+      if (to) {
+        for (let i = 1; i < batches.length; i++) {
+          await safePush(to, batches[i]);
+        }
+      }
+    }
 }
 
 async function touchWatch(userId, message) {
@@ -794,7 +791,7 @@ async function touchWatch(userId, message) {
             if (!enabled) return;
 
             // ⭐修正⭐ メッセージプレビューもサニタイズ
-            const preview = sanitizeForLog(message).slice(0, 140);
+            const preview = gTrunc(sanitizeForLog(message), 140);
             
             tx.update(ref, {
                 'watchService.lastRepliedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp(),
@@ -807,32 +804,32 @@ async function touchWatch(userId, message) {
 }
 
 async function safePush(to, messages, retries = 2) {
-  const normalized = [];
-  for (const m of messages) {
-    if (m?.type === 'text' && typeof m.text === 'string' && m.text.length > 1900) {
-      for (const t of chunkTextForLine(m.text)) normalized.push({ type: 'text', text: t });
-    } else {
-      normalized.push(m);
+    const normalized = [];
+    for (const m of messages) {
+      if (m?.type === 'text' && typeof m.text === 'string' && m.text.length > 1900) {
+        for (const t of chunkTextForLine(m.text)) normalized.push({ type: 'text', text: t });
+      } else {
+        normalized.push(m);
+      }
     }
-  }
-  const batches = batchMessages(normalized, 5);
-  for (const batch of batches) {
-    for (let i = 0; i <= retries; i++) {
-      try {
-        // ⭐修正⭐ 旧APIのシグネチャに合わせる
-        await client.pushMessage(to, batch);
-        break;
-      } catch (e) {
-        const sc = e.statusCode || e.response?.status;
-        if (sc === 429 && i < retries) {
-          await new Promise(r => setTimeout(r, 1200 * (i + 1)));
-        } else {
-          briefErr('safePush failed', e);
+    const batches = batchMessages(normalized, 5);
+    for (const batch of batches) {
+      for (let i = 0; i <= retries; i++) {
+        try {
+          // ⭐修正⭐ 旧APIのシグネチャに合わせる
+          await client.pushMessage(to, batch);
           break;
+        } catch (e) {
+          const sc = e.statusCode || e.response?.status;
+          if (sc === 429 && i < retries) {
+            await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+          } else {
+            briefErr('safePush failed', e);
+            break;
+          }
         }
       }
     }
-  }
 }
 
 const sendEmergencyResponse = async (userId, replyToken, userMessage, type, source) => {
@@ -908,7 +905,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
       type,
       at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
       userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
-      messagePreview: sanitizeForLog(userMessage).slice(0,120)
+      messagePreview: gTrunc(sanitizeForLog(userMessage), 120)
     });
 };
 
@@ -1070,3 +1067,13 @@ function shutdown(sig){
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+function checkSpecialReply(text) {
+    const lowerText = text.toLowerCase();
+    for (const [key, value] of specialRepliesMap) {
+        if ((key instanceof RegExp && key.test(lowerText))) {
+            return value;
+        }
+    }
+    return null;
+}
