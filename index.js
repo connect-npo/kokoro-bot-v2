@@ -114,7 +114,7 @@ const specialRepliesMap = new Map([
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？　話して聞かせてくれると嬉しいな😊"],
     [/元気かな/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/元気？/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-    [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
+    [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているよ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
     [/(ホームページ|HP|ＨＰ|サイト|公式|リンク).*(教えて|ある|ありますか|URL|url|アドレス|どこ)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
@@ -544,7 +544,7 @@ const handleEventSafely = async (event) => {
 
         if (modelToUse.startsWith('gpt-')) {
             try {
-                replyContent = await getOpenAIResponse(userMessage, systemInstruction, openaiModel);
+                replyContent = await getOpenAIResponse(userMessage, systemInstruction, openaiModel, userId);
             } catch (error) {
                 console.error('getOpenAIResponse failed:', error);
             }
@@ -581,6 +581,15 @@ function chunkTextForLine(text, max = 1900) {
   return chunks;
 }
 
+// ⭐ メッセージを5件ずつバッチ処理する関数を追加 ⭐
+function batchMessages(msgs, size = 5) {
+  const out = [];
+  for (let i = 0; i < msgs.length; i += size) {
+    out.push(msgs.slice(i, i + size));
+  }
+  return out;
+}
+
 // ⭐ リトライ機能のヘルパー関数 ⭐
 async function callWithRetry(fn, tries = 3) {
   let lastErr;
@@ -602,7 +611,7 @@ async function callWithRetry(fn, tries = 3) {
   throw lastErr;
 }
 
-const getOpenAIResponse = async (message, instruction, model) => {
+const getOpenAIResponse = async (message, instruction, model, userTag) => {
     const payload = {
         model: model,
         messages: [
@@ -611,6 +620,7 @@ const getOpenAIResponse = async (message, instruction, model) => {
         ],
         max_tokens: 500,
         temperature: 0.7,
+        user: userTag ? String(userTag).slice(0, 80) : undefined,
     };
     const headers = {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -646,7 +656,7 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
     return text || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
-// ⭐返信フォールバックを送信先に最適化＆長文を自動分割⭐
+// ⭐返信フォールバックを送信先に最適化＆長文・バッチ処理を自動分割⭐
 async function safeReply(replyToken, messages, userId, source) {
   const normalized = [];
   for (const m of messages) {
@@ -656,14 +666,26 @@ async function safeReply(replyToken, messages, userId, source) {
       normalized.push(m);
     }
   }
+  const batches = batchMessages(normalized, 5);
 
   try {
-    await client.replyMessage({ replyToken, messages: normalized });
+    await client.replyMessage({ replyToken, messages: batches[0] });
   } catch (e) {
     const sc = e.statusCode || e.response?.status;
     console.warn('replyMessage failed:', sc, e.response?.data || e.message);
     const to = source?.groupId || source?.roomId || userId;
     if (to) await safePush(to, normalized);
+    return;
+  }
+
+  // 返信後に残りがあれば PUSH で送る（replyTokenは一度きり）
+  if (batches.length > 1) {
+    const to = source?.groupId || source?.roomId || userId;
+    if (to) {
+      for (let i = 1; i < batches.length; i++) {
+        await safePush(to, batches[i]);
+      }
+    }
   }
 }
 
@@ -693,17 +715,19 @@ async function safePush(to, messages, retries = 2) {
       normalized.push(m);
     }
   }
-
-  for (let i = 0; i <= retries; i++) {
-    try {  
-      await client.pushMessage({ to, messages: normalized });  
-      return;  
-    } catch (e) {
-      const sc = e.statusCode || e.response?.status;
-      if (sc === 429 && i < retries) {
-        await new Promise(r => setTimeout(r, 1200 * (i + 1)));
-      } else {  
-        throw e;  
+  const batches = batchMessages(normalized, 5);
+  for (const batch of batches) {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        await client.pushMessage({ to, messages: batch });
+        break; // 次のバッチへ
+      } catch (e) {
+        const sc = e.statusCode || e.response?.status;
+        if (sc === 429 && i < retries) {
+          await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+        } else {
+          throw e;
+        }
       }
     }
   }
@@ -719,7 +743,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     
     let aiResponse = '不安だったよね。まずは深呼吸しようね。詳しい連絡先はこのあと出すから確認してね💖';
     try {
-      aiResponse = await getOpenAIResponse(userMessage, systemInstruction, OPENAI_MODEL || 'gpt-4o');
+      aiResponse = await getOpenAIResponse(userMessage, systemInstruction, OPENAI_MODEL || 'gpt-4o', userId);
     } catch (error) {
       console.error('getOpenAIResponse failed (emergency):', error);
     }
@@ -737,7 +761,9 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     
     let profileName = '不明';
     try {
-        const profile = await client.getProfile(userId);
+        const profile = typeof userId === 'string'
+          ? (await client.getProfile?.({ userId })) || (await client.getProfile(userId))
+          : await client.getProfile({ userId });
         profileName = profile?.displayName || profileName;
     } catch (e) {
         console.warn('getProfile failed:', e.statusCode || e.message);
@@ -863,8 +889,10 @@ const sendWatchServiceMessages = async () => {
 
                 let profileName = '不明';
                 try {
-                    const profile = await client.getProfile(userId);
-                    profileName = profile?.displayName || profileName;
+                  const profile = typeof userId === 'string'
+                    ? (await client.getProfile?.({ userId })) || (await client.getProfile(userId))
+                    : await client.getProfile({ userId });
+                  profileName = profile?.displayName || profileName;
                 } catch (e) {
                     console.warn('getProfile failed:', e.statusCode || e.message);
                 }
