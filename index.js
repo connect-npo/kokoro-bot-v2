@@ -23,6 +23,20 @@ const PORT = Number(process.env.PORT) || 3000;
   }
 });
 
+// === logging policy ===
+const LOG_MODE = process.env.LOG_MODE || 'ALERTS'; // 'ALERTS' | 'DEBUG' | 'SILENT'
+const debug = (...a) => { if (LOG_MODE === 'DEBUG') console.log(...a); };
+const briefErr = (prefix, e) =>
+  console.error(prefix, e?.response?.status ?? e?.statusCode ?? e?.code ?? e?.message);
+const userHash = (id) => crypto.createHash('sha256').update(String(id)).digest('hex');
+const redact = (s) => sanitizeForLog(s).slice(0, 120);
+const audit = (kind, payload = {}) => {
+  if (LOG_MODE === 'SILENT') return;
+  const allow = new Set(['DANGER', 'SCAM', 'WATCH', 'INAPPROPRIATE']);
+  if (!allow.has(kind)) return;
+  console.log(JSON.stringify({ at: new Date().toISOString(), kind, ...payload }));
+};
+
 // ⭐設定を分離⭐
 const middlewareConfig = {
     channelSecret: process.env.LINE_CHANNEL_SECRET
@@ -46,7 +60,7 @@ try {
       ? JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString())
       : require('./serviceAccountKey.json');
 } catch (e) {
-    console.error('Firebase credentials load failed:', e.message);
+    briefErr('Firebase credentials load failed', e);
     process.exit(1);
 }
 
@@ -133,7 +147,7 @@ const specialRepliesMap = new Map([
     [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援しているよ🌸"],
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？　話して聞かせてくれると嬉しいな😊"],
-    [/元気かな/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+    [/元気かな/i, "うん,元気だよ！あなたは元気？� 何かあったら、いつでも話してね💖"],
     [/元気？/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているよ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
@@ -362,7 +376,7 @@ const handleEventSafely = async (event) => {
       return true;
     });
     if (!gotLock) {
-        // ⭐修正⭐ 重複イベントのログを削除
+        debug('Duplicate event skipped');
         return;
     }
 
@@ -372,7 +386,7 @@ const handleEventSafely = async (event) => {
         const userId = event.source?.userId;
         const data = event.postback?.data || '';
         if (!ALLOWED_POSTBACKS.has(data)) {
-            console.warn('Unknown postback:', data);
+            debug('Unknown postback', data);
             await safeReply(event.replyToken, [{ type:'text', text:'ごめんね、その操作は対応していないよ🙏'}], userId, event.source);
             return;
         }
@@ -405,7 +419,7 @@ const handleEventSafely = async (event) => {
                 return;
             }
         } catch (e) {
-            console.error('postback handling error:', e);
+            briefErr('postback handling error', e);
         }
         return;
     }
@@ -428,6 +442,7 @@ const handleEventSafely = async (event) => {
     
     // ⭐追加⭐ 不適切メッセージ検知時のログ保存
     if (checkContainsInappropriateWords(userMessage)) {
+        audit('INAPPROPRIATE', { userIdHash: userHash(userId), preview: redact(userMessage) });
         await db.collection('alerts').add({
             type: 'inappropriate',
             at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
@@ -455,7 +470,7 @@ const handleEventSafely = async (event) => {
                     { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
                 ], userId, event.source);
              } catch (e) {
-                console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+                briefErr('replyMessage failed (specialReply)', e);
              }
         } else {
              try {
@@ -464,7 +479,7 @@ const handleEventSafely = async (event) => {
                     text: specialReply,
                 }], userId, event.source);
              } catch (e) {
-                console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+                briefErr('replyMessage failed (specialReply)', e);
              }
         }
         return;
@@ -595,21 +610,19 @@ const handleEventSafely = async (event) => {
         let replyContent = 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
         
         // ⭐修正⭐ サーバーログを削除
-        // if (process.env.NODE_ENV !== 'production') {
-        //     console.log(`💡 AI Model Being Used: ${modelToUse}`);
-        // }
+        debug(`AI Model Being Used: ${modelToUse}`);
 
         if (modelToUse.startsWith('gpt-')) {
             try {
                 replyContent = await getOpenAIResponse(userMessage, systemInstruction, openaiModel, userId);
             } catch (error) {
-                console.error('getOpenAIResponse failed:', error);
+                briefErr('getOpenAIResponse failed', error);
             }
         } else {
             try {
                 replyContent = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-flash-latest');
             } catch (error) {
-                console.error('getGeminiResponse failed:', error);
+                briefErr('getGeminiResponse failed', error);
             }
         }
         
@@ -618,7 +631,7 @@ const handleEventSafely = async (event) => {
         ], userId, event.source);
 
     } catch (error) {
-        console.error(error);
+        briefErr('handleEventSafely failed', error);
     }
 };
 
@@ -654,6 +667,7 @@ async function getProfileCompat(client, userId) {
     const profile = await client.getProfile(userId);
     return profile;
   } catch (e) {
+    briefErr('getProfile failed', e);
     // 互換性維持のための古い形式の呼び出し
     try {
       const profile = await client.getProfile({ userId });
@@ -673,11 +687,11 @@ async function callWithRetry(fn, tries = 3) {
       lastErr = e;
       const sc = e.statusCode || e.response?.status;
       if (sc && sc < 500 && sc !== 429) {
-          console.warn(`Non-retriable error: ${sc}. Exiting retry loop.`);
+          debug(`Non-retriable error: ${sc}. Exiting retry loop.`);
           break;
       }
       const delay = 500 * Math.pow(2, i);
-      console.warn(`Retriable error: ${sc}. Retrying in ${delay}ms... (Attempt ${i + 1})`);
+      debug(`Retriable error: ${sc}. Retrying in ${delay}ms... (Attempt ${i + 1})`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
@@ -745,8 +759,7 @@ async function safeReply(replyToken, messages, userId, source) {
     // ⭐修正⭐ 旧APIのシグネチャに合わせる
     await client.replyMessage(replyToken, batches[0]);
   } catch (e) {
-    const sc = e.statusCode || e.response?.status;
-    console.warn('replyMessage failed:', sc, e.response?.data || e.message);
+    briefErr('replyMessage failed', e);
     const to = source?.groupId || source?.roomId || userId;
     if (to) await safePush(to, normalized);
     return;
@@ -779,7 +792,7 @@ async function touchWatch(userId, message) {
             });
         });
     } catch (e) {
-        console.warn('touchWatch failed:', e?.message || e);
+        briefErr('touchWatch failed', e);
     }
 }
 
@@ -804,7 +817,8 @@ async function safePush(to, messages, retries = 2) {
         if (sc === 429 && i < retries) {
           await new Promise(r => setTimeout(r, 1200 * (i + 1)));
         } else {
-          throw e;
+          briefErr('safePush failed', e);
+          break;
         }
       }
     }
@@ -823,7 +837,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     try {
       aiResponse = await getOpenAIResponse(userMessage, systemInstruction, OPENAI_MODEL || 'gpt-4o', userId);
     } catch (error) {
-      console.error('getOpenAIResponse failed (emergency):', error);
+      briefErr('getOpenAIResponse failed (emergency)', error);
     }
     
     const messages = [{
@@ -842,7 +856,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
         const profile = await getProfileCompat(client, userId);
         profileName = profile?.displayName || profileName;
     } catch (e) {
-        console.warn('getProfile failed:', e.statusCode || e.message);
+        briefErr('getProfile failed', e);
     }
     
     const snap = await db.collection('users').doc(userId).get();
@@ -867,16 +881,19 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
 
     if (OFFICER_GROUP_ID) {
       const anonymize = process.env.OFFICER_ANON !== '0';
-      // ⭐修正⭐ enrichedではなくnotificationMessageを参照
       const text = anonymize
         ? `🚨【${type}ワード検知】🚨\n\nメッセージ: 「${userMessage}」\n（匿名モードで通知中）`
         : notificationMessage;
       await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
     } else {
-      console.warn('OFFICER_GROUP_ID is not set; skip officer notification.');
+      debug('OFFICER_GROUP_ID not set; skip officer notification.');
     }
 
     // ⭐追加⭐ 危険検知の監査ログ（匿名ハッシュでPII回避）
+    audit(type === '危険' ? 'DANGER' : 'SCAM', {
+      userIdHash: userHash(userId),
+      preview: redact(userMessage)
+    });
     await db.collection('alerts').add({
       type,
       at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
@@ -897,7 +914,7 @@ const sendConsultationResponse = async (userId, replyToken, userMessage, source)
     try {
       aiResponse = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-pro-latest');
     } catch (error) {
-      console.error('getGeminiResponse failed (consultation):', error);
+      briefErr('getGeminiResponse failed (consultation)', error);
     }
 
     await safeReply(replyToken, [{ type: 'text', text: aiResponse }], userId, source);
@@ -924,7 +941,7 @@ const sendWatchServiceMessages = async () => {
     const snapshot = await usersRef.where('watchService.isEnabled', '==', true).get();
 
     if (snapshot.empty) {
-        // ⭐修正⭐ 通常ログを削除
+        debug('No users found with watch service enabled.');
         return;
     }
 
@@ -947,7 +964,7 @@ const sendWatchServiceMessages = async () => {
                         const nowMs = Date.now();
                         const lockMs = ws.notifyLockExpiresAt?.toDate?.()?.getTime?.() || 0;
                         if (lockMs > nowMs) {
-                            // ⭐修正⭐ 通常ログを削除
+                            debug(`watch: locked ${userId}`);
                             return;
                         }
                         lockedByMe = true;
@@ -956,7 +973,7 @@ const sendWatchServiceMessages = async () => {
                         });
                     });
                 } catch (e) {
-                    console.error('Transaction failed:', e);
+                    briefErr('watch tx failed', e);
                     continue;
                 }
                 if (!lockedByMe) continue;
@@ -965,7 +982,7 @@ const sendWatchServiceMessages = async () => {
                     const lastN = user.watchService.lastNotifiedAt.toDate();
                     const sinceN = (now - lastN) / (1000 * 60 * 60);
                     if (sinceN < 6) {
-                        // ⭐修正⭐ 通常ログを削除
+                        debug(`watch: recent notify ${sinceN.toFixed(1)}h`);
                         await ref.update({ 'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete() });
                         continue;
                     }
@@ -976,7 +993,7 @@ const sendWatchServiceMessages = async () => {
                     const profile = await getProfileCompat(client, userId);
                     profileName = profile?.displayName || profileName;
                 } catch (e) {
-                    console.warn('getProfile failed:', e.statusCode || e.message);
+                    briefErr('getProfile failed', e);
                 }
                 
                 const snap = await db.collection('users').doc(userId).get();
@@ -1004,7 +1021,7 @@ const sendWatchServiceMessages = async () => {
                     : notificationMessage;
                   await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
                 } else {
-                  console.warn('OFFICER_GROUP_ID is not set; skip watch service notification.');
+                  debug('OFFICER_GROUP_ID not set; skip watch service notification.');
                 }
                 
                 await db.collection('users').doc(userId).update({
@@ -1013,6 +1030,10 @@ const sendWatchServiceMessages = async () => {
                 });
 
                 // ⭐追加⭐ 見守り通知の監査ログ
+                audit('WATCH', {
+                    userIdHash: userHash(userId),
+                    lastRepliedAt: u.watchService?.lastRepliedAt?.toDate()?.toISOString() ?? null
+                });
                 await db.collection('alerts').add({
                     type: 'watch_service',
                     at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
