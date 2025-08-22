@@ -293,14 +293,81 @@ const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
     }
 };
 
+// --- 見守りサービス専用のFlex Messageテンプレート ---
+const WATCH_MENU_FLEX = {
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+            { "type": "text", "text": "見守りサービス", "weight": "bold", "size": "lg", "align": "center", "color": "#FF69B4" },
+            { "type": "text", "text": "24〜29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。", "wrap": true, "margin": "md", "size": "sm", "align": "center" }
+        ]
+    },
+    "footer": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [
+            { "type": "button", "action": { "type": "postback", "label": "見守りサービスをONにする", "data": "action=enable_watch" }, "style": "primary", "height": "sm", "margin": "md", "color": "#32CD32" },
+            { "type": "button", "action": { "type": "postback", "label": "見守りサービスをOFFにする", "data": "action=disable_watch" }, "style": "primary", "height": "sm", "margin": "md", "color": "#FF4500" }
+        ]
+    }
+};
+
+
 const handleEventSafely = async (event) => {
-    // ⭐非テキストイベントの早期リターン⭐
-    if (!event || event.type !== 'message' || !event.message || event.message.type !== 'text') {
+    // ⭐ 修正箇所: Postbackイベントを先に処理する ⭐
+    if (!event) return;
+
+    if (event.type === 'postback') {
+        const userId = event.source?.userId;
+        const data = event.postback?.data || '';
+        try {
+            if (data === 'action=request_withdrawal') {
+                await db.collection('users').doc(userId).set({ status: 'requested_withdrawal' }, { merge: true });
+                await client.replyMessage({
+                    replyToken: event.replyToken,
+                    messages: [{ type: 'text', text: '退会リクエストを受け付けたよ。手続き完了まで少し待ってね🌸' }]
+                });
+                return;
+            }
+            if (data === 'action=enable_watch') {
+                await db.collection('users').doc(userId).set({
+                    watchService: {
+                        isEnabled: true,
+                        enrolledAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                        lastRepliedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+                    }
+                }, { merge: true });
+                await client.replyMessage({
+                    replyToken: event.replyToken,
+                    messages: [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }]
+                });
+                return;
+            }
+            if (data === 'action=disable_watch') {
+                await db.collection('users').doc(userId).set({
+                    watchService: { isEnabled: false }
+                }, { merge: true });
+                await client.replyMessage({
+                    replyToken: event.replyToken,
+                    messages: [{ type: 'text', text: '見守りサービスをOFFにしたよ。また必要になったら言ってね🌸' }]
+                });
+                return;
+            }
+        } catch (e) {
+            console.error('postback handling error:', e);
+        }
+        return; // 未知postbackは無視
+    }
+
+    // ★ ここから下は従来どおり「テキストメッセージのみ」処理
+    if (event.type !== 'message' || !event.message || event.message.type !== 'text') {
         return; // 画像・スタンプ・フォローイベントなどは無視
     }
     const userId = event.source?.userId;
     const userMessage = event.message.text || '';
-    // ⭐ここまで追加⭐
 
     // 1. 不適切ワードのチェック
     if (checkContainsInappropriateWords(userMessage)) {
@@ -315,17 +382,30 @@ const handleEventSafely = async (event) => {
         // ⭐見守りサービスはFlex Messageを送信する⭐
         if (userMessage.includes('見守り') || userMessage.includes('みまもり') || userMessage.includes('まもり')) {
              try {
-                await client.replyMessage({
-                    replyToken: event.replyToken,
-                    messages: [
-                        { type: 'text', text: specialReply },
-                        { type: 'flex', altText: "会員登録・情報変更メニュー", contents: REGISTRATION_AND_CHANGE_BUTTONS_FLEX }
-                    ]
-                });
-                console.log('🎯 special hit: watch service');
-            } catch (e) {
-                console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
-            }
+                 await client.replyMessage({
+                     replyToken: event.replyToken,
+                     messages: [
+                         { type: 'text', text: specialReply },
+                         { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX } // ⭐修正: WATCH_MENU_FLEXを送信する⭐
+                     ]
+                 });
+                 console.log('🎯 special hit: watch service');
+             } catch (e) {
+                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+             }
+        } else if (userMessage.includes('会員登録') || userMessage.includes('登録情報')) {
+             try {
+                 await client.replyMessage({
+                     replyToken: event.replyToken,
+                     messages: [
+                         { type: 'text', text: "会員登録や情報の変更はここからできるよ！" },
+                         { type: 'flex', altText: "会員登録・情報変更メニュー", contents: REGISTRATION_AND_CHANGE_BUTTONS_FLEX }
+                     ]
+                 });
+                 console.log('🎯 special hit: registration');
+             } catch (e) {
+                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+             }
         } else {
             try {
                 await client.replyMessage({
