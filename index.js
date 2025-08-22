@@ -646,6 +646,8 @@ const handleEventSafely = async (event) => {
 // ヘルパー関数
 //
 // ⭐追加⭐ 監査ログ/メッセージプレビュー用サニタイズ関数
+// ⭐修正⭐ この重複する関数定義を削除
+/*
 function sanitizeForLog(s) {
   if (!s) return '';
   return String(s)
@@ -653,7 +655,7 @@ function sanitizeForLog(s) {
     .replace(/https?:\/\/\S+/g, '(URL省略)')
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(メール省略)');
 }
-
+*/
 function chunkTextForLine(text, max = 1900) {
   const chunks = [];
   for (let i = 0; i < text.length; i += max) {
@@ -725,7 +727,7 @@ const getOpenAIResponse = async (message, instruction, model, userTag) => {
     const response = await callWithRetry(() =>
       httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers })
     );
-    return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね� いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
+    return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
 const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-flash-latest') => {
@@ -1025,7 +1027,7 @@ const sendWatchServiceMessages = async () => {
                 if (OFFICER_GROUP_ID) {
                   const anonymize = process.env.OFFICER_ANON !== '0';
                   const text = anonymize
-                    ? `🚨【見守りサービス通知】🚨\n\n見守り中のユーザーから29時間以上応答がありません。\n（匿名モードで通知中）`
+                    ? `�【見守りサービス通知】🚨\n\n見守り中のユーザーから29時間以上応答がありません。\n（匿名モードで通知中）`
                     : notificationMessage;
                   await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
                 } else {
