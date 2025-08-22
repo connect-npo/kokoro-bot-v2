@@ -37,9 +37,12 @@ const sanitizeForLog = (s) => {
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(メール省略)');
 };
 
-// ⭐修正⭐ 文字化け防止：絵文字・結合文字を壊さずに切る
-const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
-const toGraphemes = (s) => Array.from(seg.segment(String(s || '')), it => it.segment);
+// ⭐修正⭐ 文字化け防止：Intl.Segmenter のフォールバックを追加
+const hasSeg = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function';
+const seg = hasSeg ? new Intl.Segmenter('ja', { granularity: 'grapheme' }) : null;
+const toGraphemes = (s) => hasSeg
+  ? Array.from(seg.segment(String(s || '')), it => it.segment)
+  : Array.from(String(s || ''));
 const gSlice = (s, start, end) => toGraphemes(s).slice(start, end).join('');
 const gTrunc = (s, n) => gSlice(s, 0, n);
 const redact = (s) => gTrunc(sanitizeForLog(s), 120);
@@ -669,19 +672,19 @@ function batchMessages(msgs, size = 5) {
     return out;
 }
 
-async function getProfileCompat(client, userId) {
+// ⭐修正⭐ getProfileCompat に source 引数を追加し、グループ/ルームに対応
+async function getProfileCompat(client, userId, source) {
     try {
-      const profile = await client.getProfile(userId);
-      return profile;
+      if (source?.groupId) {
+        return await client.getGroupMemberProfile(source.groupId, userId);
+      }
+      if (source?.roomId) {
+        return await client.getRoomMemberProfile(source.roomId, userId);
+      }
+      return await client.getProfile(userId);
     } catch (e) {
       briefErr('getProfile failed', e);
-      // 互換性維持のための古い形式の呼び出し
-      try {
-        const profile = await client.getProfile({ userId });
-        return profile;
-      } catch (e2) {
-        throw e2;
-      }
+      return {}; // 落とさない
     }
 }
 
@@ -860,7 +863,8 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     
     let profileName = '不明';
     try {
-        const profile = await getProfileCompat(client, userId);
+        // ⭐修正⭐ getProfileCompat に source 引数を追加
+        const profile = await getProfileCompat(client, userId, source);
         profileName = profile?.displayName || profileName;
     } catch (e) {
         briefErr('getProfile failed', e);
@@ -997,6 +1001,7 @@ const sendWatchServiceMessages = async () => {
 
                 let profileName = '不明';
                 try {
+                    // ⭐修正⭐ 見守りサービスからの呼び出しには source がないため、引数なし
                     const profile = await getProfileCompat(client, userId);
                     profileName = profile?.displayName || profileName;
                 } catch (e) {
@@ -1068,12 +1073,4 @@ function shutdown(sig){
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-function checkSpecialReply(text) {
-    const lowerText = text.toLowerCase();
-    for (const [key, value] of specialRepliesMap) {
-        if ((key instanceof RegExp && key.test(lowerText))) {
-            return value;
-        }
-    }
-    return null;
-}
+// ⭐修正⭐ 末尾の重複定義を削除
