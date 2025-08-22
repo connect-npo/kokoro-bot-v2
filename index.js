@@ -92,7 +92,6 @@ const specialRepliesMap = new Map([
     [/clarisとルミナス/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisとカラフル/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと.*(繋がり|関係)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/ClariS.*(じゃない|じゃなかった|違う|ちがう)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
@@ -199,15 +198,15 @@ function checkContainsDangerWords(text) {
     return dangerWords.some(word => lowerText.includes(String(word).toLowerCase()));
 }
 
+// ⭐詐欺ワード判定のロジック強化⭐
 function checkContainsScamWords(text) {
-    const lowerText = text.toLowerCase().replace(/\s/g, '');
-    return scamWords.some(word => {
-        if (word instanceof RegExp) {
-            return word.test(lowerText);
-        } else {
-            return lowerText.includes(String(word).toLowerCase());
-        }
-    });
+  const rawLower = (text || '').toLowerCase();
+  const squashed = rawLower.replace(/\s/g, '');
+  return scamWords.some(word =>
+    (word instanceof RegExp)
+      ? word.test(rawLower) 
+      : squashed.includes(String(word).toLowerCase().replace(/\s/g, ''))
+  );
 }
 
 function checkContainsInappropriateWords(text) {
@@ -235,7 +234,7 @@ const SCAM_FLEX_MESSAGE = {
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "消費者ホットライン", "uri": "tel:188" }, "color": "#1E90FF" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "警察相談専用電話", "uri": "tel:9110" }, "color": "#32CD32" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "国民生活センター", "uri": "https://www.kokusen.go.jp/" }, "color": "#FFA500" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "こころちゃん事務局(電話)", "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` }, "color": "#ff69b4" }
+            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "こころちゃん事務局(電話)", "uri": "" }, "color": "#ff69b4" }
         ]
     }
 };
@@ -263,7 +262,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "チャットまもるん(チャット)", "uri": "https://www.web-mamorun.com/" }, "color": "#FFA500" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "警視庁(電話)", "uri": "tel:0335814321" }, "color": "#FF4500" },
             { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "子供を守る声(電話)", "uri": "tel:01207786786" }, "color": "#9370DB" },
-            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "こころちゃん事務局(電話)", "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` }, "color": "#ff69b4" }
+            { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "こころちゃん事務局(電話)", "uri": "" }, "color": "#ff69b4" }
         ]
     }
 };
@@ -285,9 +284,9 @@ const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
         "spacing": "sm",
         "contents": [
             // 新たに会員登録するボタン
-            { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": ADULT_FORM_BASE_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
+            { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": "" }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
             // 登録情報を修正するボタン
-            { "type": "button", "action": { "type": "uri", "label": "登録情報を修正する", "uri": ADULT_FORM_BASE_URL }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" },
+            { "type": "button", "action": { "type": "uri", "label": "登録情報を修正する", "uri": "" }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" },
             // 退会するボタン
             { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
         ]
@@ -315,6 +314,41 @@ const WATCH_MENU_FLEX = {
         ]
     }
 };
+
+
+// ⭐ Flex Message Builder（動的にURLやボタンを出し分け） ⭐
+function buildRegistrationFlex() {
+  const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
+  return {
+    ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX,
+    footer: {
+      ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX.footer,
+      contents: [
+        { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
+        { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
+        { type: "button", action: { type: "postback", label: "退会する", data: "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
+      ]
+    }
+  };
+}
+
+function buildEmergencyFlex(type) {
+  const base = (type === '危険') ? EMERGENCY_FLEX_MESSAGE : SCAM_FLEX_MESSAGE;
+  const hasTel = !!EMERGENCY_CONTACT_PHONE_NUMBER;
+  const footer = { ...base.footer };
+  if (!hasTel) {
+    // 事務局ボタンを除去
+    footer.contents = footer.contents.filter(c => !String(c?.action?.label || '').includes('こころちゃん事務局'));
+  } else {
+    // tel:undefined を防ぐ（再構築）
+    footer.contents = footer.contents.map(c =>
+      String(c?.action?.label || '').includes('こころちゃん事務局')
+        ? { ...c, action: { ...c.action, uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` } }
+        : c
+    );
+  }
+  return { ...base, footer };
+}
 
 
 const handleEventSafely = async (event) => {
@@ -350,9 +384,10 @@ const handleEventSafely = async (event) => {
                 return;
             }
             if (data === 'action=disable_watch') {
-                await db.collection('users').doc(userId).set({
-                    watchService: { isEnabled: false }
-                }, { merge: true });
+                // ⭐安全な点更新に修正⭐
+                await db.collection('users').doc(userId).update({
+                    'watchService.isEnabled': false
+                });
                 // ⭐見守りOFF時にtouchWatchを呼び出し⭐
                 await touchWatch(userId, '見守りOFF');
                 await client.replyMessage({
@@ -383,7 +418,8 @@ const handleEventSafely = async (event) => {
             replyToken: event.replyToken,
             messages: [
                 { type: 'text', text: '会員登録や情報の変更はここからできるよ！' },
-                { type: 'flex', altText: '会員登録・情報変更メニュー', contents: REGISTRATION_AND_CHANGE_BUTTONS_FLEX }
+                // ⭐ビルド関数に差し替え⭐
+                { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex() }
             ]
         });
         return;
@@ -396,7 +432,15 @@ const handleEventSafely = async (event) => {
         return;
     }
 
-    // 2. 固定応答のチェック
+    // ⭐ 2. 危険・詐欺ワードのチェック（優先度UP） ⭐
+    const isDangerous = checkContainsDangerWords(userMessage);
+    const isScam = checkContainsScamWords(userMessage);
+    if (isDangerous || isScam) {
+        await sendEmergencyResponse(userId, event.replyToken, userMessage, isDangerous ? '危険' : '詐欺');
+        return;
+    }
+    
+    // 3. 固定応答のチェック
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
         // ⭐見守りサービスはFlex Messageを送信する⭐
@@ -430,14 +474,6 @@ const handleEventSafely = async (event) => {
         return;
     }
 
-    // 3. 危険・詐欺ワードのチェック
-    const isDangerous = checkContainsDangerWords(userMessage);
-    const isScam = checkContainsScamWords(userMessage);
-    if (isDangerous || isScam) {
-        await sendEmergencyResponse(userId, event.replyToken, userMessage, isDangerous ? '危険' : '詐欺');
-        return;
-    }
-    
     // ❗コンプラ/年齢ガード（AIに渡す前に終了）
     if (hitSensitiveBlockers(userMessage)) {
         await client.replyMessage({
@@ -579,9 +615,21 @@ const handleEventSafely = async (event) => {
         }
 
         if (modelToUse === 'gpt-4o-mini') {
-            replyContent = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o-mini');
+            // ⭐フォールバックを適用⭐
+            let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな💖';
+            try {
+                replyContent = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o-mini');
+            } catch (error) {
+                console.error('getOpenAIResponse failed:', error);
+            }
         } else {
-            replyContent = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-flash-latest');
+            // ⭐フォールバックを適用⭐
+            let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな💖';
+            try {
+                replyContent = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-flash-latest');
+            } catch (error) {
+                console.error('getGeminiResponse failed:', error);
+            }
         }
         
         // Firestoreの利用回数を更新
@@ -686,8 +734,15 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
       - 好きなアニメ: 『ヴァイオレット・エヴァーガーデン』
       - 好きなアーティスト: 『ClariS』。特に『コネクト』
     `;
-    const aiResponse = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o');
-
+    
+    // ⭐AI応答のフォールバックを適用⭐
+    let aiResponse = '不安だったよね。まずは深呼吸しようね。詳しい連絡先はこのあと出すから確認してね💖';
+    try {
+      aiResponse = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o');
+    } catch (error) {
+      console.error('getOpenAIResponse failed (emergency):', error);
+    }
+    
     // LINEメッセージの作成
     const messages = [{
         type: 'text',
@@ -695,7 +750,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
     }, {
         "type": "flex",
         "altText": "緊急連絡先",
-        "contents": type === '危険' ? EMERGENCY_FLEX_MESSAGE : SCAM_FLEX_MESSAGE
+        "contents": buildEmergencyFlex(type)
     }];
     
     await client.replyMessage({ replyToken, messages });
@@ -740,7 +795,14 @@ const sendConsultationResponse = async (userId, replyToken, userMessage) => {
       - 好きなアニメ: 『ヴァイオレット・エヴァーガーデン』
       - 好きなアーティスト: 『ClariS』。特に『コネクト』
     `;
-    const aiResponse = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-pro-latest');
+    
+    // ⭐AI応答のフォールバックを適用⭐
+    let aiResponse = '一人で抱え込まないでね。わたしがそばにいるよ。ゆっくり、あなたの話を聞かせてくれる？';
+    try {
+      aiResponse = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-pro-latest');
+    } catch (error) {
+      console.error('getGeminiResponse failed (consultation):', error);
+    }
 
     await client.replyMessage({
         replyToken,
@@ -764,10 +826,10 @@ function checkSpecialReply(text) {
 //
 const WATCH_SERVICE_INTERVAL_HOURS = 29;
 
-// Cronジョブのスケジュール
-cron.schedule('0 15 * * *', async () => {
+// ⭐Cronジョブの安定化と連投抑止⭐
+cron.schedule('0 * * * *', async () => { // 毎時0分
     await sendWatchServiceMessages();
-});
+}, { timezone: 'Asia/Tokyo' });
 
 const sendWatchServiceMessages = async () => {
     const usersRef = db.collection('users');
@@ -789,6 +851,16 @@ const sendWatchServiceMessages = async () => {
             const diffHours = (now.getTime() - lastRepliedAt.getTime()) / (1000 * 60 * 60);
 
             if (diffHours >= WATCH_SERVICE_INTERVAL_HOURS) {
+                // ⭐直近6時間以内に通知していたらスキップ⭐
+                if (user.watchService?.lastNotifiedAt) {
+                    const lastN = user.watchService.lastNotifiedAt.toDate();
+                    const sinceN = (now - lastN) / (1000 * 60 * 60);
+                    if (sinceN < 6) {
+                        console.log(`Skipping notification for ${userId} (notified ${sinceN.toFixed(1)}h ago)`);
+                        continue;
+                    }
+                }
+
                 // ⭐getProfileの例外対策と通知時の再試行⭐
                 let profileName = '不明';
                 try {
