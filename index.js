@@ -29,6 +29,13 @@ const debug = (...a) => { if (LOG_MODE === 'DEBUG') console.log(...a); };
 const briefErr = (prefix, e) =>
   console.error(prefix, e?.response?.status ?? e?.statusCode ?? e?.code ?? e?.message);
 const userHash = (id) => crypto.createHash('sha256').update(String(id)).digest('hex');
+const sanitizeForLog = (s) => {
+  if (!s) return '';
+  return String(s)
+    .replace(/\d{3,}/g, '＊')
+    .replace(/https?:\/\/\S+/g, '(URL省略)')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(メール省略)');
+};
 const redact = (s) => sanitizeForLog(s).slice(0, 120);
 const audit = (kind, payload = {}) => {
   if (LOG_MODE === 'SILENT') return;
@@ -147,8 +154,8 @@ const specialRepliesMap = new Map([
     [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援しているよ🌸"],
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？　話して聞かせてくれると嬉しいな😊"],
-    [/元気かな/i, "うん,元気だよ！あなたは元気？😊 何かあったら、いつでも話してね💖"],
-    [/元気？/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+    [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+    [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているよ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
@@ -643,7 +650,8 @@ function sanitizeForLog(s) {
   if (!s) return '';
   return String(s)
     .replace(/\d{3,}/g, '＊')
-    .replace(/https?:\/\/\S+/g, '(URL省略)');
+    .replace(/https?:\/\/\S+/g, '(URL省略)')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(メール省略)');
 }
 
 function chunkTextForLine(text, max = 1900) {
@@ -717,7 +725,7 @@ const getOpenAIResponse = async (message, instruction, model, userTag) => {
     const response = await callWithRetry(() =>
       httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers })
     );
-    return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
+    return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね� いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
 const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-flash-latest') => {
@@ -882,7 +890,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     if (OFFICER_GROUP_ID) {
       const anonymize = process.env.OFFICER_ANON !== '0';
       const text = anonymize
-        ? `🚨【${type}ワード検知】🚨\n\nメッセージ: 「${userMessage}」\n（匿名モードで通知中）`
+        ? `🚨【${type}ワード検知】🚨\n\nメッセージ: 「${redact(userMessage)}」\n（匿名モードで通知中）`
         : notificationMessage;
       await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
     } else {
@@ -1044,6 +1052,10 @@ const sendWatchServiceMessages = async () => {
         }
     }
 };
+
+// ⭐追加⭐ 致命的例外のサイレント化
+process.on('unhandledRejection', (e) => briefErr('unhandledRejection', e));
+process.on('uncaughtException',  (e) => briefErr('uncaughtException',  e));
 
 app.get('/healthz', (_, res) => res.status(200).send('ok'));
 
