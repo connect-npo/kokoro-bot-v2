@@ -9,6 +9,14 @@ const cron = require('node-cron');
 const http = require('http');
 const https = require('https');
 
+// ⭐ 起動時に必須環境変数をチェック ⭐
+['LINE_CHANNEL_SECRET', 'LINE_CHANNEL_ACCESS_TOKEN', 'OPENAI_API_KEY', 'GEMINI_API_KEY'].forEach(name => {
+  if (!process.env[name]) {
+    console.error(`Missing required environment variable: ${name}`);
+    process.exit(1);
+  }
+});
+
 // ⭐設定を分離⭐
 const middlewareConfig = {
     channelSecret: process.env.LINE_CHANNEL_SECRET
@@ -70,9 +78,9 @@ app.use(express.json());
 //
 const MEMBERSHIP_CONFIG = {
     guest: { dailyLimit: 5, model: 'gemini-1.5-flash-latest' },
-    member: { dailyLimit: 20, model: 'gpt-4o-mini' },
-    subscriber: { dailyLimit: -1, model: 'gpt-4o-mini' },
-    admin: { dailyLimit: -1, model: 'gpt-4o-mini' },
+    member: { dailyLimit: 20, model: OPENAI_MODEL || 'gpt-4o-mini' },
+    subscriber: { dailyLimit: -1, model: OPENAI_MODEL || 'gpt-4o-mini' },
+    admin: { dailyLimit: -1, model: OPENAI_MODEL || 'gpt-4o-mini' },
 };
 
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋ぎたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
@@ -332,7 +340,7 @@ const handleEventSafely = async (event) => {
         try {
             if (data === 'action=request_withdrawal') {
                 await db.collection('users').doc(userId).set({ status: 'requested_withdrawal' }, { merge: true });
-                await safeReply(event.replyToken, [{ type: 'text', text: '退会リクエストを受け付けたよ。手続き完了まで少し待ってね🌸' }], userId);
+                await safeReply(event.replyToken, [{ type: 'text', text: '退会リクエストを受け付けたよ。手続き完了まで少し待ってね🌸' }], userId, event.source);
                 return;
             }
             if (data === 'action=enable_watch') {
@@ -344,7 +352,7 @@ const handleEventSafely = async (event) => {
                     }
                 }, { merge: true });
                 await touchWatch(userId, '見守りON');
-                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }], userId);
+                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }], userId, event.source);
                 return;
             }
             if (data === 'action=disable_watch') {
@@ -352,7 +360,7 @@ const handleEventSafely = async (event) => {
                     watchService: { isEnabled: false }
                 }, { merge: true });
                 await touchWatch(userId, '見守りOFF');
-                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをOFFにしたよ。また必要になったら言ってね🌸' }], userId);
+                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをOFFにしたよ。また必要になったら言ってね🌸' }], userId, event.source);
                 return;
             }
         } catch (e) {
@@ -373,20 +381,20 @@ const handleEventSafely = async (event) => {
         await safeReply(event.replyToken, [
             { type: 'text', text: '会員登録や情報の変更はここからできるよ！' },
             { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex() }
-        ], userId);
+        ], userId, event.source);
         return;
     }
     
     if (checkContainsInappropriateWords(userMessage)) {
         const messages = [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。でも他のことなら一緒に話したいな🌸" }];
-        await safeReply(event.replyToken, messages, userId);
+        await safeReply(event.replyToken, messages, userId, event.source);
         return;
     }
 
     const isDangerous = checkContainsDangerWords(userMessage);
     const isScam = checkContainsScamWords(userMessage);
     if (isDangerous || isScam) {
-        await sendEmergencyResponse(userId, event.replyToken, userMessage, isDangerous ? '危険' : '詐欺');
+        await sendEmergencyResponse(userId, event.replyToken, userMessage, isDangerous ? '危険' : '詐欺', event.source);
         return;
     }
     
@@ -397,7 +405,7 @@ const handleEventSafely = async (event) => {
                 await safeReply(event.replyToken, [
                     { type: 'text', text: specialReply },
                     { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
-                ], userId);
+                ], userId, event.source);
                 console.log('🎯 special hit: watch service');
              } catch (e) {
                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
@@ -407,7 +415,7 @@ const handleEventSafely = async (event) => {
                 await safeReply(event.replyToken, [{
                     type: 'text',
                     text: specialReply,
-                }], userId);
+                }], userId, event.source);
                 console.log('🎯 special hit:', specialReply);
              } catch (e) {
                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
@@ -419,13 +427,13 @@ const handleEventSafely = async (event) => {
     if (hitSensitiveBlockers(userMessage)) {
         await safeReply(event.replyToken, [
             { type: 'text', text: "ごめんね💦 その話題には答えられないんだ。ここでは安全にお話ししたいな🌸 別の話題にしよ？" }
-        ], userId);
+        ], userId, event.source);
         return;
     }
 
     const isConsultation = userMessage.includes('相談') || userMessage.includes('そうだん');
     if (isConsultation) {
-        await sendConsultationResponse(userId, event.replyToken, userMessage);
+        await sendConsultationResponse(userId, event.replyToken, userMessage, event.source);
         return;
     }
     
@@ -440,7 +448,7 @@ const handleEventSafely = async (event) => {
         
         if (userConfig.dailyLimit !== -1 && dailyCount > userConfig.dailyLimit) {
             const messages = [{ type: 'text', text: "ごめんなさい、今日の利用回数の上限に達しちゃったみたい。また明日お話しようね！" }];
-            await safeReply(event.replyToken, messages, userId);
+            await safeReply(event.replyToken, messages, userId, event.source);
             return;
         }
 
@@ -462,7 +470,9 @@ const handleEventSafely = async (event) => {
         医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
         `;
 
-        if (modelToUse === "gpt-4o-mini") {
+        // ⭐モデル指定の統一⭐
+        const openaiModel = OPENAI_MODEL || 'gpt-4o-mini';
+        if (modelToUse.startsWith('gpt-')) {
             if (!isUserChildCategory) {
                 systemInstruction += `
                 ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
@@ -532,9 +542,10 @@ const handleEventSafely = async (event) => {
             console.log(`💡 AI Model Being Used: ${modelToUse}`);
         }
 
-        if (modelToUse === 'gpt-4o-mini') {
+        if (modelToUse.startsWith('gpt-')) {
             try {
-                replyContent = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o-mini');
+                // ⭐モデル指定を統一⭐
+                replyContent = await getOpenAIResponse(userMessage, systemInstruction, openaiModel);
             } catch (error) {
                 console.error('getOpenAIResponse failed:', error);
             }
@@ -546,14 +557,13 @@ const handleEventSafely = async (event) => {
             }
         }
         
-        // ⭐dailyCountsの更新をドット記法に修正⭐
         await db.collection('users').doc(userId).set({
             [`dailyCounts.${today}`]: dailyCount
         }, { merge: true });
 
         await safeReply(event.replyToken, [
             { type: 'text', text: replyContent }
-        ], userId);
+        ], userId, event.source);
 
     } catch (error) {
         console.error(error);
@@ -563,7 +573,29 @@ const handleEventSafely = async (event) => {
 //
 // ヘルパー関数
 //
-const getOpenAIResponse = async (message, instruction, model = 'gpt-4o') => {
+// ⭐ リトライ機能のヘルパー関数 ⭐
+async function callWithRetry(fn, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const sc = e.statusCode || e.response?.status;
+      // 4xx (429以外) はクライアントエラーなのでリトライしない
+      if (sc && sc < 500 && sc !== 429) {
+          console.warn(`Non-retriable error: ${sc}. Exiting retry loop.`);
+          break;
+      }
+      const delay = 500 * Math.pow(2, i);
+      console.warn(`Retriable error: ${sc}. Retrying in ${delay}ms... (Attempt ${i + 1})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
+const getOpenAIResponse = async (message, instruction, model) => {
     const payload = {
         model: model,
         messages: [
@@ -577,7 +609,10 @@ const getOpenAIResponse = async (message, instruction, model = 'gpt-4o') => {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
     };
-    const response = await httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers });
+    // ⭐リトライを適用⭐
+    const response = await callWithRetry(() =>
+      httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers })
+    );
     return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
@@ -598,20 +633,23 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
     const headers = {
         'Content-Type': 'application/json',
     };
-    const response = await httpInstance.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers });
-    // ⭐安全ガードを追加⭐
+    // ⭐リトライを適用⭐
+    const response = await callWithRetry(() =>
+      httpInstance.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers })
+    );
     const text = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     return text || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
-async function safeReply(replyToken, messages, userId) {
+// ⭐返信フォールバックを送信先に最適化⭐
+async function safeReply(replyToken, messages, userId, source) {
   try {
     await client.replyMessage({ replyToken, messages });
   } catch (e) {
-    console.warn('replyMessage failed:', e.statusCode || e.message);
-    if (userId && e.statusCode !== 400) {
-      await safePush(userId, messages);
-    }
+    const sc = e.statusCode || e.response?.status;
+    console.warn('replyMessage failed:', sc, e.response?.data || e.message);
+    const to = source?.groupId || source?.roomId || userId;
+    if (to) await safePush(to, messages);
   }
 }
 
@@ -647,7 +685,7 @@ async function safePush(to, messages, retries = 2) {
     }
 }
 
-const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
+const sendEmergencyResponse = async (userId, replyToken, userMessage, type, source) => {
     const systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子。
       危険/詐欺が疑われる時は最初に一言だけ安心させる。連絡先は本文に直書きせず「このあと表示される案内を見てね」と示唆まで。
       # こころちゃんの設定
@@ -657,7 +695,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
     
     let aiResponse = '不安だったよね。まずは深呼吸しようね。詳しい連絡先はこのあと出すから確認してね💖';
     try {
-      aiResponse = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o');
+      aiResponse = await getOpenAIResponse(userMessage, systemInstruction, OPENAI_MODEL || 'gpt-4o');
     } catch (error) {
       console.error('getOpenAIResponse failed (emergency):', error);
     }
@@ -671,11 +709,10 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
         "contents": buildEmergencyFlex(type)
     }];
     
-    await safeReply(replyToken, messages, userId);
+    await safeReply(replyToken, messages, userId, source);
     
     let profileName = '不明';
     try {
-        // ⭐getProfileの引数形式を修正⭐
         const profile = await client.getProfile(userId);
         profileName = profile?.displayName || profileName;
     } catch (e) {
@@ -709,7 +746,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
     }
 };
 
-const sendConsultationResponse = async (userId, replyToken, userMessage) => {
+const sendConsultationResponse = async (userId, replyToken, userMessage, source) => {
     const systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子。
       ユーザーは深刻な相談を求めています。Gemini 1.5 Proの機能を活かし、感情に寄り添い、丁寧で具体的なアドバイスをしてください。長文でも構いません。
       # こころちゃんの設定
@@ -724,7 +761,7 @@ const sendConsultationResponse = async (userId, replyToken, userMessage) => {
       console.error('getGeminiResponse failed (consultation):', error);
     }
 
-    await safeReply(replyToken, [{ type: 'text', text: aiResponse }], userId);
+    await safeReply(replyToken, [{ type: 'text', text: aiResponse }], userId, source);
 };
 
 function checkSpecialReply(text) {
@@ -763,18 +800,43 @@ const sendWatchServiceMessages = async () => {
             const diffHours = (now.getTime() - lastRepliedAt.getTime()) / (1000 * 60 * 60);
 
             if (diffHours >= WATCH_SERVICE_INTERVAL_HOURS) {
+                // ⭐ロック機構の導入⭐
+                let lockedByMe = false;
+                const ref = db.collection('users').doc(userId);
+                try {
+                    await db.runTransaction(async tx => {
+                        const s = await tx.get(ref);
+                        const ws = s.data()?.watchService || {};
+                        const nowMs = Date.now();
+                        const lockMs = ws.notifyLockExpiresAt?.toDate?.()?.getTime?.() || 0;
+                        if (lockMs > nowMs) {
+                            console.log(`Skipping notification for ${userId} (locked by another instance)`);
+                            return;
+                        }
+                        lockedByMe = true;
+                        tx.update(ref, {
+                            'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.Timestamp.fromDate(new Date(nowMs + 2 * 60 * 1000))
+                        });
+                    });
+                } catch (e) {
+                    console.error('Transaction failed:', e);
+                    continue; // トランザクション失敗時は次へ
+                }
+                if (!lockedByMe) continue;
+
                 if (user.watchService?.lastNotifiedAt) {
                     const lastN = user.watchService.lastNotifiedAt.toDate();
                     const sinceN = (now - lastN) / (1000 * 60 * 60);
                     if (sinceN < 6) {
                         console.log(`Skipping notification for ${userId} (notified ${sinceN.toFixed(1)}h ago)`);
+                        // ロックは解除
+                        await ref.update({ 'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete() });
                         continue;
                     }
                 }
 
                 let profileName = '不明';
                 try {
-                    // ⭐getProfileの引数形式を修正⭐
                     const profile = await client.getProfile(userId);
                     profileName = profile?.displayName || profileName;
                 } catch (e) {
@@ -806,7 +868,8 @@ const sendWatchServiceMessages = async () => {
                 }
                 
                 await db.collection('users').doc(userId).update({
-                    'watchService.lastNotifiedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp()
+                    'watchService.lastNotifiedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                    'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete()
                 });
             }
         }
