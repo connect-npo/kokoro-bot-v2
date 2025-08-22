@@ -43,8 +43,8 @@ const app = express();
 const client = new line.messagingApi.MessagingApiClient(config);
 
 // ミドルウェアの設定
-// ❗webhookは “最優先” で登録（ここでは一切のbody-parserを入れない）
-// express.json() の呼び出しを /webhook の後に移動
+app.use(express.json());
+
 //
 // 設定・固定データ
 //
@@ -109,7 +109,9 @@ const specialRepliesMap = new Map([
     [/応援して|応援してほしい|がんばるぞ|これからもがんばる/i, "いつでも応援してるよ！一緒にがんばろうね🌸"],
     [/(好きな|推しの)?\s*アニメ(は|って)?[?？]*$/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
     [/(好きな|推しの)?\s*(アーティスト|歌手|音楽)(は|って)?[?？]*$/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
-    [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ💖 とくに『コネクト』！"],
+    [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ� とくに『コネクト』！"],
+    // ⭐見守りサービス用の固定応答を追加⭐
+    [/(見守り|みまもり|まもり).*(サービス|登録|画面)/i, "見守りサービスに興味があるんだね！いつでも安心して話せるように、私がお手伝いするよ💖"],
 ]);
 
 // --- 危険・詐欺・不適切ワードリスト ---
@@ -124,7 +126,7 @@ const scamWords = [
     /騙(す|される|された)/i,
     /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
     /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
-    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
+    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅を教え/i,
     /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
     /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
     /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /蓋をしないと、安全に関する警告が発せられなくなる場合があります。修理費/i, /遠隔操作/i, /セキュリティ警告/i, /年金/i, /健康保険/i, /給付金/i,
@@ -305,17 +307,33 @@ const handleEventSafely = async (event) => {
     // 2. 固定応答のチェック
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
-        try {
-            await client.replyMessage({
-                replyToken: event.replyToken,
-                messages: [{
-                    type: 'text',
-                    text: specialReply,
-                }]
-            });
-            console.log('🎯 special hit:', specialReply);
-        } catch (e) {
-            console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+        // ⭐見守りサービスはFlex Messageを送信する⭐
+        if (userMessage.includes('見守り') || userMessage.includes('みまもり') || userMessage.includes('まもり')) {
+             try {
+                await client.replyMessage({
+                    replyToken: event.replyToken,
+                    messages: [
+                        { type: 'text', text: specialReply },
+                        { type: 'flex', altText: "会員登録・情報変更メニュー", contents: REGISTRATION_AND_CHANGE_BUTTONS_FLEX }
+                    ]
+                });
+                console.log('🎯 special hit: watch service');
+            } catch (e) {
+                console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+            }
+        } else {
+            try {
+                await client.replyMessage({
+                    replyToken: event.replyToken,
+                    messages: [{
+                        type: 'text',
+                        text: specialReply,
+                    }]
+                });
+                console.log('🎯 special hit:', specialReply);
+            } catch (e) {
+                console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
+            }
         }
         return;
     }
@@ -374,11 +392,11 @@ const handleEventSafely = async (event) => {
 
         // systemInstructionの構築
         let systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
-          ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
-          必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
-          共感・安心・やさしさが最優先です。
-          「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
-          医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
+        ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
+        必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
+        共感・安心・やさしさが最優先です。
+        「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
+        医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
         `;
 
         if (modelToUse === "gpt-4o") {
@@ -538,14 +556,14 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
 // ⭐緊急通知の再試行関数⭐
 async function safePush(to, messages, retries = 2) {
     for (let i = 0; i <= retries; i++) {
-        try { 
-            await client.pushMessage({ to, messages }); 
-            return; 
+        try {  
+            await client.pushMessage({ to, messages });  
+            return;  
         } catch (e) {
             if (e.statusCode === 429 && i < retries) {
                 await new Promise(r => setTimeout(r, 1200 * (i + 1)));
-            } else { 
-                throw e; 
+            } else {  
+                throw e;  
             }
         }
     }
@@ -567,47 +585,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
     }, {
         "type": "flex",
         "altText": "緊急連絡先",
-        "contents": {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "text",
-                        "text": "🚨【緊急連絡先】🚨",
-                        "weight": "bold",
-                        "color": "#ff0000",
-                        "size": "md",
-                        "align": "center"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "margin": "lg",
-                        "spacing": "sm",
-                        "contents": [
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    { "type": "text", "text": "いのちの電話", "flex": 3 },
-                                    { "type": "text", "text": "0570-064-556", "flex": 5, "align": "end", "color": "#0000ff" }
-                                ],
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    { "type": "text", "text": "まもろうよ こころ", "flex": 3 },
-                                    { "type": "text", "text": "0120-112-230", "flex": 5, "align": "end", "color": "#0000ff" }
-                                ],
-                            },
-                        ]
-                    }
-                ]
-            }
-        }
+        "contents": type === '危険' ? EMERGENCY_FLEX_MESSAGE : SCAM_FLEX_MESSAGE
     }];
     
     await client.replyMessage({ replyToken, messages });
@@ -707,9 +685,6 @@ const sendWatchServiceMessages = async () => {
 // ⭐ヘルスチェックエンドポイントの追加⭐
 app.get('/healthz', (_, res) => res.status(200).send('ok'));
 // ⭐ここまで追加⭐
-
-// ⭐ express.json() の呼び出しをこちらに移動 ⭐
-app.use(express.json());
 
 // --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
