@@ -134,7 +134,7 @@ const specialRepliesMap = new Map([
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？　話して聞かせてくれると嬉しいな😊"],
     [/元気かな/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-    [/元気？/i, "うん,元気だよ！あなたは元気？� 何かあったら、いつでも話してね💖"],
+    [/元気？/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているよ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
@@ -362,7 +362,7 @@ const handleEventSafely = async (event) => {
       return true;
     });
     if (!gotLock) {
-        console.log(`Skipping duplicate event: ${eid}`);
+        // ⭐修正⭐ 重複イベントのログを削除
         return;
     }
 
@@ -426,7 +426,14 @@ const handleEventSafely = async (event) => {
         return;
     }
     
+    // ⭐追加⭐ 不適切メッセージ検知時のログ保存
     if (checkContainsInappropriateWords(userMessage)) {
+        await db.collection('alerts').add({
+            type: 'inappropriate',
+            at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+            userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
+            messagePreview: sanitizeForLog(userMessage).slice(0, 120),
+        });
         const messages = [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。でも他のことなら一緒に話したいな🌸" }];
         await safeReply(event.replyToken, messages, userId, event.source);
         return;
@@ -447,7 +454,6 @@ const handleEventSafely = async (event) => {
                     { type: 'text', text: specialReply },
                     { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
                 ], userId, event.source);
-                console.log('🎯 special hit: watch service');
              } catch (e) {
                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
              }
@@ -457,7 +463,6 @@ const handleEventSafely = async (event) => {
                     type: 'text',
                     text: specialReply,
                 }], userId, event.source);
-                console.log('🎯 special hit:', specialReply);
              } catch (e) {
                 console.error('replyMessage failed (specialReply):', e?.statusCode, e?.message);
              }
@@ -589,9 +594,10 @@ const handleEventSafely = async (event) => {
         // ⭐修正⭐ デフォルトのメッセージを修正
         let replyContent = 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
         
-        if (process.env.NODE_ENV !== 'production') {
-            console.log(`💡 AI Model Being Used: ${modelToUse}`);
-        }
+        // ⭐修正⭐ サーバーログを削除
+        // if (process.env.NODE_ENV !== 'production') {
+        //     console.log(`💡 AI Model Being Used: ${modelToUse}`);
+        // }
 
         if (modelToUse.startsWith('gpt-')) {
             try {
@@ -875,7 +881,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
       type,
       at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
       userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
-      messagePreview: sanitizeForLog(userMessage).slice(0,120) // ⭐修正⭐
+      messagePreview: sanitizeForLog(userMessage).slice(0,120)
     });
 };
 
@@ -901,7 +907,6 @@ function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
     for (const [key, value] of specialRepliesMap) {
         if ((key instanceof RegExp && key.test(lowerText))) {
-            console.log('🎯 special hit:', key.toString());
             return value;
         }
     }
@@ -919,7 +924,7 @@ const sendWatchServiceMessages = async () => {
     const snapshot = await usersRef.where('watchService.isEnabled', '==', true).get();
 
     if (snapshot.empty) {
-        console.log('No users with watch service enabled.');
+        // ⭐修正⭐ 通常ログを削除
         return;
     }
 
@@ -942,7 +947,7 @@ const sendWatchServiceMessages = async () => {
                         const nowMs = Date.now();
                         const lockMs = ws.notifyLockExpiresAt?.toDate?.()?.getTime?.() || 0;
                         if (lockMs > nowMs) {
-                            console.log(`Skipping notification for ${userId} (locked by another instance)`);
+                            // ⭐修正⭐ 通常ログを削除
                             return;
                         }
                         lockedByMe = true;
@@ -960,7 +965,7 @@ const sendWatchServiceMessages = async () => {
                     const lastN = user.watchService.lastNotifiedAt.toDate();
                     const sinceN = (now - lastN) / (1000 * 60 * 60);
                     if (sinceN < 6) {
-                        console.log(`Skipping notification for ${userId} (notified ${sinceN.toFixed(1)}h ago)`);
+                        // ⭐修正⭐ 通常ログを削除
                         await ref.update({ 'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete() });
                         continue;
                     }
@@ -1005,6 +1010,14 @@ const sendWatchServiceMessages = async () => {
                 await db.collection('users').doc(userId).update({
                     'watchService.lastNotifiedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp(),
                     'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete()
+                });
+
+                // ⭐追加⭐ 見守り通知の監査ログ
+                await db.collection('alerts').add({
+                    type: 'watch_service',
+                    at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                    userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
+                    reason: '29 hours no response',
                 });
             }
         }
