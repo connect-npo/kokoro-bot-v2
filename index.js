@@ -3,6 +3,7 @@
 //
 const line = require('@line/bot-sdk');
 const express = require('express');
+const helmet = require('helmet'); // ⭐追加⭐ Expressのセキュリティ強化
 const firebaseAdmin = require('firebase-admin');
 const axios = require('axios');
 const cron = require('node-cron');
@@ -60,6 +61,9 @@ const httpInstance = axios.create({
   httpsAgent
 });
 
+// ⭐追加⭐ Expressのセキュリティ強化とボディサイズ制限
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(express.json({ limit: '1mb' }));
 //
 // メイン処理
 //
@@ -70,8 +74,6 @@ app.post('/webhook', line.middleware(middlewareConfig), (req, res) => {
         await Promise.allSettled(events.map(handleEventSafely));
     });
 });
-
-app.use(express.json());
 
 //
 // 設定・固定データ
@@ -301,6 +303,7 @@ const WATCH_MENU_FLEX = {
 
 function buildRegistrationFlex() {
   const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
+  const privacyPolicyUrl = `${url}/privacy_policy`; // プライバシーポリシーURLの仮設定
   return {
     ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX,
     footer: {
@@ -308,6 +311,7 @@ function buildRegistrationFlex() {
       contents: [
         { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
         { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
+        { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color: "#FF69B4" }, // ⭐追加⭐ プライバシーポリシー
         { type: "button", action: { type: "postback", label: "退会する", "data": "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
       ]
     }
@@ -334,9 +338,30 @@ function buildEmergencyFlex(type) {
 const handleEventSafely = async (event) => {
     if (!event) return;
 
+    // ⭐追加⭐ Webhookの冪等化（重複イベント無視）
+    const eid = String(event?.deliveryContext?.eventId || event?.message?.id || `${event?.timestamp}:${event?.source?.userId}`);
+    const lockRef = db.collection('eventLocks').doc(eid);
+    const gotLock = await db.runTransaction(async tx => {
+      const s = await tx.get(lockRef);
+      if (s.exists) return false;
+      tx.set(lockRef, { at: firebaseAdmin.firestore.FieldValue.serverTimestamp() });
+      return true;
+    });
+    if (!gotLock) {
+        console.log(`Skipping duplicate event: ${eid}`);
+        return;
+    }
+
+    // ⭐追加⭐ Postbackの許可リスト
+    const ALLOWED_POSTBACKS = new Set(['action=request_withdrawal', 'action=enable_watch', 'action=disable_watch']);
     if (event.type === 'postback') {
         const userId = event.source?.userId;
         const data = event.postback?.data || '';
+        if (!ALLOWED_POSTBACKS.has(data)) {
+            console.warn('Unknown postback:', data);
+            await safeReply(event.replyToken, [{ type:'text', text:'ごめんね、その操作は対応していないよ🙏'}], userId, event.source);
+            return;
+        }
         try {
             if (data === 'action=request_withdrawal') {
                 await db.collection('users').doc(userId).set({ status: 'requested_withdrawal' }, { merge: true });
@@ -352,7 +377,7 @@ const handleEventSafely = async (event) => {
                     }
                 }, { merge: true });
                 await touchWatch(userId, '見守りON');
-                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }], userId, event.source);
+                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。これで安心だね😊　プライバシーポリシーに同意してくれてありがとう！いつでも話しかけてね🌸' }], userId, event.source); // ⭐追加⭐ 同意確認
                 return;
             }
             if (data === 'action=disable_watch') {
@@ -462,7 +487,6 @@ const handleEventSafely = async (event) => {
 
         const isUserChildCategory = user.isChildCategory || false;
         
-        // ⭐ JSTで時刻を取得するように修正 ⭐
         const currentHour = Number(
           new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', hour12: false })
             .format(new Date())
@@ -577,7 +601,6 @@ const handleEventSafely = async (event) => {
 //
 // ヘルパー関数
 //
-// ⭐ 長文を分割する関数を追加 ⭐
 function chunkTextForLine(text, max = 1900) {
   const chunks = [];
   for (let i = 0; i < text.length; i += max) {
@@ -586,7 +609,6 @@ function chunkTextForLine(text, max = 1900) {
   return chunks;
 }
 
-// ⭐ メッセージを5件ずつバッチ処理する関数を追加 ⭐
 function batchMessages(msgs, size = 5) {
   const out = [];
   for (let i = 0; i < msgs.length; i += size) {
@@ -595,14 +617,12 @@ function batchMessages(msgs, size = 5) {
   return out;
 }
 
-// ⭐ getProfileの互換性を担保するラッパー関数 ⭐
 async function getProfileCompat(client, userId) {
   try {
     const profile = await client.getProfile({ userId });
     return profile;
   } catch (e1) {
     try {
-      // 古いSDK形式で再試行
       const profile = await client.getProfile(userId);
       return profile;
     } catch (e2) {
@@ -611,7 +631,6 @@ async function getProfileCompat(client, userId) {
   }
 }
 
-// ⭐ リトライ機能のヘルパー関数 ⭐
 async function callWithRetry(fn, tries = 3) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
@@ -677,7 +696,6 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
     return text || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
-// ⭐返信フォールバックを送信先に最適化＆長文・バッチ処理を自動分割⭐
 async function safeReply(replyToken, messages, userId, source) {
   const normalized = [];
   for (const m of messages) {
@@ -699,7 +717,6 @@ async function safeReply(replyToken, messages, userId, source) {
     return;
   }
 
-  // 返信後に残りがあれば PUSH で送る（replyTokenは一度きり）
   if (batches.length > 1) {
     const to = source?.groupId || source?.roomId || userId;
     if (to) {
@@ -741,7 +758,7 @@ async function safePush(to, messages, retries = 2) {
     for (let i = 0; i <= retries; i++) {
       try {
         await client.pushMessage({ to, messages: batch });
-        break; // 次のバッチへ
+        break;
       } catch (e) {
         const sc = e.statusCode || e.response?.status;
         if (sc === 429 && i < retries) {
@@ -782,7 +799,6 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
     
     let profileName = '不明';
     try {
-        // ⭐ getProfileCompat を使用 ⭐
         const profile = await getProfileCompat(client, userId);
         profileName = profile?.displayName || profileName;
     } catch (e) {
@@ -810,7 +826,8 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
 最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}`;
 
     if (OFFICER_GROUP_ID) {
-      const anonymize = process.env.OFFICER_ANON === '1';
+      // ⭐追加⭐ 匿名通知をデフォルトONにする設定
+      const anonymize = process.env.OFFICER_ANON !== '0';
       const text = anonymize
         ? `🚨【${type}ワード検知】🚨\n\nメッセージ: 「${userMessage}」\n（匿名モードで通知中）`
         : enriched;
@@ -909,7 +926,6 @@ const sendWatchServiceMessages = async () => {
 
                 let profileName = '不明';
                 try {
-                    // ⭐ getProfileCompat を使用 ⭐
                     const profile = await getProfileCompat(client, userId);
                     profileName = profile?.displayName || profileName;
                 } catch (e) {
@@ -935,7 +951,7 @@ const sendWatchServiceMessages = async () => {
 👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
 
                 if (OFFICER_GROUP_ID) {
-                  const anonymize = process.env.OFFICER_ANON === '1';
+                  const anonymize = process.env.OFFICER_ANON !== '0';
                   const text = anonymize
                     ? `🚨【見守りサービス通知】🚨\n\n見守り中のユーザーから29時間以上応答がありません。\n（匿名モードで通知中）`
                     : notificationMessage;
