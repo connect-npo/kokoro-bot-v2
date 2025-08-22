@@ -1027,7 +1027,7 @@ const sendWatchServiceMessages = async () => {
                 if (OFFICER_GROUP_ID) {
                   const anonymize = process.env.OFFICER_ANON !== '0';
                   const text = anonymize
-                    ? `�【見守りサービス通知】🚨\n\n見守り中のユーザーから29時間以上応答がありません。\n（匿名モードで通知中）`
+                    ? `🚨【見守りサービス通知】🚨\n\n見守り中のユーザーから29時間以上応答がありません。\n（匿名モードで通知中）`
                     : notificationMessage;
                   await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
                 } else {
