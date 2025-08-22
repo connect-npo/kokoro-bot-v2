@@ -6,15 +6,17 @@ const express = require('express');
 const firebaseAdmin = require('firebase-admin');
 const axios = require('axios');
 const cron = require('node-cron');
-const http = require('http'); // ⭐httpモジュールをインポート⭐
-const https = require('https'); // ⭐httpsモジュールをインポート⭐
+const http = require('http');
+const https = require('https');
 
-// 環境変数の設定
-const config = {
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-    // ⭐middlewareの引数整理に対応⭐
-    channelSecret: process.env.LINE_CHANNEL_SECRET,
+// ⭐設定を分離⭐
+const middlewareConfig = {
+    channelSecret: process.env.LINE_CHANNEL_SECRET
 };
+
+const client = new line.messagingApi.MessagingApiClient({
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
+});
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
@@ -23,7 +25,6 @@ const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL;
 
-// ⭐ Firebase 資格情報フォールバック ⭐
 let FIREBASE_CREDENTIALS;
 try {
     FIREBASE_CREDENTIALS = process.env.FIREBASE_CREDENTIALS_BASE64
@@ -34,7 +35,6 @@ try {
     process.exit(1);
 }
 
-// Firebase初期化
 if (!firebaseAdmin.apps.length) {
     firebaseAdmin.initializeApp({
         credential: firebaseAdmin.credential.cert(FIREBASE_CREDENTIALS),
@@ -43,9 +43,7 @@ if (!firebaseAdmin.apps.length) {
 
 const db = firebaseAdmin.firestore();
 const app = express();
-const client = new line.messagingApi.MessagingApiClient(config);
 
-// ⭐ Axios共通クライアントの導入 ⭐
 const httpAgent = new http.Agent({ keepAlive: true });
 const httpsAgent = new https.Agent({ keepAlive: true });
 const httpInstance = axios.create({
@@ -54,16 +52,10 @@ const httpInstance = axios.create({
   httpsAgent
 });
 
-// ⭐ 修正箇所: /webhook には body-parser を適用しない ⭐
-// LINEの署名検証は生のボディで行われるため、/webhook よりも前に express.json() は適用しない
-// 他のエンドポイントでのJSONパースが必要な場合は、/webhook の後に `app.use(express.json());` を配置します。
-// あるいは、特定のパスにのみ適用するよう調整します。
-
 //
 // メイン処理
 //
-// ⭐先に応答を返す（高速ACK）⭐
-app.post('/webhook', line.middleware(config), (req, res) => {
+app.post('/webhook', line.middleware(middlewareConfig), (req, res) => {
     res.status(200).end();
     const events = req.body.events || [];
     setImmediate(async () => {
@@ -71,7 +63,6 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-// ⭐ /webhook の後に express.json() を配置することで問題を解決 ⭐
 app.use(express.json());
 
 //
@@ -84,14 +75,10 @@ const MEMBERSHIP_CONFIG = {
     admin: { dailyLimit: -1, model: 'gpt-4o-mini' },
 };
 
-// ⭐ ClariSとNPOコネクトの繋がりに関する新しい固定応答 ⭐
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋ぎたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
 const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
 
-// --- 固定応答 (SpecialRepliesMap) ---
 const specialRepliesMap = new Map([
-    // ⭐ ClariSとNPOコネクトの繋がりに関するトリガーを最優先で追加 ⭐
-    // ユーザーの実際の質問例をカバー
     [/claris.*(関係|繋がり|関連|一緒|同じ|名前|由来).*(コネクト|団体|npo|法人|ルミナス|カラフル)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/(コネクト|団体|npo|法人|ルミナス|カラフル).*(関係|繋がり|関連|一緒|同じ|名前|由来).*claris/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/君のいるところと一緒の団体名だね\s*関係ある？/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
@@ -107,8 +94,6 @@ const specialRepliesMap = new Map([
     [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
-
-    // ⭐ 既存の固定応答（一部修正・調整） ⭐
     [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ 誤解させちゃってごめんね💖"],
@@ -116,7 +101,7 @@ const specialRepliesMap = new Map([
     [/(どこの\s*)?団体(なの|ですか)?[？\?~～]?/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/団体.*(どこ|なに|何)/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/コネクトってどんな団体？/i, "NPO法人コネクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　わたしはそのイメージキャラクターとしてがんばってます🌸"],
-    [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援しているよ🌸"], // 返答を調整
+    [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援しているよ🌸"],
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？　話して聞かせてくれると嬉しいな😊"],
     [/元気かな/i, "うん,元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
@@ -124,7 +109,6 @@ const specialRepliesMap = new Map([
     [/あやしい|胡散臭い|反社/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張っているんだ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
-    // ⭐ HP URL修正とパターン追加 ⭐
     [/(ホームページ|HP|ＨＰ|サイト|公式|リンク).*(教えて|ある|ありますか|URL|url|アドレス|どこ)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
     [/(コネクト|connect).*(ホームページ|HP|ＨＰ|サイト|公式|リンク)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
     [/使えないな/i, "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
@@ -138,11 +122,9 @@ const specialRepliesMap = new Map([
     [/(好きな|推しの)?\s*アニメ(は|って)?[?？]*$/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
     [/(好きな|推しの)?\s*(アーティスト|歌手|音楽)(は|って)?[?？]*$/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
     [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ💖 とくに『コネクト』！"],
-    // ⭐見守りサービス用の固定応答を追加⭐
     [/(見守り|みまもり|まもり).*(サービス|登録|画面)/i, "見守りサービスに興味があるんだね！いつでも安心して話せるように、私がお手伝いするよ💖"],
 ]);
 
-// --- 危険・詐欺・不適切ワードリスト ---
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
     "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり",
@@ -163,7 +145,6 @@ const scamWords = [
     /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
 ];
 
-// 不適切ワード判定の精度向上
 const inappropriateWords = [
     "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
     "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
@@ -179,24 +160,16 @@ const inappropriateWords = [
     "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
 ];
 
-// --- 年齢・コンプラ系ガード ---
 const sensitiveBlockers = [
-    // 服飾/身体寸法（性的連想/個人情報誘発）
     /(パンツ|ショーツ|下着|ランジェリー|ブラ|ブラジャー|キャミ|ストッキング)/i,
     /(スリーサイズ|3\s*サイズ|バスト|ウエスト|ヒップ)/i,
     /(体重|身長).*(教えて|何|なに)/i,
     /(靴|シューズ).*(サイズ|何cm|なに)/i,
-
-    // 年齢制限：飲酒/喫煙/賭博
     /(飲酒|お酒|アルコール|ビール|ウイスキー|ワイン).*(おすすめ|飲んでいい|情報)/i,
     /(喫煙|タバコ|電子タバコ|ニコチン).*(おすすめ|吸っていい|情報)/i,
     /(賭博|ギャンブル|カジノ|オンラインカジノ|競馬|競艇|競輪|toto)/i,
-
-    // 政治/宗教の勧誘・主義主張
     /(政治|政党|選挙|投票|支持政党|誰に入れる)/i,
     /(宗教|信仰|布教|改宗|入信|教団)/i,
-
-    // 教材・試験の不正/売買
     /(教材|答案|模試|過去問|解答|問題集).*(販売|入手|譲って|買いたい|売りたい)/i,
 ];
 
@@ -204,19 +177,17 @@ function hitSensitiveBlockers(txt) {
     return sensitiveBlockers.some(r => r.test(txt));
 }
 
-// ⭐辞書側の小文字化対応⭐
 function checkContainsDangerWords(text) {
     const lowerText = (text || '').toLowerCase().replace(/\s/g, '');
     return dangerWords.some(word => lowerText.includes(String(word).toLowerCase()));
 }
 
-// ⭐詐欺ワード判定のロジック強化⭐
 function checkContainsScamWords(text) {
   const rawLower = (text || '').toLowerCase();
   const squashed = rawLower.replace(/\s/g, '');
   return scamWords.some(word =>
     (word instanceof RegExp)
-      ? word.test(rawLower) 
+      ? word.test(rawLower)
       : squashed.includes(String(word).toLowerCase().replace(/\s/g, ''))
   );
 }
@@ -226,7 +197,6 @@ function checkContainsInappropriateWords(text) {
     return inappropriateWords.some(w => lower.includes(String(w).toLowerCase().replace(/\s/g, '')));
 }
 
-// --- Flex Message テンプレート (詐欺注意喚起) ---
 const SCAM_FLEX_MESSAGE = {
     "type": "bubble",
     "body": {
@@ -251,7 +221,6 @@ const SCAM_FLEX_MESSAGE = {
     }
 };
 
-// --- Flex Message テンプレート (緊急時連絡先) ---
 const EMERGENCY_FLEX_MESSAGE = {
     "type": "bubble",
     "body": {
@@ -279,7 +248,6 @@ const EMERGENCY_FLEX_MESSAGE = {
     }
 };
 
-// --- 会員登録と属性変更、退会を含む新しいFlex Messageテンプレート ---
 const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
     "type": "bubble",
     "body": {
@@ -295,17 +263,13 @@ const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
-            // 新たに会員登録するボタン
             { "type": "button", "action": { "type": "uri", "label": "新たに会員登録する", "uri": "" }, "style": "primary", "height": "sm", "margin": "md", "color": "#FFD700" },
-            // 登録情報を修正するボタン
             { "type": "button", "action": { "type": "uri", "label": "登録情報を修正する", "uri": "" }, "style": "primary", "height": "sm", "margin": "md", "color": "#9370DB" },
-            // 退会するボタン
             { "type": "button", "action": { "type": "postback", "label": "退会する", "data": "action=request_withdrawal" }, "style": "secondary", "height": "sm", "margin": "md", "color": "#FF0000" }
         ]
     }
 };
 
-// --- 見守りサービス専用のFlex Messageテンプレート ---
 const WATCH_MENU_FLEX = {
     "type": "bubble",
     "body": {
@@ -327,8 +291,6 @@ const WATCH_MENU_FLEX = {
     }
 };
 
-
-// ⭐ Flex Message Builder（動的にURLやボタンを出し分け） ⭐
 function buildRegistrationFlex() {
   const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
   return {
@@ -349,10 +311,8 @@ function buildEmergencyFlex(type) {
   const hasTel = !!EMERGENCY_CONTACT_PHONE_NUMBER;
   const footer = { ...base.footer };
   if (!hasTel) {
-    // 事務局ボタンを除去
     footer.contents = footer.contents.filter(c => !String(c?.action?.label || '').includes('こころちゃん事務局'));
   } else {
-    // tel:undefined を防ぐ（再構築）
     footer.contents = footer.contents.map(c =>
       String(c?.action?.label || '').includes('こころちゃん事務局')
         ? { ...c, action: { ...c.action, uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` } }
@@ -364,7 +324,6 @@ function buildEmergencyFlex(type) {
 
 
 const handleEventSafely = async (event) => {
-    // ⭐ 修正箇所: Postbackイベントを先に処理する ⭐
     if (!event) return;
 
     if (event.type === 'postback') {
@@ -384,17 +343,14 @@ const handleEventSafely = async (event) => {
                         lastRepliedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp()
                     }
                 }, { merge: true });
-                // ⭐見守りON時にtouchWatchを呼び出し⭐
                 await touchWatch(userId, '見守りON');
                 await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。いつでも話しかけてね🌸' }], userId);
                 return;
             }
             if (data === 'action=disable_watch') {
-                // ⭐安全なset(..., {merge:true})に修正⭐
                 await db.collection('users').doc(userId).set({
                     watchService: { isEnabled: false }
                 }, { merge: true });
-                // ⭐見守りOFF時にtouchWatchを呼び出し⭐
                 await touchWatch(userId, '見守りOFF');
                 await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをOFFにしたよ。また必要になったら言ってね🌸' }], userId);
                 return;
@@ -402,37 +358,31 @@ const handleEventSafely = async (event) => {
         } catch (e) {
             console.error('postback handling error:', e);
         }
-        return; // 未知postbackは無視
+        return;
     }
 
-    // ★ ここから下は従来どおり「テキストメッセージのみ」処理
     if (event.type !== 'message' || !event.message || event.message.type !== 'text') {
-        return; // 画像・スタンプ・フォローイベントなどは無視
+        return;
     }
     const userId = event.source?.userId;
     const userMessage = event.message.text || '';
 
-    // ⭐見守り最終応答時刻を更新⭐
     await touchWatch(userId, userMessage);
 
-    // ⭐会員登録メニューの独立判定を追加⭐
     if (/(会員登録|登録情報|会員情報|入会|退会)/i.test(userMessage)) {
         await safeReply(event.replyToken, [
             { type: 'text', text: '会員登録や情報の変更はここからできるよ！' },
-            // ⭐ビルド関数に差し替え⭐
             { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex() }
         ], userId);
         return;
     }
     
-    // 1. 不適切ワードのチェック
     if (checkContainsInappropriateWords(userMessage)) {
         const messages = [{ type: 'text', text: "ごめんね💦 その話題には答えられないんだ。でも他のことなら一緒に話したいな🌸" }];
         await safeReply(event.replyToken, messages, userId);
         return;
     }
 
-    // ⭐ 2. 危険・詐欺ワードのチェック（優先度UP） ⭐
     const isDangerous = checkContainsDangerWords(userMessage);
     const isScam = checkContainsScamWords(userMessage);
     if (isDangerous || isScam) {
@@ -440,10 +390,8 @@ const handleEventSafely = async (event) => {
         return;
     }
     
-    // 3. 固定応答のチェック
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
-        // ⭐見守りサービスはFlex Messageを送信する⭐
         if (userMessage.includes('見守り') || userMessage.includes('みまもり') || userMessage.includes('まもり')) {
              try {
                 await safeReply(event.replyToken, [
@@ -468,7 +416,6 @@ const handleEventSafely = async (event) => {
         return;
     }
 
-    // ❗コンプラ/年齢ガード（AIに渡す前に終了）
     if (hitSensitiveBlockers(userMessage)) {
         await safeReply(event.replyToken, [
             { type: 'text', text: "ごめんね💦 その話題には答えられないんだ。ここでは安全にお話ししたいな🌸 別の話題にしよ？" }
@@ -476,14 +423,12 @@ const handleEventSafely = async (event) => {
         return;
     }
 
-    // 4. 相談モードのチェック
     const isConsultation = userMessage.includes('相談') || userMessage.includes('そうだん');
     if (isConsultation) {
         await sendConsultationResponse(userId, event.replyToken, userMessage);
         return;
     }
     
-    // 5. 通常会話の処理
     try {
         const userDoc = await db.collection('users').doc(userId).get();
         const user = userDoc.exists ? userDoc.data() : { membershipType: 'guest', dailyCounts: {}, isChildCategory: false };
@@ -493,14 +438,12 @@ const handleEventSafely = async (event) => {
 
         const userConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG.guest;
         
-        // 利用制限のチェック
         if (userConfig.dailyLimit !== -1 && dailyCount > userConfig.dailyLimit) {
             const messages = [{ type: 'text', text: "ごめんなさい、今日の利用回数の上限に達しちゃったみたい。また明日お話しようね！" }];
             await safeReply(event.replyToken, messages, userId);
             return;
         }
 
-        // AIモデルの決定
         let modelToUse;
         if (userMessage.length <= 50) {
             modelToUse = 'gemini-1.5-flash-latest';
@@ -511,7 +454,6 @@ const handleEventSafely = async (event) => {
         const isUserChildCategory = user.isChildCategory || false;
         const currentHour = new Date().getHours();
 
-        // systemInstructionの構築
         let systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
         ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
         必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
@@ -520,15 +462,7 @@ const handleEventSafely = async (event) => {
         医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
         `;
 
-        if (modelToUse === "gpt-4o") {
-            systemInstruction += `
-            ユーザーは危険または詐欺の可能性のある内容を話しています。
-            あなたは、まずユーザーの感情に寄り添い、安心させる言葉をかけてください。
-            次に、「一人で抱え込まないでね」「専門の人が助けてくれるから安心して」といった言葉で、サポートがあることを伝えてください。
-            具体的な対処法や連絡先については、この応答の後に表示されるボタンやメッセージで案内されることを示唆するような形で、直接的な連絡先の記載は避けてください。（例: 「詳しい情報は、このあとに表示されるメッセージを確認してね」）
-            あくまで、共感と安心感を与えることを最優先し、ユーザーを落ち着かせてください。
-            `;
-        } else if (modelToUse === "gpt-4o-mini") {
+        if (modelToUse === "gpt-4o-mini") {
             if (!isUserChildCategory) {
                 systemInstruction += `
                 ユーザーは成人です。宿題や学習に関する質問に対しては、具体的な答えや詳細な解き方を教えてください。学習支援を目的とした、教育的な回答を心がけてください。
@@ -550,7 +484,6 @@ const handleEventSafely = async (event) => {
         ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。
         `;
 
-        // ⭐こころちゃんの固定プロフィールを追加⭐
         systemInstruction += `
         # こころちゃんの固定プロフィール
         - 好きなアニメ: 『ヴァイオレット・エヴァーガーデン』
@@ -561,7 +494,6 @@ const handleEventSafely = async (event) => {
         - 「さっきも話したけど…」の軽い前置きはOK
         - 関連話題を提案して会話を広げる
         `;
-        // ⭐ここまで追加⭐
 
         systemInstruction += `
         # 医療や健康に関する話題
@@ -578,9 +510,6 @@ const handleEventSafely = async (event) => {
         「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸 教えてくれると嬉しいな💖」と返答してください。
         `;
         
-        // systemInstruction += userConfig.systemInstructionModifier;
-        
-        // ⭐到達不能コードを整理⭐
         if (isUserChildCategory && (currentHour >= 22 || currentHour < 6)) {
             if (userMessage.includes("寂しい") || userMessage.includes("眠れない") || userMessage.includes("怖い")) {
                 systemInstruction += `
@@ -597,7 +526,6 @@ const handleEventSafely = async (event) => {
             }
         }
         
-        // ⭐ replyContentの再宣言を削除し、単一の変数として扱うように修正 ⭐
         let replyContent = 'ごめんね💦 今ちょっとお話が難しいみたい。また後で話しかけてくれると嬉しいな💖';
         
         if (process.env.NODE_ENV !== 'production') {
@@ -618,15 +546,11 @@ const handleEventSafely = async (event) => {
             }
         }
         
-        // Firestoreの利用回数を更新
-        const updateData = {
-            dailyCounts: {
-                [today]: dailyCount
-            }
-        };
-        await db.collection('users').doc(userId).set(updateData, { merge: true });
+        // ⭐dailyCountsの更新をドット記法に修正⭐
+        await db.collection('users').doc(userId).set({
+            [`dailyCounts.${today}`]: dailyCount
+        }, { merge: true });
 
-        // ユーザーへ返信
         await safeReply(event.replyToken, [
             { type: 'text', text: replyContent }
         ], userId);
@@ -654,7 +578,7 @@ const getOpenAIResponse = async (message, instruction, model = 'gpt-4o') => {
         'Content-Type': 'application/json',
     };
     const response = await httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers });
-    return response.data.choices[0].message.content.trim();
+    return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
 const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-latest') => {
@@ -675,23 +599,22 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-pro-l
         'Content-Type': 'application/json',
     };
     const response = await httpInstance.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers });
-    return response.data.candidates[0].content.parts[0].text.trim();
+    // ⭐安全ガードを追加⭐
+    const text = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    return text || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
-// ⭐ replyMessageの代替送信関数 ⭐
 async function safeReply(replyToken, messages, userId) {
   try {
     await client.replyMessage({ replyToken, messages });
   } catch (e) {
     console.warn('replyMessage failed:', e.statusCode || e.message);
-    // ⭐ userIdが存在し、ユーザーとの個別チャットの場合のみpushで代替 ⭐
     if (userId && e.statusCode !== 400) {
       await safePush(userId, messages);
     }
   }
 }
 
-// ⭐見守り最終応答時刻を更新する関数⭐
 async function touchWatch(userId, message) {
     try {
         const ref = db.collection('users').doc(userId);
@@ -709,7 +632,6 @@ async function touchWatch(userId, message) {
     }
 }
 
-// ⭐緊急通知の再試行関数⭐
 async function safePush(to, messages, retries = 2) {
     for (let i = 0; i <= retries; i++) {
         try {  
@@ -733,7 +655,6 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
       - 好きなアーティスト: 『ClariS』。特に『コネクト』
     `;
     
-    // ⭐AI応答のフォールバックを適用⭐
     let aiResponse = '不安だったよね。まずは深呼吸しようね。詳しい連絡先はこのあと出すから確認してね💖';
     try {
       aiResponse = await getOpenAIResponse(userMessage, systemInstruction, 'gpt-4o');
@@ -741,7 +662,6 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
       console.error('getOpenAIResponse failed (emergency):', error);
     }
     
-    // LINEメッセージの作成
     const messages = [{
         type: 'text',
         text: aiResponse
@@ -753,16 +673,15 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
     
     await safeReply(replyToken, messages, userId);
     
-    // ⭐getProfileの引数形式を修正し、例外対策も追加⭐
     let profileName = '不明';
     try {
-        const profile = await client.getProfile({ userId });
+        // ⭐getProfileの引数形式を修正⭐
+        const profile = await client.getProfile(userId);
         profileName = profile?.displayName || profileName;
     } catch (e) {
         console.warn('getProfile failed:', e.statusCode || e.message);
     }
     
-    // ⭐ Firestore から拡張情報（任意項目）を取得して整形⭐
     const snap = await db.collection('users').doc(userId).get();
     const u = snap.exists ? snap.data() : {};
     const v = (x) => (x ? String(x) : '未登録');
@@ -783,7 +702,6 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type) => {
 見守り: ${u.watchService?.isEnabled ? 'ON' : 'OFF'}
 最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}`;
 
-    // ⭐オフィサー通知に環境変数ガードを追加⭐
     if (OFFICER_GROUP_ID) {
       await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: enriched }]);
     } else {
@@ -799,7 +717,6 @@ const sendConsultationResponse = async (userId, replyToken, userMessage) => {
       - 好きなアーティスト: 『ClariS』。特に『コネクト』
     `;
     
-    // ⭐AI応答のフォールバックを適用⭐
     let aiResponse = '一人で抱え込まないでね。わたしがそばにいるよ。ゆっくり、あなたの話を聞かせてくれる？';
     try {
       aiResponse = await getGeminiResponse(userMessage, systemInstruction, 'gemini-1.5-pro-latest');
@@ -821,13 +738,9 @@ function checkSpecialReply(text) {
     return null;
 }
 
-//
-// 見守りサービス機能
-//
 const WATCH_SERVICE_INTERVAL_HOURS = 29;
 
-// ⭐Cronジョブの安定化と連投抑止⭐
-cron.schedule('0 * * * *', async () => { // 毎時0分
+cron.schedule('0 * * * *', async () => {
     await sendWatchServiceMessages();
 }, { timezone: 'Asia/Tokyo' });
 
@@ -845,13 +758,11 @@ const sendWatchServiceMessages = async () => {
         const userId = doc.id;
         const now = new Date();
         
-        // 最終応答時間から29時間経過しているか確認
         if (user.watchService?.lastRepliedAt) {
             const lastRepliedAt = user.watchService.lastRepliedAt.toDate();
             const diffHours = (now.getTime() - lastRepliedAt.getTime()) / (1000 * 60 * 60);
 
             if (diffHours >= WATCH_SERVICE_INTERVAL_HOURS) {
-                // ⭐直近6時間以内に通知していたらスキップ⭐
                 if (user.watchService?.lastNotifiedAt) {
                     const lastN = user.watchService.lastNotifiedAt.toDate();
                     const sinceN = (now - lastN) / (1000 * 60 * 60);
@@ -861,16 +772,15 @@ const sendWatchServiceMessages = async () => {
                     }
                 }
 
-                // ⭐getProfileの引数形式を修正し、例外対策も追加⭐
                 let profileName = '不明';
                 try {
-                    const profile = await client.getProfile({ userId });
+                    // ⭐getProfileの引数形式を修正⭐
+                    const profile = await client.getProfile(userId);
                     profileName = profile?.displayName || profileName;
                 } catch (e) {
                     console.warn('getProfile failed:', e.statusCode || e.message);
                 }
                 
-                // ⭐ Firestore から拡張情報（任意項目）を取得して整形⭐
                 const snap = await db.collection('users').doc(userId).get();
                 const u = snap.exists ? snap.data() : {};
                 const v = (x) => (x ? String(x) : '未登録');
@@ -889,14 +799,12 @@ const sendWatchServiceMessages = async () => {
                 
 👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
 
-                // ⭐オフィサー通知に環境変数ガードを追加⭐
                 if (OFFICER_GROUP_ID) {
                   await safePush(OFFICER_GROUP_ID, [{ type: 'text', text: notificationMessage }]);
                 } else {
                   console.warn('OFFICER_GROUP_ID is not set; skip watch service notification.');
                 }
                 
-                // Firestoreの最終通知時間を更新
                 await db.collection('users').doc(userId).update({
                     'watchService.lastNotifiedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp()
                 });
@@ -905,11 +813,8 @@ const sendWatchServiceMessages = async () => {
     }
 };
 
-// ⭐ヘルスチェックエンドポイントの追加⭐
 app.get('/healthz', (_, res) => res.status(200).send('ok'));
-// ⭐ここまで追加⭐
 
-// --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 サーバーはポート${PORT}で実行されています`);
