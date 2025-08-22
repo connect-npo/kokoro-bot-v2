@@ -42,7 +42,24 @@ const db = firebaseAdmin.firestore();
 const app = express();
 const client = new line.messagingApi.MessagingApiClient(config);
 
-// ミドルウェアの設定
+// ⭐ 修正箇所: /webhook には body-parser を適用しない ⭐
+// LINEの署名検証は生のボディで行われるため、/webhook よりも前に express.json() は適用しない
+// 他のエンドポイントでのJSONパースが必要な場合は、/webhook の後に `app.use(express.json());` を配置します。
+// あるいは、特定のパスにのみ適用するよう調整します。
+
+//
+// メイン処理
+//
+// ⭐先に応答を返す（高速ACK）⭐
+app.post('/webhook', line.middleware(config), (req, res) => {
+    res.status(200).end();
+    const events = req.body.events || [];
+    setImmediate(async () => {
+        await Promise.allSettled(events.map(handleEventSafely));
+    });
+});
+
+// ⭐ /webhook の後に express.json() を配置することで問題を解決 ⭐
 app.use(express.json());
 
 //
@@ -108,7 +125,7 @@ const specialRepliesMap = new Map([
     [/褒めて|ほめて/i, "すごいね！💖 本当にえらかった！🌸 よく頑張ったね！😊"],
     [/応援して|応援してほしい|がんばるぞ|これからもがんばる/i, "いつでも応援してるよ！一緒にがんばろうね🌸"],
     [/(好きな|推しの)?\s*アニメ(は|って)?[?？]*$/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
-    [/(好きな|推しの)?\s*(アーティスト|歌手|音楽)(は|って)?[?？]*$/i, "ClariSが好きだよ� とくに『コネクト』！あなたの推しも教えて～"],
+    [/(好きな|推しの)?\s*(アーティスト|歌手|音楽)(は|って)?[?？]*$/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
     [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ💖 とくに『コネクト』！"],
     // ⭐見守りサービス用の固定応答を追加⭐
     [/(見守り|みまもり|まもり).*(サービス|登録|画面)/i, "見守りサービスに興味があるんだね！いつでも安心して話せるように、私がお手伝いするよ💖"],
@@ -275,18 +292,6 @@ const REGISTRATION_AND_CHANGE_BUTTONS_FLEX = {
         ]
     }
 };
-
-//
-// メイン処理
-//
-// ⭐先に応答を返す（高速ACK）⭐
-app.post('/webhook', line.middleware(config), (req, res) => {
-    res.status(200).end();
-    const events = req.body.events || [];
-    setImmediate(async () => {
-        await Promise.allSettled(events.map(handleEventSafely));
-    });
-});
 
 const handleEventSafely = async (event) => {
     // ⭐非テキストイベントの早期リターン⭐
