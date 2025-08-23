@@ -446,6 +446,41 @@ const handleEventSafely = async (event) => {
     const userId = event.source?.userId;
     const userMessage = event.message.text || '';
 
+    // ⭐追加⭐ 見守りキーワードでメニュー表示
+    const watchKeyword = /(見守り|みまもり|まもり)/i;
+    if (watchKeyword.test(userMessage)) {
+      await safeReply(event.replyToken, [
+        { type: 'text', text: '見守りサービスの設定だよ。ON/OFFを選んでね🌸' },
+        { type: 'flex', altText: '見守りサービスメニュー', contents: WATCH_MENU_FLEX }
+      ], userId, event.source);
+      return;
+    }
+    
+    // ⭐追加⭐ テキストでのON/OFF操作に対応（リッチメニューがメッセージ送信でも動く）
+    if (/見守り.*(オン|on)/i.test(userMessage)) {
+        await db.collection('users').doc(userId).set({
+            watchService: {
+                isEnabled: true,
+                enrolledAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                lastRepliedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                privacyPolicyVersion: process.env.PRIVACY_POLICY_VERSION || 'v1',
+                consentAgreedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+            }
+        }, { merge: true });
+        await touchWatch(userId, '見守りON(テキスト)');
+        await safeReply(event.replyToken, [{ type:'text', text:'見守りをONにしたよ🌸'}], userId, event.source);
+        return;
+    }
+    
+    if (/見守り.*(オフ|off)/i.test(userMessage)) {
+        await db.collection('users').doc(userId).set({
+            watchService: { isEnabled: false }
+        }, { merge: true });
+        await touchWatch(userId, '見守りOFF(テキスト)');
+        await safeReply(event.replyToken, [{ type:'text', text:'見守りをOFFにしたよ🌸'}], userId, event.source);
+        return;
+    }
+
     await touchWatch(userId, userMessage);
 
     if (/(会員登録|登録情報|会員情報|入会|退会)/i.test(userMessage)) {
@@ -627,9 +662,10 @@ const handleEventSafely = async (event) => {
         // ⭐修正⭐ サーバーログを削除
         debug(`AI Model Being Used: ${modelToUse}`);
 
+        // ⭐修正⭐ 未定義変数openaiModelをmodelToUseに修正
         if (modelToUse.startsWith('gpt-')) {
             try {
-                replyContent = await getOpenAIResponse(userMessage, systemInstruction, openaiModel, userId);
+                replyContent = await getOpenAIResponse(userMessage, systemInstruction, modelToUse, userId);
             } catch (error) {
                 briefErr('getOpenAIResponse failed', error);
             }
@@ -783,25 +819,28 @@ async function safeReply(replyToken, messages, userId, source) {
     }
 }
 
+// ⭐修正⭐ 最終応答時に各種フラグをリセット
 async function touchWatch(userId, message) {
-    try {
-        const ref = db.collection('users').doc(userId);
-        await db.runTransaction(async (tx) => {
-            const snap = await tx.get(ref);
-            const enabled = snap.exists && snap.data()?.watchService?.isEnabled;
-            if (!enabled) return;
+  try {
+    const ref = db.collection('users').doc(userId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const enabled = snap.exists && snap.data()?.watchService?.isEnabled;
+      if (!enabled) return;
 
-            // ⭐修正⭐ メッセージプレビューもサニタイズ
-            const preview = gTrunc(sanitizeForLog(message), 140);
-            
-            tx.update(ref, {
-                'watchService.lastRepliedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp(),
-                'watchService.lastRepliedMessage': preview,
-            });
-        });
-    } catch (e) {
-        briefErr('touchWatch failed', e);
-    }
+      const preview = gTrunc(sanitizeForLog(message), 140);
+
+      tx.update(ref, {
+        'watchService.lastRepliedAt': firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+        'watchService.lastRepliedMessage': preview,
+        // ★ここでリセット
+        'watchService.firstReminderSentAt': firebaseAdmin.firestore.FieldValue.delete(),
+        'watchService.secondReminderSentAt': firebaseAdmin.firestore.FieldValue.delete(),
+      });
+    });
+  } catch (e) {
+    briefErr('touchWatch failed', e);
+  }
 }
 
 async function safePush(to, messages, retries = 2) {
@@ -943,7 +982,7 @@ function checkSpecialReply(text) {
 // 見守りサービスに関する定数
 //
 const WATCH_SERVICE_INTERVAL_HOURS = 29; // 通知間隔を定数化
-const NOTIFICATION_COOLDOWN_HOURS = 6;    // 再通知までのクールダウン時間を定数化
+const NOTIFICATION_COOLDDOWN_HOURS = 6;    // 再通知までのクールダウン時間を定数化
 
 //
 // 定期実行関数（Cron）
