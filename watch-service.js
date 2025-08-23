@@ -1,8 +1,6 @@
 // watch-service.js — 見守りサービス、定期実行用スクリプト
 "use strict";
 
-// 本番環境（Renderなど）ではdotenvは不要ですが、ローカルでの開発も考慮し、
-// try-catchで安全に読み込むようにしています。
 try {
   require("dotenv").config();
 } catch (e) {
@@ -38,7 +36,6 @@ const client = new Client({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET || process.env.CHANNEL_SECRET,
 });
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID || process.env.OWNER_USER_ID;
 
 // ---------- Messages (30 variations) ----------
 const watchMessages = [
@@ -86,14 +83,12 @@ async function push(to, msg) {
 
 async function run() {
   console.log("⏰ watch-service tick");
-  // Firestoreから有効な見守りサービスユーザーを取得
   const snap = await db.collection("users").where("watchService.isEnabled", "==", true).get();
   if (snap.empty) {
     console.log("🏁 watch-service done: No users to watch.");
     return;
   }
   
-  // 処理結果をログで確認するためのカウンター
   let scannedUsers = 0;
   let sentFirstReminder = 0;
   let sentSecondReminder = 0;
@@ -101,7 +96,6 @@ async function run() {
 
   const nowMs = Date.now();
   
-  // 定数定義
   const THREE_D = 3 * 24 * 60 * 60 * 1000;
   const ONE_D = 24 * 60 * 60 * 1000;
 
@@ -110,12 +104,10 @@ async function run() {
     const userId = doc.id;
     const u = doc.data();
 
-    // Firestoreのフィールド名に合わせて、最終応答日時とリマインダー送信日時を取得
     const lastRepliedAt = u.watchService?.lastRepliedAt?.toDate()?.getTime() ?? u.followedAt?.toDate()?.getTime() ?? nowMs;
     const firstReminderSentAt = u.watchService?.firstReminderSentAt?.toDate()?.getTime() ?? null;
     const secondReminderSentAt = u.watchService?.secondReminderSentAt?.toDate()?.getTime() ?? null;
 
-    // ユーザーが既に返信している場合はスキップ
     if (firstReminderSentAt && lastRepliedAt > firstReminderSentAt) {
       skippedUsers++;
       continue;
@@ -125,14 +117,12 @@ async function run() {
       continue;
     }
 
-    // Step 1: 最終応答から72時間（3日）以上経過していれば初回メッセージを送信
     if (!firstReminderSentAt && (nowMs - lastRepliedAt >= THREE_D)) {
       console.log(`💬 first reminder -> ${userId}`);
       await push(userId, {
         type: "text",
         text: rand(watchMessages)
       });
-      // 初回メッセージ送信フラグを記録
       await doc.ref.set({
         'watchService.firstReminderSentAt': Timestamp.now()
       }, {
@@ -142,14 +132,12 @@ async function run() {
       continue;
     }
 
-    // Step 2: 初回メッセージから24時間以上経過していれば2回目メッセージを送信
     if (firstReminderSentAt && !secondReminderSentAt && (nowMs - firstReminderSentAt >= ONE_D)) {
       console.log(`🔔 second reminder -> ${userId}`);
       await push(userId, {
         type: "text",
         text: "こんにちは！昨日のメッセージ見てくれたかな？心配してるよ。スタンプでもOKだよ🌸"
       });
-      // 2回目メッセージ送信フラグを記録
       await doc.ref.set({
         'watchService.secondReminderSentAt': Timestamp.now()
       }, {
@@ -160,7 +148,6 @@ async function run() {
     }
   }
   
-  // 処理結果をログに出力
   console.log(`✅ ${scannedUsers} users scanned. Sent: first=${sentFirstReminder}, second=${sentSecondReminder}, skipped=${skippedUsers}`);
 }
 
