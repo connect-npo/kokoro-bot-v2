@@ -82,7 +82,7 @@ try {
 
 if (!firebaseAdmin.apps.length) {
     firebaseAdmin.initializeApp({
-        credential: firebaseAdmin.credential.cert(FIREBASE_CREDENTIALS),
+      credential: firebaseAdmin.credential.cert(FIREBASE_CREDENTIALS),
     });
 }
 
@@ -337,14 +337,14 @@ const WATCH_MENU_FLEX = {
     { type:"text", text:"24〜29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。", wrap:true, margin:"md", size:"sm", align:"center" }
   ]},
   footer: { type:"box", layout:"vertical", spacing:"sm", contents:[
-    { type:"button", action:{ type:"postback", label:"見守りサービスをONにする", data:"action=enable_watch" }, style:"primary", height:"sm", margin:"md", color:"#32CD32" },
+    { type:"button", action:{ type:"uri", label:"見守りサービスをONにする", uri:"https://docs.google.com/forms/d/1xl-8o3aLku79vGTMlHvwOXJIk7mGuJOwzgVBEWbHroQ/edit" }, style:"primary", height:"sm", margin:"md", color:"#32CD32" },
     { type:"button", action:{ type:"postback", label:"見守りサービスをOFFにする", data:"action=disable_watch" }, style:"primary", height:"sm", margin:"md", color:"#FF4500" }
   ]}
 };
 
 function buildRegistrationFlex() {
     const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
-    const privacyPolicyUrl = `${url}/privacy_policy`;
+    const privacyPolicyUrl = `https://gamma.app/docs/-iwcjofrc870g681?mode=doc`; // ⭐修正⭐ プライバシーポリシーのURLを修正
     return {
       ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX,
       footer: {
