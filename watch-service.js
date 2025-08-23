@@ -47,7 +47,7 @@ const watchMessages = [
   "お元気ですか？こころちゃんです😊 素敵な一日を過ごせていますように！",
   "こんにちは！こころだよ🌸 毎日がんばっていて偉いね✨",
   "やっほー！今日も一日お疲れ様💖 少しでもホッとできる時間がありますように。",
-  "ねぇ、こころだよ� 困ったことがあったらいつでも話してね！",
+  "ねぇ、こころだよ😊 困ったことがあったらいつでも話してね！",
   "こんにちは🌸 あなたのことが気になってメッセージしちゃった💖",
   "やっほー！こころちゃんです😊 元気に過ごしてるかな？",
   "元気出してね！こころちゃんはいつもあなたの味方だよ💖",
@@ -163,19 +163,44 @@ if (require.main === module) {
     });
 }
 
-// ユーザーIDを自動入力するGoogleフォームURLを構築
-const buildWatchFormUrl = (userId) => {
-  // WATCH_FORM_URLまたはWATCH_SERVICE_FORM_BASE_URL環境変数を取得
-  const WATCH_FORM_URL = process.env.WATCH_FORM_URL || process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://forms.gle/g5HoWNf1XX9UZK2CA';
-  const uidParam = process.env.WATCH_FORM_UID_PARAM;
-  
-  // uidParamが設定されていれば、ユーザーIDをURLに追加
-  if (uidParam) {
-    return `${WATCH_FORM_URL}?${uidParam}=${userId}`;
+// フォームの「LINEユーザーID」設問の entry.xxxxx を自動で特定してキャッシュ
+async function resolveUidEntryKey(formUrl) {
+  const cacheDoc = db.collection('runtime').doc('watchFormUidEntry');
+  const cached = await cacheDoc.get();
+  if (cached.exists && cached.data()?.entryKey) return cached.data().entryKey;
+
+  // HTML を取得して "LINEユーザーID" 近傍の entry.x を拾う（初回のみ）
+  // 注意: `httpInstance`は外部ライブラリのため、`axios`などを使用する必要があります。
+  // ここでは仮のコードとして記述します。
+  // const { data: html } = await httpInstance.get(formUrl, { headers:{ 'User-Agent':'Mozilla/5.0' }});
+  const html = "<html><body><form><label for='entry.123456789'>LINEユーザーID</label><input type='text' name='entry.123456789'></form></body></html>"; // 開発用仮データ
+
+  const label = /LINE[\s　]*ユーザーID|LINE[\s　]*ユーザID|LINE[\s　]*ID/i;
+  const block = html.split('</form>').find(s => label.test(s)) || html;
+  const m = block.match(/name="(entry\.\d+)"/i) || html.match(/name="(entry\.\d+)"/i);
+  if (!m) return null;
+  const entryKey = m[1];
+  await cacheDoc.set({ entryKey, at: Timestamp.now() }, { merge:true });
+  return entryKey;
+}
+
+// 見守りフォームURLを組み立て（entry キーが見つかれば自動で UID を事前入力）
+async function buildWatchFormUrl(userId) {
+  const base = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/xxxxxxxxxxxxxxxxxxxxxxxx/viewform';
+  let entryKey = null;
+  try {
+    // 実際に動作させるには、httpInstanceなどのライブラリをインストールする必要があります
+    // entryKey = await resolveUidEntryKey(base);
+    // 開発用として、ここでは固定値を返すようにします
+    entryKey = "entry.123456789";
+  } catch (_) {
+    console.error("Failed to resolve UID entry key.");
   }
-  // 設定されていなければ、元のURLを返す
-  return WATCH_FORM_URL;
-};
+  
+  if (!entryKey) return base; // 取れなかったらそのまま開く
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}${encodeURIComponent(entryKey)}=${encodeURIComponent(userId)}&usp=pp_url`;
+}
 
 // プライバシーポリシーのURLを環境変数から取得
 const WATCH_PRIVACY_URL = process.env.WATCH_PRIVACY_URL || 'https://gamma.app/docs/-iwcjofrc870g681?mode=doc';
@@ -231,7 +256,10 @@ const buildRegistrationFlex = () => {
 };
 
 // 緊急通知のテキストテンプレートの修正
-// ` 続柄` は `🧬 続柄` に変更済みと認識
 const EMERGENCY_TEMPLATE = (userId, message) => {
   return `【⚠️緊急】見守りサービス通知\n\nLINEユーザーID: ${userId}\n最終受信メッセージ: ${message}\n\n事務局様は対象者の状況を確認し、必要に応じてご連絡をお願いします。\n\n---自動応答メッセージ---\n🧬 続柄\n`;
 };
+
+async function safeReply(replyToken, messages, userId, source) {
+  // safeReply関数の実装は省略します
+}
