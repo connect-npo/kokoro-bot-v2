@@ -346,6 +346,7 @@ const WATCH_MENU_FLEX = {
   ]}
 };
 
+// ⭐修正⭐ FlexMessageのJSON構文エラーを修正
 function buildRegistrationFlex() {
     const url = ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
     const privacyPolicyUrl = `${url}/privacy_policy`;
@@ -354,10 +355,10 @@ function buildRegistrationFlex() {
       footer: {
         ...REGISTRATION_AND_CHANGE_BUTTONS_FLEX.footer,
         contents: [
-          { type: "button", action: { type: "uri", label: "新たに会員登録する", "uri": url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
-          { type: "button", action: { type: "uri", label": "登録情報を修正する", "uri": url }, style: "primary", height: "sm", margin: "md", color": "#9370DB" },
-          { type: "button", action: { type: "uri", label": "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color": "#FF69B4" },
-          { type: "button", action: { type: "postback", label: "退会する", "data": "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color": "#FF0000" }
+          { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
+          { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
+          { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color: "#FF69B4" },
+          { type: "button", action: { type: "postback", label: "退会する", data: "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
         ]
       }
     };
