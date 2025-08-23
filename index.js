@@ -412,7 +412,32 @@ const handleEventSafely = async (event) => {
                 await safeReply(event.replyToken, [{ type: 'text', text: '退会リクエストを受け付けたよ。手続き完了まで少し待ってね🌸' }], userId, event.source);
                 return;
             }
+            // ⭐修正⭐ ONにするでフォームへ誘導するよう変更
             if (data === 'action=enable_watch') {
+                const registrationUrl = process.env.ADULT_FORM_BASE_URL || 'https://forms.gle/g5HoWNf1XX9UZK2CA';
+                const messages = [
+                    { type:'text', text:'見守りサービスをONにしたよ。これで安心だね😊\n\nもしもの時に備えて、緊急連絡先を登録しておこうね！\n下のボタンからフォームに登録してね🌸' },
+                    { type:'flex', altText:'緊急連絡先登録', contents:{
+                        type:"bubble",
+                        body:{
+                            type:"box",
+                            layout:"vertical",
+                            contents:[
+                                {type:"text", text:"緊急連絡先を登録しよう", weight:"bold", size:"lg", align:"center", color:"#FF69B4"},
+                                {type:"text", text:"もしもの時、あなたの安否を知らせる大切な情報だよ。", wrap:true, margin:"md", size:"sm", align:"center"}
+                            ]
+                        },
+                        footer:{
+                            type:"box",
+                            layout:"vertical",
+                            spacing:"sm",
+                            contents:[
+                                {type:"button", action:{type:"uri", label:"緊急連絡先を登録する", uri:registrationUrl}, style:"primary", height:"sm", margin:"md", color:"#32CD32"}
+                            ]
+                        }
+                    }}
+                ];
+
                 await db.collection('users').doc(userId).set({
                     watchService: {
                         isEnabled: true,
@@ -422,8 +447,9 @@ const handleEventSafely = async (event) => {
                         consentAgreedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
                     }
                 }, { merge: true });
-                await touchWatch(userId, '見守りON');
-                await safeReply(event.replyToken, [{ type: 'text', text: '見守りサービスをONにしたよ。これで安心だね😊　プライバシーポリシーに同意してくれてありがとう！いつでも話しかけてね🌸' }], userId, event.source);
+
+                await touchWatch(userId, '見守りON(postback)');
+                await safeReply(event.replyToken, messages, userId, event.source);
                 return;
             }
             if (data === 'action=disable_watch') {
@@ -456,8 +482,32 @@ const handleEventSafely = async (event) => {
       return;
     }
     
-    // ⭐追加⭐ テキストでのON/OFF操作に対応（リッチメニューがメッセージ送信でも動く）
+    // ⭐修正⭐ テキストでのON操作もフォームへ誘導するよう変更
     if (/見守り.*(オン|on)/i.test(userMessage)) {
+        const registrationUrl = process.env.ADULT_FORM_BASE_URL || 'https://forms.gle/g5HoWNf1XX9UZK2CA';
+        const messages = [
+            { type:'text', text:'見守りサービスをONにしたよ。これで安心だね😊\n\nもしもの時に備えて、緊急連絡先を登録しておこうね！\n下のボタンからフォームに登録してね🌸' },
+            { type:'flex', altText:'緊急連絡先登録', contents:{
+                type:"bubble",
+                body:{
+                    type:"box",
+                    layout:"vertical",
+                    contents:[
+                        {type:"text", text:"緊急連絡先を登録しよう", weight:"bold", size:"lg", align:"center", color:"#FF69B4"},
+                        {type:"text", text:"もしもの時、あなたの安否を知らせる大切な情報だよ。", wrap:true, margin:"md", size:"sm", align:"center"}
+                    ]
+                },
+                footer:{
+                    type:"box",
+                    layout:"vertical",
+                    spacing:"sm",
+                    contents:[
+                        {type:"button", action:{type:"uri", label:"緊急連絡先を登録する", uri:registrationUrl}, style:"primary", height:"sm", margin:"md", color:"#32CD32"}
+                    ]
+                }
+            }}
+        ];
+
         await db.collection('users').doc(userId).set({
             watchService: {
                 isEnabled: true,
@@ -467,8 +517,9 @@ const handleEventSafely = async (event) => {
                 consentAgreedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
             }
         }, { merge: true });
+
         await touchWatch(userId, '見守りON(テキスト)');
-        await safeReply(event.replyToken, [{ type:'text', text:'見守りをONにしたよ🌸'}], userId, event.source);
+        await safeReply(event.replyToken, messages, userId, event.source);
         return;
     }
     
@@ -946,7 +997,9 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
       type,
       at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
       userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
-      messagePreview: gTrunc(sanitizeForLog(userMessage), 120)
+      reason: '29 hours no response',
+      lastRepliedAt: u.watchService?.lastRepliedAt?.toDate() ?? null,
+      lastRepliedMessage: u.watchService?.lastRepliedMessage ?? null,
     });
 };
 
@@ -1041,7 +1094,7 @@ const sendWatchServiceMessages = async () => {
                 if (user.watchService?.lastNotifiedAt) {
                     const lastN = user.watchService.lastNotifiedAt.toDate();
                     const sinceN = (now - lastN) / (1000 * 60 * 60);
-                    if (sinceN < NOTIFICATION_COOLDOWN_HOURS) {
+                    if (sinceN < NOTIFICATION_COOLDDOWN_HOURS) {
                         debug(`watch: recent notify ${sinceN.toFixed(1)}h`);
                         await ref.update({ 'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete() });
                         continue;
