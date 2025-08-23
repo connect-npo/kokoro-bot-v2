@@ -1,8 +1,8 @@
-// watch-service.js
+// watch-service.js — 見守りサービス、定期実行用スクリプト
 "use strict";
 
-// ✅ 修正: Renderのような本番環境ではdotenvは不要。
-// ローカルでの開発も考慮し、try-catchで安全に読み込むようにしました。
+// 本番環境（Renderなど）ではdotenvは不要ですが、ローカルでの開発も考慮し、
+// try-catchで安全に読み込むようにしています。
 try {
   require("dotenv").config();
 } catch (e) {
@@ -86,80 +86,82 @@ async function push(to, msg) {
 
 async function run() {
   console.log("⏰ watch-service tick");
-  // ✅ 修正: Firestoreのwhere句をindex.jsと統一
+  // Firestoreから有効な見守りサービスユーザーを取得
   const snap = await db.collection("users").where("watchService.isEnabled", "==", true).get();
   if (snap.empty) {
     console.log("🏁 watch-service done: No users to watch.");
     return;
   }
+  
+  // 処理結果をログで確認するためのカウンター
+  let scannedUsers = 0;
+  let sentFirstReminder = 0;
+  let sentSecondReminder = 0;
+  let skippedUsers = 0;
 
   const nowMs = Date.now();
-  const now = new Date(nowMs);
-
+  
+  // 定数定義
   const THREE_D = 3 * 24 * 60 * 60 * 1000;
   const ONE_D = 24 * 60 * 60 * 1000;
-  
-  // ✅ 修正: 2回目の通知ロジックをシンプルに
-  const TWENTY_NINE_H = 29 * 60 * 60 * 1000;
-  // オフィサー通知はindex.jsの毎時ジョブに任せるので、このファイルでは実施しない
-  // const FIVE_H = 5 * 60 * 60 * 1000;
 
   for (const doc of snap.docs) {
+    scannedUsers++;
     const userId = doc.id;
     const u = doc.data();
 
-    // ✅ 修正: Firestoreのフィールド名をindex.jsと統一
-    const lastResp = u.watchService?.lastRepliedAt?.toDate()?.getTime() ?? u.followedAt?.toDate()?.getTime() ?? nowMs;
-    const firstAt = u.watchService?.firstReminderSentAt?.toDate()?.getTime() ?? null;
-    const secondAt = u.watchService?.secondReminderSentAt?.toDate()?.getTime() ?? null;
+    // Firestoreのフィールド名に合わせて、最終応答日時とリマインダー送信日時を取得
+    const lastRepliedAt = u.watchService?.lastRepliedAt?.toDate()?.getTime() ?? u.followedAt?.toDate()?.getTime() ?? nowMs;
+    const firstReminderSentAt = u.watchService?.firstReminderSentAt?.toDate()?.getTime() ?? null;
+    const secondReminderSentAt = u.watchService?.secondReminderSentAt?.toDate()?.getTime() ?? null;
 
-    // ユーザーが既に返信していれば（lastRepliedAtが各ステップ後）、ここでは何もしない
-    // ✅ 修正: 最終応答が最新であることを確認
-    if (firstAt && lastResp > firstAt) {
-      console.log(`ℹ️ User ${userId} responded after first reminder.`);
+    // ユーザーが既に返信している場合はスキップ
+    if (firstReminderSentAt && lastRepliedAt > firstReminderSentAt) {
+      skippedUsers++;
       continue;
     }
-    if (secondAt && lastResp > secondAt) {
-      console.log(`ℹ️ User ${userId} responded after second reminder.`);
+    if (secondReminderSentAt && lastRepliedAt > secondReminderSentAt) {
+      skippedUsers++;
       continue;
     }
 
-    // Step 1: 3日 (72時間) 経過で初回メッセージを送信
-    // RenderのCronが毎日15時に動くことを前提
-    if (!firstAt && (nowMs - lastResp >= THREE_D)) {
+    // Step 1: 最終応答から72時間（3日）以上経過していれば初回メッセージを送信
+    if (!firstReminderSentAt && (nowMs - lastRepliedAt >= THREE_D)) {
       console.log(`💬 first reminder -> ${userId}`);
       await push(userId, {
         type: "text",
         text: rand(watchMessages)
       });
-      // ✅ 修正: フィールド名をindex.jsと統一
+      // 初回メッセージ送信フラグを記録
       await doc.ref.set({
         'watchService.firstReminderSentAt': Timestamp.now()
       }, {
         merge: true
       });
+      sentFirstReminder++;
       continue;
     }
 
-    // Step 2: 初回送信から24時間経過で2回目メッセージを送信
-    if (firstAt && !secondAt && (nowMs - firstAt >= ONE_D)) {
+    // Step 2: 初回メッセージから24時間以上経過していれば2回目メッセージを送信
+    if (firstReminderSentAt && !secondReminderSentAt && (nowMs - firstReminderSentAt >= ONE_D)) {
       console.log(`🔔 second reminder -> ${userId}`);
       await push(userId, {
         type: "text",
         text: "こんにちは！昨日のメッセージ見てくれたかな？心配してるよ。スタンプでもOKだよ🌸"
       });
-      // ✅ 修正: フィールド名をindex.jsと統一
+      // 2回目メッセージ送信フラグを記録
       await doc.ref.set({
         'watchService.secondReminderSentAt': Timestamp.now()
       }, {
         merge: true
       });
+      sentSecondReminder++;
       continue;
     }
-    
-    // このCronジョブではオフィサー通知は行いません
-    // オフィサー通知は、index.jsの29時間監視に任せます。
   }
+  
+  // 処理結果をログに出力
+  console.log(`✅ ${scannedUsers} users scanned. Sent: first=${sentFirstReminder}, second=${sentSecondReminder}, skipped=${skippedUsers}`);
 }
 
 if (require.main === module) {
