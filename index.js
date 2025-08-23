@@ -980,7 +980,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
 🏠 市区町村：${v(u.city)}
 👨‍👩‍👧‍👦 保護者名：${v(u.guardianName)}
 📞 緊急連絡先：${v(u.emergencyContact)}
-� 続柄：${v(u.relationship)}
+🧬 続柄：${v(u.relationship)}
     
 メッセージ: 「${userMessage}」
     
