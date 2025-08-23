@@ -557,8 +557,6 @@ const handleEventSafely = async (event) => {
         「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
         医療や健康に関する話題では、自分が体験した・していないという発言は絶対にしないでください。代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
         `;
-
-        const openaiModel = OPENAI_MODEL || 'gpt-4o-mini';
         if (modelToUse.startsWith('gpt-')) {
             if (!isUserChildCategory) {
                 systemInstruction += `
@@ -941,12 +939,22 @@ function checkSpecialReply(text) {
     return null;
 }
 
-const WATCH_SERVICE_INTERVAL_HOURS = 29;
+//
+// 見守りサービスに関する定数
+//
+const WATCH_SERVICE_INTERVAL_HOURS = 29; // 通知間隔を定数化
+const NOTIFICATION_COOLDOWN_HOURS = 6;    // 再通知までのクールダウン時間を定数化
 
+//
+// 定期実行関数（Cron）
+//
 cron.schedule('0 * * * *', async () => {
     await sendWatchServiceMessages();
 }, { timezone: 'Asia/Tokyo' });
 
+//
+// 見守りサービスのメッセージ送信ロジック
+//
 const sendWatchServiceMessages = async () => {
     const usersRef = db.collection('users');
     const snapshot = await usersRef.where('watchService.isEnabled', '==', true).get();
@@ -960,11 +968,12 @@ const sendWatchServiceMessages = async () => {
         const user = doc.data();
         const userId = doc.id;
         const now = new Date();
-        
+
         if (user.watchService?.lastRepliedAt) {
             const lastRepliedAt = user.watchService.lastRepliedAt.toDate();
             const diffHours = (now.getTime() - lastRepliedAt.getTime()) / (1000 * 60 * 60);
 
+            // 設定された間隔を超えているかチェック
             if (diffHours >= WATCH_SERVICE_INTERVAL_HOURS) {
                 let lockedByMe = false;
                 const ref = db.collection('users').doc(userId);
@@ -989,10 +998,11 @@ const sendWatchServiceMessages = async () => {
                 }
                 if (!lockedByMe) continue;
 
+                // 再通知のクールダウン時間をチェック
                 if (user.watchService?.lastNotifiedAt) {
                     const lastN = user.watchService.lastNotifiedAt.toDate();
                     const sinceN = (now - lastN) / (1000 * 60 * 60);
-                    if (sinceN < 6) {
+                    if (sinceN < NOTIFICATION_COOLDOWN_HOURS) {
                         debug(`watch: recent notify ${sinceN.toFixed(1)}h`);
                         await ref.update({ 'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete() });
                         continue;
@@ -1011,6 +1021,8 @@ const sendWatchServiceMessages = async () => {
                 const snap = await db.collection('users').doc(userId).get();
                 const u = snap.exists ? snap.data() : {};
                 const v = (x) => (x ? String(x) : '未登録');
+                
+                // ⭐修正⭐ 通知メッセージに最終応答メッセージのプレビューを追加
                 const notificationMessage = `🚨【見守りサービス通知】🚨
                 
 👤 氏名：${v(u.realName)}
@@ -1022,18 +1034,19 @@ const sendWatchServiceMessages = async () => {
                 
 ユーザー名: ${profileName}
 ユーザーID: ${userId}
-最終応答: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}
+最終応答日時: ${u.watchService?.lastRepliedAt ? u.watchService.lastRepliedAt.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '未登録'}
+最終応答メッセージ: 「${v(u.watchService?.lastRepliedMessage)}」
                 
-👆 登録ユーザー（見守りサービス利用中）から29時間以上応答がありません。安否確認をお願いします。`;
+👆 登録ユーザー（見守りサービス利用中）から${WATCH_SERVICE_INTERVAL_HOURS}時間以上応答がありません。安否確認をお願いします。`;
 
                 if (OFFICER_GROUP_ID) {
-                  const anonymize = process.env.OFFICER_ANON !== '0';
-                  const text = anonymize
-                    ? `🚨【見守りサービス通知】🚨\n\n見守り中のユーザーから29時間以上応答がありません。\n（匿名モードで通知中）`
-                    : notificationMessage;
-                  await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
+                    const anonymize = process.env.OFFICER_ANON !== '0';
+                    const text = anonymize
+                        ? `🚨【見守りサービス通知】🚨\n\n見守り中のユーザーから${WATCH_SERVICE_INTERVAL_HOURS}時間以上応答がありません。\n（匿名モードで通知中）`
+                        : notificationMessage;
+                    await safePush(OFFICER_GROUP_ID, [{ type: 'text', text }]);
                 } else {
-                  debug('OFFICER_GROUP_ID not set; skip watch service notification.');
+                    debug('OFFICER_GROUP_ID not set; skip watch service notification.');
                 }
                 
                 await db.collection('users').doc(userId).update({
@@ -1041,16 +1054,20 @@ const sendWatchServiceMessages = async () => {
                     'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete()
                 });
 
-                // ⭐追加⭐ 見守り通知の監査ログ
+                // ⭐追加⭐ より詳細なログを記録
                 audit('WATCH', {
                     userIdHash: userHash(userId),
-                    lastRepliedAt: u.watchService?.lastRepliedAt?.toDate()?.toISOString() ?? null
+                    lastRepliedAt: u.watchService?.lastRepliedAt?.toDate()?.toISOString() ?? null,
+                    lastRepliedMessage: u.watchService?.lastRepliedMessage ?? null,
+                    notificationType: '29_hours_no_response'
                 });
                 await db.collection('alerts').add({
                     type: 'watch_service',
                     at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
                     userIdHash: crypto.createHash('sha256').update(String(userId)).digest('hex'),
                     reason: '29 hours no response',
+                    lastRepliedAt: u.watchService?.lastRepliedAt?.toDate() ?? null,
+                    lastRepliedMessage: u.watchService?.lastRepliedMessage ?? null,
                 });
             }
         }
@@ -1072,5 +1089,3 @@ function shutdown(sig){
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-// ⭐修正⭐ 末尾の重複定義を削除
