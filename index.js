@@ -337,6 +337,7 @@ const WATCH_MENU_FLEX = {
     { type:"text", text:"24〜29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。", wrap:true, margin:"md", size:"sm", align:"center" }
   ]},
   footer: { type:"box", layout:"vertical", spacing:"sm", contents:[
+    // ⭐修正⭐ 「見守りサービスをONにする」ボタンのURLを修正
     { type:"button", action:{ type:"uri", label:"見守りサービスをONにする", uri:"https://docs.google.com/forms/d/1xl-8o3aLku79vGTMlHvwOXJIk7mGuJOwzgVBEWbHroQ/edit" }, style:"primary", height:"sm", margin:"md", color:"#32CD32" },
     { type:"button", action:{ type:"postback", label:"見守りサービスをOFFにする", data:"action=disable_watch" }, style:"primary", height:"sm", margin:"md", color:"#FF4500" }
   ]}
