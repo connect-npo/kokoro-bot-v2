@@ -9,6 +9,7 @@ try {
 
 const { Client } = require("@line/bot-sdk");
 const admin = require("firebase-admin");
+const axios = require("axios"); // axiosをインポート
 
 // ---------- Firebase ----------
 let creds = null;
@@ -43,7 +44,7 @@ const watchMessages = [
   "やっほー！ こころだよ😊 いつも応援してるね！",
   "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
   "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
-  "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+  "いつもがんばってるあなたへ、こころからメッセージを送るね�",
   "お元気ですか？こころちゃんです😊 素敵な一日を過ごせていますように！",
   "こんにちは！こころだよ🌸 毎日がんばっていて偉いね✨",
   "やっほー！今日も一日お疲れ様💖 少しでもホッとできる時間がありますように。",
@@ -170,17 +171,14 @@ async function resolveUidEntryKey(formUrl) {
   if (cached.exists && cached.data()?.entryKey) return cached.data().entryKey;
 
   // HTML を取得して "LINEユーザーID" 近傍の entry.x を拾う（初回のみ）
-  // 注意: `httpInstance`は外部ライブラリのため、`axios`などを使用する必要があります。
-  // ここでは仮のコードとして記述します。
-  // const { data: html } = await httpInstance.get(formUrl, { headers:{ 'User-Agent':'Mozilla/5.0' }});
-  const html = "<html><body><form><label for='entry.123456789'>LINEユーザーID</label><input type='text' name='entry.123456789'></form></body></html>"; // 開発用仮データ
-
+  const { data: html } = await axios.get(formUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  
   const label = /LINE[\s　]*ユーザーID|LINE[\s　]*ユーザID|LINE[\s　]*ID/i;
   const block = html.split('</form>').find(s => label.test(s)) || html;
   const m = block.match(/name="(entry\.\d+)"/i) || html.match(/name="(entry\.\d+)"/i);
   if (!m) return null;
   const entryKey = m[1];
-  await cacheDoc.set({ entryKey, at: Timestamp.now() }, { merge:true });
+  await cacheDoc.set({ entryKey, at: Timestamp.now() }, { merge: true });
   return entryKey;
 }
 
@@ -189,10 +187,7 @@ async function buildWatchFormUrl(userId) {
   const base = process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://docs.google.com/forms/d/e/xxxxxxxxxxxxxxxxxxxxxxxx/viewform';
   let entryKey = null;
   try {
-    // 実際に動作させるには、httpInstanceなどのライブラリをインストールする必要があります
-    // entryKey = await resolveUidEntryKey(base);
-    // 開発用として、ここでは固定値を返すようにします
-    entryKey = "entry.123456789";
+    entryKey = await resolveUidEntryKey(base);
   } catch (_) {
     console.error("Failed to resolve UID entry key.");
   }
