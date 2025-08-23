@@ -43,7 +43,7 @@ const watchMessages = [
   "やっほー！ こころだよ😊 いつも応援してるね！",
   "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
   "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
-  "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+  "いつもがんばってるあなたへ、こころからメッセージを送るね�",
   "お元気ですか？こころちゃんです😊 素敵な一日を過ごせていますように！",
   "こんにちは！こころだよ🌸 毎日がんばっていて偉いね✨",
   "やっほー！今日も一日お疲れ様💖 少しでもホッとできる時間がありますように。",
@@ -162,3 +162,76 @@ if (require.main === module) {
       process.exit(1);
     });
 }
+
+// ユーザーIDを自動入力するGoogleフォームURLを構築
+const buildWatchFormUrl = (userId) => {
+  // WATCH_FORM_URLまたはWATCH_SERVICE_FORM_BASE_URL環境変数を取得
+  const WATCH_FORM_URL = process.env.WATCH_FORM_URL || process.env.WATCH_SERVICE_FORM_BASE_URL || 'https://forms.gle/g5HoWNf1XX9UZK2CA';
+  const uidParam = process.env.WATCH_FORM_UID_PARAM;
+  
+  // uidParamが設定されていれば、ユーザーIDをURLに追加
+  if (uidParam) {
+    return `${WATCH_FORM_URL}?${uidParam}=${userId}`;
+  }
+  // 設定されていなければ、元のURLを返す
+  return WATCH_FORM_URL;
+};
+
+// プライバシーポリシーのURLを環境変数から取得
+const WATCH_PRIVACY_URL = process.env.WATCH_PRIVACY_URL || 'https://gamma.app/docs/-iwcjofrc870g681?mode=doc';
+
+// 見守りメニューのFLEXメッセージを構築
+const WATCH_MENU_FLEX = {
+  type: "bubble",
+  body: {
+    type: "box",
+    layout: "vertical",
+    contents: [
+      { type: "text", text: "見守りサービス", weight: "bold", size: "lg", align: "center", color: "#FF69B4" },
+      { type: "text", text: "24〜29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。", wrap: true, margin: "md", size: "sm", align: "center" }
+    ]
+  },
+  footer: {
+    type: "box",
+    layout: "vertical",
+    spacing: "sm",
+    contents: [
+      { type: "button", action: { type: "postback", label: "見守りサービスをONにする", data: "action=enable_watch" }, style: "primary", height: "sm", margin: "md", color: "#32CD32" },
+      { type: "button", action: { type: "postback", label: "見守りサービスをOFFにする", data: "action=disable_watch" }, style: "primary", height: "sm", margin: "md", color: "#FF4500" },
+      { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: WATCH_PRIVACY_URL }, style: "secondary", height: "sm", margin: "md" }
+    ]
+  }
+};
+
+// 会員登録メニューのFLEXメッセージを構築
+const buildRegistrationFlex = () => {
+  const url = process.env.ADULT_FORM_BASE_URL || 'https://connect-npo.or.jp';
+  const privacyPolicyUrl = WATCH_PRIVACY_URL; // 環境変数を直接使用
+  return {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: "会員登録メニュー", weight: "bold", size: "lg", align: "center" }
+      ]
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      contents: [
+        { type: "button", action: { type: "uri", label: "新たに会員登録する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#FFD700" },
+        { type: "button", action: { type: "uri", label: "登録情報を修正する", uri: url }, style: "primary", height: "sm", margin: "md", color: "#9370DB" },
+        { type: "button", action: { type: "uri", label: "プライバシーポリシー", uri: privacyPolicyUrl }, style: "secondary", height: "sm", margin: "md", color: "#FF69B4" },
+        { type: "button", action: { type: "postback", label: "退会する", data: "action=request_withdrawal" }, style: "secondary", height: "sm", margin: "md", color: "#FF0000" }
+      ]
+    }
+  };
+};
+
+// 緊急通知のテキストテンプレートの修正
+// ` 続柄` は `🧬 続柄` に変更済みと認識
+const EMERGENCY_TEMPLATE = (userId, message) => {
+  return `【⚠️緊急】見守りサービス通知\n\nLINEユーザーID: ${userId}\n最終受信メッセージ: ${message}\n\n事務局様は対象者の状況を確認し、必要に応じてご連絡をお願いします。\n\n---自動応答メッセージ---\n🧬 続柄\n`;
+};
