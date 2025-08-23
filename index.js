@@ -69,6 +69,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL;
+// ⭐追加⭐ 見守りサービス専用のフォームURL
+const WATCH_FORM_URL = process.env.WATCH_FORM_URL || 'https://forms.gle/g5HoWNf1XX9UZK2CA';
+const WATCH_FORM_UID_PARAM = process.env.WATCH_FORM_UID_PARAM; // 例: entry.1234567890
 
 let FIREBASE_CREDENTIALS;
 try {
@@ -375,6 +378,14 @@ function buildEmergencyFlex(type) {
     return { ...base, footer };
 }
 
+// ⭐追加⭐ 見守りフォームのURLを組み立てるヘルパー関数
+function buildWatchFormUrl(userId) {
+  const base = WATCH_FORM_URL || 'https://forms.gle/JyQwzHPkGx3rKyM2A';
+  const key  = WATCH_FORM_UID_PARAM;
+  if (!key) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}${encodeURIComponent(key)}=${encodeURIComponent(userId)}`;
+}
 
 const handleEventSafely = async (event) => {
     if (!event) return;
@@ -414,7 +425,7 @@ const handleEventSafely = async (event) => {
             }
             // ⭐修正⭐ ONにするでフォームへ誘導するよう変更
             if (data === 'action=enable_watch') {
-                const registrationUrl = process.env.ADULT_FORM_BASE_URL || 'https://forms.gle/g5HoWNf1XX9UZK2CA';
+                const registrationUrl = buildWatchFormUrl(userId);
                 const messages = [
                     { type:'text', text:'見守りサービスをONにしたよ。これで安心だね😊\n\nもしもの時に備えて、緊急連絡先を登録しておこうね！\n下のボタンからフォームに登録してね🌸' },
                     { type:'flex', altText:'緊急連絡先登録', contents:{
@@ -475,8 +486,9 @@ const handleEventSafely = async (event) => {
     // ⭐追加⭐ 見守りキーワードでメニュー表示
     const watchKeyword = /(見守り|みまもり|まもり)/i;
     if (watchKeyword.test(userMessage)) {
+      const privacyPolicyUrl = 'https://gamma.app/docs/-iwcjofrc870g681?mode=doc';
       await safeReply(event.replyToken, [
-        { type: 'text', text: '見守りサービスの設定だよ。ON/OFFを選んでね🌸' },
+        { type: 'text', text: '見守りサービスの設定だよ。ON/OFFを選んでね🌸\n\nプライバシーポリシーはこちらから確認してね✨\n' + privacyPolicyUrl },
         { type: 'flex', altText: '見守りサービスメニュー', contents: WATCH_MENU_FLEX }
       ], userId, event.source);
       return;
@@ -484,7 +496,7 @@ const handleEventSafely = async (event) => {
     
     // ⭐修正⭐ テキストでのON操作もフォームへ誘導するよう変更
     if (/見守り.*(オン|on)/i.test(userMessage)) {
-        const registrationUrl = process.env.ADULT_FORM_BASE_URL || 'https://forms.gle/g5HoWNf1XX9UZK2CA';
+        const registrationUrl = buildWatchFormUrl(userId);
         const messages = [
             { type:'text', text:'見守りサービスをONにしたよ。これで安心だね😊\n\nもしもの時に備えて、緊急連絡先を登録しておこうね！\n下のボタンからフォームに登録してね🌸' },
             { type:'flex', altText:'緊急連絡先登録', contents:{
@@ -968,7 +980,7 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
 🏠 市区町村：${v(u.city)}
 👨‍👩‍👧‍👦 保護者名：${v(u.guardianName)}
 📞 緊急連絡先：${v(u.emergencyContact)}
-🧬 続柄：${v(u.relationship)}
+� 続柄：${v(u.relationship)}
     
 メッセージ: 「${userMessage}」
     
