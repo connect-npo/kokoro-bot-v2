@@ -23,6 +23,7 @@ const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL;
 const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL;
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL;
 const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL;
+const MEMBER_CANCEL_FORM_BASE_URL = process.env.MEMBER_CANCEL_FORM_BASE_URL; // 退会フォームURLを追加
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
@@ -53,6 +54,8 @@ const httpInstance = axios.create({
 // Expressサーバー設定
 const PORT = process.env.PORT || 3000;
 const app = express();
+// 逆プロキシのIPを信頼（Render/Cloudflare/ALB等の配下で必須）
+app.set('trust proxy', true);
 app.use(helmet());
 
 // 監査ログ
@@ -119,7 +122,7 @@ const specialRepliesMap = new Map([
     [/使えないな/i, "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
     [/サービス辞めるわ/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
     [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
-    [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
+    [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね�　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
     [/褒めて|ほめて/i, "すごいね！💖 本当にえらかった！🌸 よく頑張ったね！😊"],
@@ -221,6 +224,13 @@ const buildRegistrationFlex = () => ({
             "uri": String(MEMBER_CHANGE_FORM_BASE_URL || '').replace('/edit','/viewform')
           },
           "style": "secondary", "height": "sm", "margin": "lg"
+        },
+        { "type": "button", "action": {
+            "type": "uri",
+            "label": "退会手続き",
+            "uri": String(MEMBER_CANCEL_FORM_BASE_URL || MEMBER_CHANGE_FORM_BASE_URL || '').replace('/edit','/viewform')
+          },
+          "style": "secondary", "height": "sm"
         }
       ]}
     ]
@@ -316,13 +326,18 @@ const handleEventSafely = async (event) => {
   }
   const userId = event.source?.userId;
   const userMessage = event.message.text || '';
+  
+  // 🔸LINEの再配信イベントは無視（重複送信防止）
+  if (event?.deliveryContext?.isRedelivery) {
+    debug('skip redelivery');
+    return;
+  }
 
   // ユーザーIDが無い（友だち未追加/グループのみなど）の時は案内して終了
   if (!userId) {
     const addUrl = process.env.LINE_ADD_FRIEND_URL;
     const tips = addUrl
       ? `まずは友だち追加をお願いできるかな？\n${addUrl}\nそのあと1:1トークで「こんにちは」と送ってみてね🌸`
-      // 👈 ここを修正
       : "まずはボットを友だち追加して、1:1トークで声をかけてみてね🌸";
     await safeReply(event.replyToken, [{ type: "text", text: `ごめんね、いま個別のユーザーID（Uで始まるID）が取得できなかったみたい。\n${tips}` }], null, event.source);
     return;
@@ -332,8 +347,28 @@ const handleEventSafely = async (event) => {
 
   if (/(会員登録|登録情報|会員情報|入会|退会)/i.test(userMessage)) {
     await safeReply(event.replyToken, [
-      { type: 'text', text: '会員登録や情報の変更はここからできるよ！' },
+      {
+        type: 'text',
+        text: '会員登録や情報の変更はここからできるよ！',
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'uri', label: '大人の新規登録', uri: String(ADULT_FORM_BASE_URL||'').replace('/edit','/viewform') } },
+            { type: 'action', action: { type: 'uri', label: '学生の新規登録', uri: String(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL||'').replace('/edit','/viewform') } },
+            { type: 'action', action: { type: 'uri', label: '登録情報変更', uri: String(MEMBER_CHANGE_FORM_BASE_URL||'').replace('/edit','/viewform') } },
+            { type: 'action', action: { type: 'uri', label: '退会手続き', uri: String(MEMBER_CANCEL_FORM_BASE_URL || MEMBER_CHANGE_FORM_BASE_URL || '').replace('/edit','/viewform') } },
+          ]
+        }
+      },
       { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex() }
+    ], userId, event.source);
+    return;
+  }
+
+  // 🔸キーワードだけで見守りメニューを出す（先に優先分岐）
+  if (/見守り|みまもり|まもり/.test(userMessage)) {
+    await safeReply(event.replyToken, [
+      { type: 'text', text: '見守りサービスに興味があるんだね！詳しくは以下から確認・登録できるよ🌸' },
+      { type: 'flex', altText: '見守りサービスメニュー', contents: WATCH_MENU_FLEX }
     ], userId, event.source);
     return;
   }
@@ -608,7 +643,6 @@ const getOpenAIResponse = async (message, instruction, model, userTag) => {
     const response = await callWithRetry(() =>
         httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers })
     );
-    // 👈 フォールバック文の文字化けを修正
     return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
@@ -717,7 +751,8 @@ async function safePush(to, messages, retries = 2) {
 
 const sendEmergencyResponse = async (userId, replyToken, userMessage, type, source) => {
     const systemInstruction = `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子。
-      危険/詐欺が疑われる時は最初に一言だけ安心させる。連絡先は本文に直書きせず「このあと表示される案内を見てね」と示唆まで。
+      危険/詐欺が疑われる時は最初に一言だけ安心させる。
+      ★連絡先や電話番号は本文に絶対に書かない★。このあと送るFlexメッセージでのみ提示する。
       # こころちゃんの設定
       - 好きなアニメ: 『ヴァイオレット・エヴァーガーデン』
       - 好きなアーティスト: 『ClariS』。特に『コネクト』
@@ -812,7 +847,13 @@ const sendConsultationResponse = async (userId, replyToken, userMessage, source)
 
 function checkSpecialReply(text) {
   for (const [key, value] of specialRepliesMap) {
-    if (key instanceof RegExp && key.test(text)) return value;
+    if (key instanceof RegExp) {
+        // 「見守り」単語単独のキーワードは別のロジックで処理するためここでは除外
+        if (key.toString().includes('見守り') && !key.toString().includes('サービス')) {
+            continue;
+        }
+        if (key.test(text)) return value;
+    }
   }
   return null;
 }
