@@ -162,7 +162,7 @@ const specialRepliesMap = new Map([
     [/(コネクト|connect).*(ホームページ|HP|ＨＰ|サイト|公式|リンク)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
     [/使えないな/i, "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
     [/サービス辞めるわ/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
-    [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
+    [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね� 寂しくなったら、いつでも呼んでね🌸"],
     [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
@@ -367,31 +367,11 @@ const buildRegistrationFlex = (userId) => {
 };
 
 // Flex: 見守りメニュー（正しい構造）
-const buildWatchMenuFlex = (isEnabled, userId) => ({
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [{
-            type: "text",
-            text: "見守りサービス",
-            weight: "bold",
-            size: "xl"
-        }, {
-            type: "separator",
-            margin: "md"
-        }, {
-            type: "text",
-            text: "もしもの時に、LINEのメッセージがないとご家族に通知するサービスだよ。",
-            wrap: true,
-            margin: "lg"
-        }]
-    },
-    footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "sm",
-        contents: [{
+const buildWatchMenuFlex = (isEnabled, userId) => {
+    const footerButtons = [];
+
+    if (WATCH_SERVICE_FORM_BASE_URL) {
+        footerButtons.push({
             type: "button",
             style: "primary",
             action: {
@@ -401,18 +381,48 @@ const buildWatchMenuFlex = (isEnabled, userId) => ({
                     [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
                 })
             }
-        }, {
-            type: "button",
-            style: "secondary",
-            action: {
-                type: "postback",
-                label: isEnabled ? "見守り停止" : "見守り再開",
-                data: isEnabled ? "watch:off" : "watch:on",
-                displayText: isEnabled ? "見守り停止" : "見守り再開"
-            }
-        }]
+        });
     }
-});
+
+    footerButtons.push({
+        type: "button",
+        style: "secondary",
+        action: {
+            type: "postback",
+            label: isEnabled ? "見守り停止" : "見守り再開",
+            data: isEnabled ? "watch:off" : "watch:on",
+            displayText: isEnabled ? "見守り停止" : "見守り再開"
+        }
+    });
+
+    return {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: "見守りサービス",
+                weight: "bold",
+                size: "xl"
+            }, {
+                type: "separator",
+                margin: "md"
+            }, {
+                type: "text",
+                text: "もしもの時に、LINEのメッセージがないとご家族に通知するサービスです🌸",
+                wrap: true,
+                margin: "lg"
+            }]
+        },
+        footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: footerButtons
+        }
+    };
+};
 
 
 const buildEmergencyFlex = (type) => ({
@@ -554,9 +564,8 @@ const handleEventSafely = async(event) => {
     }
 
     if (!userId) {
-        const addUrl = process.env.LINE_ADD_FRIEND_URL;
-        const tips = addUrl ?
-            `まずは友だち追加をお願いできるかな？\n${addUrl}\nそのあと1:1トークで「こんにちは」と送ってみてね🌸` :
+        const tips = LINE_ADD_FRIEND_URL ?
+            `まずは友だち追加をお願いできるかな？\n${LINE_ADD_FRIEND_URL}\nそのあと1:1トークで「こんにちは」と送ってみてね🌸` :
             "まずはボットを友だち追加して、1:1トークで声をかけてみてね🌸";
         await safeReply(event.replyToken, [{
             type: "text",
@@ -581,13 +590,11 @@ const handleEventSafely = async(event) => {
     if (/(見守り|みまもり|まもり)/i.test(userMessage)) {
         const snap = await db.collection('users').doc(userId).get();
         const isEnabled = !!(snap.exists && snap.data()?.watchService?.isEnabled);
-        await safeReply(event.replyToken, [
-            {
-                type: 'flex',
-                altText: '見守りサービスメニュー',
-                contents: buildWatchMenuFlex(isEnabled, userId)
-            }
-        ], userId, event.source);
+        await safeReply(event.replyToken, [{
+            type: 'flex',
+            altText: '見守りサービスメニュー',
+            contents: buildWatchMenuFlex(isEnabled, userId)
+        }], userId, event.source);
         return;
     }
 
@@ -643,17 +650,21 @@ const handleEventSafely = async(event) => {
                 })
             }
         });
-        await safeReply(event.replyToken, [{
+
+        const messages = [{
             type: 'text',
             text: '会員登録や情報の変更はここからできるよ！',
-            quickReply: {
-                items: quickReplyItems
-            }
         }, {
             type: 'flex',
             altText: '会員登録・情報変更メニュー',
             contents: buildRegistrationFlex(userId)
-        }], userId, event.source);
+        }];
+        if (quickReplyItems.length > 0) {
+            messages[0].quickReply = {
+                items: quickReplyItems
+            };
+        }
+        await safeReply(event.replyToken, messages, userId, event.source);
         return;
     }
 
