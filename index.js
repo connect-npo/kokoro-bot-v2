@@ -23,7 +23,7 @@ const ADULT_FORM_BASE_URL = process.env.ADULT_FORM_BASE_URL;
 const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL;
 const WATCH_SERVICE_FORM_BASE_URL = process.env.WATCH_SERVICE_FORM_BASE_URL;
 const MEMBER_CHANGE_FORM_BASE_URL = process.env.MEMBER_CHANGE_FORM_BASE_URL;
-const MEMBER_CANCEL_FORM_BASE_URL = process.env.MEMBER_CANCEL_FORM_BASE_URL; // 退会フォームURLを追加
+const MEMBER_CANCEL_FORM_BASE_URL = process.env.MEMBER_CANCEL_FORM_BASE_URL;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
@@ -54,7 +54,6 @@ const httpInstance = axios.create({
 // Expressサーバー設定
 const PORT = process.env.PORT || 3000;
 const app = express();
-// 逆プロキシのIPを信頼（Render/Cloudflare/ALB等の配下で必須）
 app.set('trust proxy', true);
 app.use(helmet());
 
@@ -122,7 +121,7 @@ const specialRepliesMap = new Map([
     [/使えないな/i, "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
     [/サービス辞めるわ/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
     [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
-    [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね�　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
+    [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/相談したい/i, "うん、お話聞かせてね🌸 一度だけ、Gemini 1.5 Proでじっくり話そうね。何があったの？💖"],
     [/褒めて|ほめて/i, "すごいね！💖 本当にえらかった！🌸 よく頑張ったね！😊"],
@@ -193,7 +192,6 @@ const hitSensitiveBlockers = (text) => sensitiveBlockers.some(word => {
   return text.toLowerCase().includes(word);
 });
 
-// 新規会員も成人・未成年を区別するメニューを返す
 const buildRegistrationFlex = () => ({
   "type": "bubble",
   "body": {
@@ -237,7 +235,6 @@ const buildRegistrationFlex = () => ({
   }
 });
 
-// 見守りサービスのリッチメニューをURIアクションに変更
 const WATCH_MENU_FLEX = {
   "type": "bubble",
   "body": {
@@ -300,14 +297,12 @@ const apiLimiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes."
 });
 
-// 他ルート用の JSON パーサ（/webhook には適用しない）
 app.use(['/healthz'], express.json());
 
-// ウェブフックの処理
 app.post(
   '/webhook',
   apiLimiter,
-  express.raw({ type: '*/*' }), // 👈 署名検証のために生のボディが必要
+  express.raw({ type: '*/*' }),
   middleware({ channelSecret: LINE_CHANNEL_SECRET }),
   (req, res) => {
     Promise
@@ -327,13 +322,11 @@ const handleEventSafely = async (event) => {
   const userId = event.source?.userId;
   const userMessage = event.message.text || '';
   
-  // 🔸LINEの再配信イベントは無視（重複送信防止）
   if (event?.deliveryContext?.isRedelivery) {
     debug('skip redelivery');
     return;
   }
 
-  // ユーザーIDが無い（友だち未追加/グループのみなど）の時は案内して終了
   if (!userId) {
     const addUrl = process.env.LINE_ADD_FRIEND_URL;
     const tips = addUrl
@@ -364,7 +357,6 @@ const handleEventSafely = async (event) => {
     return;
   }
 
-  // 🔸キーワードだけで見守りメニューを出す（先に優先分岐）
   if (/見守り|みまもり|まもり/.test(userMessage)) {
     await safeReply(event.replyToken, [
       { type: 'text', text: '見守りサービスに興味があるんだね！詳しくは以下から確認・登録できるよ🌸' },
@@ -373,7 +365,6 @@ const handleEventSafely = async (event) => {
     return;
   }
 
-  // 危険・詐欺ワードのチェックを不適切ワードの前に移動
   const isDangerous = checkContainsDangerWords(userMessage);
   const isScam = checkContainsScamWords(userMessage);
   if (isDangerous || isScam) {
@@ -381,7 +372,6 @@ const handleEventSafely = async (event) => {
     return;
   }
 
-  // 不適切メッセージ検知時のログ保存
   if (checkContainsInappropriateWords(userMessage)) {
     audit('INAPPROPRIATE', { userIdHash: userHash(userId), preview: redact(userMessage) });
     await db.collection('alerts').add({
@@ -589,7 +579,6 @@ function batchMessages(msgs, size = 5) {
     return out;
 }
 
-// getProfileCompat に source 引数を追加し、グループ/ルームに対応
 async function getProfileCompat(client, userId, source) {
     try {
       if (source?.groupId) {
@@ -601,7 +590,7 @@ async function getProfileCompat(client, userId, source) {
       return await client.getProfile(userId);
     } catch (e) {
       briefErr('getProfile failed', e);
-      return {}; // 落とさない
+      return {};
     }
 }
 
@@ -680,6 +669,12 @@ async function safeReply(replyToken, messages, userId, source) {
       }
     }
     const batches = batchMessages(normalized, 5);
+    
+    // メッセージが空の場合は送信しない
+    if (normalized.length === 0) {
+      debug('safeReply: messages array is empty, skipping reply.');
+      return;
+    }
 
     try {
       await client.replyMessage(replyToken, batches[0]);
@@ -701,7 +696,7 @@ async function safeReply(replyToken, messages, userId, source) {
 }
 
 async function touchWatch(userId, message) {
-    if (!userId) return; // ユーザーIDが無い場合は何もしない
+    if (!userId) return;
     try {
         const ref = db.collection('users').doc(userId);
         await db.runTransaction(async (tx) => {
@@ -814,7 +809,6 @@ const sendEmergencyResponse = async (userId, replyToken, userMessage, type, sour
       debug('OFFICER_GROUP_ID not set; skip officer notification.');
     }
 
-    // 危険検知の監査ログ（匿名ハッシュでPII回避）
     audit(type === '危険' ? 'DANGER' : 'SCAM', {
       userIdHash: userHash(userId),
       preview: redact(userMessage)
@@ -848,7 +842,6 @@ const sendConsultationResponse = async (userId, replyToken, userMessage, source)
 function checkSpecialReply(text) {
   for (const [key, value] of specialRepliesMap) {
     if (key instanceof RegExp) {
-        // 「見守り」単語単独のキーワードは別のロジックで処理するためここでは除外
         if (key.toString().includes('見守り') && !key.toString().includes('サービス')) {
             continue;
         }
@@ -957,7 +950,6 @@ const sendWatchServiceMessages = async () => {
                     'watchService.notifyLockExpiresAt': firebaseAdmin.firestore.FieldValue.delete()
                 });
 
-                // 見守り通知の監査ログ
                 audit('WATCH', {
                     userIdHash: userHash(userId),
                     lastRepliedAt: u.watchService?.lastRepliedAt?.toDate()?.toISOString() ?? null
@@ -973,7 +965,6 @@ const sendWatchServiceMessages = async () => {
     }
 };
 
-// 致命的例外のサイレント化
 process.on('unhandledRejection', (e) => briefErr('unhandledRejection', e));
 process.on('uncaughtException',  (e) => briefErr('uncaughtException',  e));
 
