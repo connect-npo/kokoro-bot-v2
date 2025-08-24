@@ -54,7 +54,7 @@ const httpInstance = axios.create({
 // Expressサーバー設定
 const PORT = process.env.PORT || 3000;
 const app = express();
-app.set('trust proxy', true);
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
 
 // 監査ログ
@@ -82,7 +82,7 @@ const MEMBERSHIP_CONFIG = {
 };
 
 // 固定返信
-const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋ぎたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
+const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋げたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
 const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
 
 const specialRepliesMap = new Map([
@@ -235,26 +235,43 @@ const buildRegistrationFlex = () => ({
   }
 });
 
-const WATCH_MENU_FLEX = {
-  "type": "bubble",
-  "body": {
-    "type": "box",
-    "layout": "vertical",
-    "contents": [
-      { "type": "text", "text": "見守りサービス", "weight": "bold", "size": "xl" },
-      { "type": "separator", "margin": "md" },
-      { "type": "text", "text": "もしもの時に、LINEのメッセージがないとご家族に通知するサービスだよ。", "wrap": true, "margin": "lg" },
-      { "type": "button", "action": {
-          "type": "uri",
-          "label": "詳しく見る・利用登録",
-          "uri": String(WATCH_SERVICE_FORM_BASE_URL || '').replace('/edit','/viewform')
-        },
-        "style": "primary",
-        "margin": "lg"
+// 見守りメニュー（現在の状態に応じて 停止/再開 の切替ボタンを出す）
+const buildWatchMenuFlex = (isEnabled) => ({
+  type: "bubble",
+  body: {
+    type: "box",
+    layout: "vertical",
+    contents: [
+      { type: "text", text: "見守りサービス", weight: "bold", size: "xl" },
+      { type: "separator", margin: "md" },
+      { type: "text", text: "もしもの時に、LINEのメッセージがないとご家族に通知するサービスだよ。", wrap: true, margin: "lg" },
+    ],
+  },
+  footer: {
+    type: "box",
+    layout: "vertical",
+    spacing: "sm",
+    contents: [
+      {
+        type: "button", style: "primary",
+        action: {
+          type: "uri",
+          label: "詳しく見る・利用登録",
+          uri: String(WATCH_SERVICE_FORM_BASE_URL || "").replace("/edit","/viewform")
+        }
+      },
+      {
+        type: "button", style: "secondary",
+        action: {
+          type: "postback",
+          label: isEnabled ? "見守り停止" : "見守り再開",
+          data: isEnabled ? "watch:off" : "watch:on",
+          displayText: isEnabled ? "見守り停止" : "見守り再開"
+        }
       }
     ]
   }
-};
+});
 
 const buildEmergencyFlex = (type) => ({
   "type": "bubble",
@@ -294,6 +311,9 @@ const buildEmergencyFlex = (type) => ({
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
   message: "Too many requests from this IP, please try again after 15 minutes."
 });
 
@@ -316,9 +336,24 @@ app.post(
 );
 
 const handleEventSafely = async (event) => {
-  if (event.type !== 'message' || !event.message || event.message.type !== 'text') {
+  // まず postback を処理
+  if (event.type === 'postback') {
+    const userId = event.source?.userId;
+    const data = event.postback?.data || '';
+    if (!userId) return;
+    if (data === 'watch:off') {
+      await db.collection('users').doc(userId).set({ watchService: { isEnabled: false } }, { merge: true });
+      await safeReply(event.replyToken, [{ type:'text', text:'見守りサービスを停止したよ。必要になったら「見守り再開」と送ってね🌸' }], userId, event.source);
+      return;
+    }
+    if (data === 'watch:on') {
+      await db.collection('users').doc(userId).set({ watchService: { isEnabled: true } }, { merge: true });
+      await safeReply(event.replyToken, [{ type:'text', text:'見守りサービスを再開したよ。こころちゃんがそばにいるね💖' }], userId, event.source);
+      return;
+    }
     return;
   }
+  if (event.type !== 'message' || !event.message || event.message.type !== 'text') return;
   const userId = event.source?.userId;
   const userMessage = event.message.text || '';
   
@@ -337,6 +372,16 @@ const handleEventSafely = async (event) => {
   }
 
   await touchWatch(userId, userMessage);
+
+  // 「見守り」と言われたらメニュー（停止/再開ボタン付き）を必ず出す
+  if (/(見守り|みまもり|まもり)/i.test(userMessage)) {
+    const snap = await db.collection('users').doc(userId).get();
+    const isEnabled = !!(snap.exists && snap.data()?.watchService?.isEnabled);
+    await safeReply(event.replyToken, [
+      { type: 'flex', altText: '見守りサービスメニュー', contents: buildWatchMenuFlex(isEnabled) }
+    ], userId, event.source);
+    return;
+  }
 
   if (/(会員登録|登録情報|会員情報|入会|退会)/i.test(userMessage)) {
     await safeReply(event.replyToken, [
@@ -357,11 +402,14 @@ const handleEventSafely = async (event) => {
     return;
   }
 
-  if (/見守り|みまもり|まもり/.test(userMessage)) {
-    await safeReply(event.replyToken, [
-      { type: 'text', text: '見守りサービスに興味があるんだね！詳しくは以下から確認・登録できるよ🌸' },
-      { type: 'flex', altText: '見守りサービスメニュー', contents: WATCH_MENU_FLEX }
-    ], userId, event.source);
+  if (/見守り.*(停止|解除|オフ|やめる)/.test(userMessage)) {
+    await db.collection('users').doc(userId).set({ watchService: { isEnabled: false } }, { merge: true });
+    await safeReply(event.replyToken, [{ type:'text', text:'見守りサービスを停止したよ。必要になったら「見守り再開」と送ってね🌸' }], userId, event.source);
+    return;
+  }
+  if (/見守り.*(再開|開始|オン|使う)/.test(userMessage)) {
+    await db.collection('users').doc(userId).set({ watchService: { isEnabled: true } }, { merge: true });
+    await safeReply(event.replyToken, [{ type:'text', text:'見守りサービスを再開したよ。こころちゃんがそばにいるね💖' }], userId, event.source);
     return;
   }
 
@@ -391,7 +439,7 @@ const handleEventSafely = async (event) => {
         try {
           await safeReply(event.replyToken, [
               { type: 'text', text: specialReply },
-              { type: 'flex', altText: "見守りサービスメニュー", contents: WATCH_MENU_FLEX }
+              { type: 'flex', altText: "見守りサービスメニュー", contents: buildWatchMenuFlex(isEnabled) }
           ], userId, event.source);
         } catch (e) {
           briefErr('replyMessage failed (specialReply)', e);
