@@ -72,7 +72,7 @@ const redact = (text) => '（機密情報のため匿名化）';
 const gTrunc = (s, l) => toGraphemes(s).slice(0, l).join('');
 const sanitizeForLog = (text) => String(text).replace(/\s+/g, ' ').trim();
 
-// メンバーシップ設定（更新）
+// メンバーシップ設定
 const MEMBERSHIP_CONFIG = {
     guest: { dailyLimit: 5, model: 'gemini-1.5-flash-latest' },
     member: { dailyLimit: 20, model: OPENAI_MODEL || 'gpt-4o-mini' },
@@ -80,7 +80,7 @@ const MEMBERSHIP_CONFIG = {
     admin: { dailyLimit: -1, model: OPENAI_MODEL || 'gpt-4o-mini' },
 };
 
-// 固定返信（更新）
+// 固定返信
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋ぎたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
 const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
 
@@ -131,7 +131,7 @@ const specialRepliesMap = new Map([
     [/(見守り|みまもり|まもり).*(サービス|登録|画面)/i, "見守りサービスに興味があるんだね！いつでも安心して話せるように、私がお手伝いするよ💖"],
 ]);
 
-// 危険ワード（更新）
+// 危険ワード
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
     "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり",
@@ -291,15 +291,25 @@ const apiLimiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes."
 });
 
-app.post('/webhook', apiLimiter, middleware({ channelSecret: LINE_CHANNEL_SECRET }), (req, res) => {
-  Promise
-    .all(req.body.events.map(handleEventSafely))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error(err);
-      res.status(500).end();
-    });
-});
+// 他のルート用（/webhook には適用しない）
+app.use(['/healthz'], express.json());
+
+// ウェブフックの処理
+app.post(
+  '/webhook',
+  apiLimiter,
+  express.raw({ type: '*/*' }), // 👈 署名検証のために生のボディが必要
+  middleware({ channelSecret: LINE_CHANNEL_SECRET }),
+  (req, res) => {
+    Promise
+      .all(req.body.events.map(handleEventSafely))
+      .then((result) => res.json(result))
+      .catch((err) => {
+        console.error(err);
+        res.status(500).end();
+      });
+  }
+);
 
 const handleEventSafely = async (event) => {
   if (event.type !== 'message' || !event.message || event.message.type !== 'text') {
@@ -313,7 +323,7 @@ const handleEventSafely = async (event) => {
     const addUrl = process.env.LINE_ADD_FRIEND_URL;
     const tips = addUrl
       ? `まずは友だち追加をお願いできるかな？\n${addUrl}\nそのあと1:1トークで「こんにちは」と送ってみてね🌸`
-      : "まずはボットを友だち追加して、1:1トークで声をかけてみてね🌸";
+      : "まずはボットを友だち追加して、1:1トークで声をかけてみてね�";
     await safeReply(event.replyToken, [{ type: "text", text: `ごめんね、いま個別のユーザーID（Uで始まるID）が取得できなかったみたい。\n${tips}` }], null, event.source);
     return;
   }
@@ -407,7 +417,6 @@ const handleEventSafely = async (event) => {
       return;
     }
 
-    // ⭐ここを変更しました！⭐ メッセージの文字数に基づいてモデルを切り替えます
     let modelToUse;
     if (userMessage.length <= 50) {
       modelToUse = 'gemini-1.5-flash-latest';
@@ -502,7 +511,6 @@ const handleEventSafely = async (event) => {
     
     let replyContent = 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
     
-    // ⭐変更⭐ メッセージ文字数に応じてモデルを呼び出す
     if (modelToUse.startsWith('gpt-')) {
         try {
             replyContent = await getOpenAIResponse(userMessage, systemInstruction, modelToUse, userId);
@@ -600,6 +608,7 @@ const getOpenAIResponse = async (message, instruction, model, userTag) => {
     const response = await callWithRetry(() =>
         httpInstance.post('https://api.openai.com/v1/chat/completions', payload, { headers })
     );
+    // 👈 フォールバック文の文字化けを修正
     return response.data.choices?.[0]?.message?.content?.trim() || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
@@ -802,13 +811,10 @@ const sendConsultationResponse = async (userId, replyToken, userMessage, source)
 };
 
 function checkSpecialReply(text) {
-    const lowerText = text.toLowerCase();
-    for (const [key, value] of specialRepliesMap) {
-        if ((key instanceof RegExp && key.test(lowerText))) {
-            return value;
-        }
-    }
-    return null;
+  for (const [key, value] of specialRepliesMap) {
+    if (key instanceof RegExp && key.test(text)) return value;
+  }
+  return null;
 }
 
 const WATCH_SERVICE_INTERVAL_HOURS = 29;
@@ -871,7 +877,7 @@ const sendWatchServiceMessages = async () => {
 
                 let profileName = '不明';
                 try {
-                    const profile = await getProfileCompat(client, userId);
+                    const profile = await getProfileCompat(client, userId, null);
                     profileName = profile?.displayName || profileName;
                 } catch (e) {
                     briefErr('getProfile failed', e);
