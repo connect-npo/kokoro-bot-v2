@@ -633,7 +633,7 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-flash
         httpInstance.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers })
     );
     const text = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    return text || 'ごめんね� いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
+    return text || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
 async function safeReply(replyToken, messages, userId, source) {
