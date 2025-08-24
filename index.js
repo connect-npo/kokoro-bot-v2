@@ -54,7 +54,6 @@ const httpInstance = axios.create({
 const PORT = process.env.PORT || 3000;
 const app = express();
 app.use(helmet());
-app.use(express.json());
 
 // 監査ログ
 const audit = (event, detail) => {
@@ -291,7 +290,7 @@ const apiLimiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes."
 });
 
-// 他のルート用（/webhook には適用しない）
+// 他ルート用の JSON パーサ（/webhook には適用しない）
 app.use(['/healthz'], express.json());
 
 // ウェブフックの処理
@@ -323,7 +322,8 @@ const handleEventSafely = async (event) => {
     const addUrl = process.env.LINE_ADD_FRIEND_URL;
     const tips = addUrl
       ? `まずは友だち追加をお願いできるかな？\n${addUrl}\nそのあと1:1トークで「こんにちは」と送ってみてね🌸`
-      : "まずはボットを友だち追加して、1:1トークで声をかけてみてね�";
+      // 👈 ここを修正
+      : "まずはボットを友だち追加して、1:1トークで声をかけてみてね🌸";
     await safeReply(event.replyToken, [{ type: "text", text: `ごめんね、いま個別のユーザーID（Uで始まるID）が取得できなかったみたい。\n${tips}` }], null, event.source);
     return;
   }
@@ -633,7 +633,7 @@ const getGeminiResponse = async (message, instruction, model = 'gemini-1.5-flash
         httpInstance.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, payload, { headers })
     );
     const text = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    return text || 'ごめんね💦 いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
+    return text || 'ごめんね� いま上手くお話できなかったみたい。もう一度だけ送ってくれる？';
 };
 
 async function safeReply(replyToken, messages, userId, source) {
