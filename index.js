@@ -29,6 +29,17 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
 
+// 各Googleフォームの「line_user_id」質問に対応するentry ID
+// 環境変数が設定されている場合はそちらを優先し、なければ直接指定のIDを使用
+const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
+const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
+const STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_ELEMENTARY_FORM_LINE_USER_ID_ENTRY_ID || AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID;
+const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
+const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
+const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
+const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
+
+
 // Firebase Admin SDKの初期化
 const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString());
 firebaseAdmin.initializeApp({
@@ -192,51 +203,87 @@ const hitSensitiveBlockers = (text) => sensitiveBlockers.some(word => {
   return text.toLowerCase().includes(word);
 });
 
-const buildRegistrationFlex = () => ({
-  "type": "bubble",
-  "body": {
-    "type": "box",
-    "layout": "vertical",
-    "contents": [
-      { "type": "text", "text": "会員登録・情報変更", "weight": "bold", "size": "xl" },
-      { "type": "separator", "margin": "md" },
-      { "type": "box", "layout": "vertical", "spacing": "sm", "margin": "lg", "contents": [
-        { "type": "text", "text": "ご希望のメニューを選んでね🌸", "size": "md", "align": "center", "margin": "md" },
-        { "type": "button", "action": {
-            "type": "uri",
-            "label": "大人の新規登録（大学生以上）",
-            "uri": String(ADULT_FORM_BASE_URL || '').replace('/edit','/viewform')
+// ★ 追加：フォームに userId を埋め込む共通関数
+const toViewForm = (u) => String(u || '').replace('/edit', '/viewform');
+const prefillUrl = (baseUrl, params = {}) => {
+  if (!baseUrl) return '';
+  try {
+    const url = new URL(toViewForm(baseUrl));
+    url.searchParams.set('usp', 'pp_url'); // Googleフォームのプリフィル指定
+    for (const [k, v] of Object.entries(params)) {
+      if (v != null && v !== '') url.searchParams.set(k, String(v));
+    }
+    return url.toString();
+  } catch {
+    return toViewForm(baseUrl);
+  }
+};
+
+
+// Flex: 会員登録（正しい構造）
+const buildRegistrationFlex = (userId) => ({
+  type: "bubble",
+  body: {
+    type: "box",
+    layout: "vertical",
+    contents: [
+      { type: "text", "text": "会員登録・情報変更", "weight": "bold", "size": "xl" },
+      { type: "separator", "margin": "md" },
+      {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        margin: "lg",
+        contents: [
+          { type: "text", "text": "ご希望のメニューを選んでね🌸", "size": "md", "align": "center", "margin": "md" },
+          {
+            type: "button", "style": "primary", "height": "sm",
+            action: {
+              type: "uri",
+              label: "小学生（同意書）", // ★ 修正: FLEXボタン表記を「同意書」に変更
+              uri: prefillUrl(AGREEMENT_FORM_BASE_URL, { [AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID]: userId })
+            }
           },
-          "style": "primary", "height": "sm"
-        },
-        { "type": "button", "action": {
-            "type": "uri",
-            "label": "小・中・高校生の新規登録",
-            "uri": String(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL || '').replace('/edit','/viewform')
+          {
+            type: "button", "style": "primary", "height": "sm",
+            action: {
+              type: "uri",
+              label: "中高生・大学生",
+              uri: prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, { [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: userId })
+            }
           },
-          "style": "primary", "height": "sm"
-        },
-        { "type": "button", "action": {
-            "type": "uri",
-            "label": "登録情報変更",
-            "uri": String(MEMBER_CHANGE_FORM_BASE_URL || '').replace('/edit','/viewform')
+          {
+            type: "button", "style": "primary", "height": "sm",
+            action: {
+              type: "uri",
+              label: "成人",
+              uri: prefillUrl(ADULT_FORM_BASE_URL, { [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: userId })
+            }
           },
-          "style": "secondary", "height": "sm", "margin": "lg"
-        },
-        { "type": "button", "action": {
-            "type": "uri",
-            "label": "退会手続き",
-            "uri": String(MEMBER_CANCEL_FORM_BASE_URL || MEMBER_CHANGE_FORM_BASE_URL || '').replace('/edit','/viewform')
+          {
+            type: "button", "style": "secondary", "height": "sm", "margin": "lg",
+            action: {
+              type: "uri",
+              label: "登録情報変更",
+              uri: prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, { [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId })
+            }
           },
-          "style": "secondary", "height": "sm"
-        }
-      ]}
+          {
+            type: "button", "style": "secondary", "height": "sm",
+            action: {
+              type: "uri",
+              label: "退会手続き",
+              uri: prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, { [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId })
+            }
+          }
+        ]
+      }
     ]
   }
 });
 
-// 見守りメニュー（現在の状態に応じて 停止/再開 の切替ボタンを出す）
-const buildWatchMenuFlex = (isEnabled) => ({
+// Flex: 見守りメニュー（正しい構造）
+const buildWatchMenuFlex = (isEnabled, userId) => ({
   type: "bubble",
   body: {
     type: "box",
@@ -244,8 +291,8 @@ const buildWatchMenuFlex = (isEnabled) => ({
     contents: [
       { type: "text", text: "見守りサービス", weight: "bold", size: "xl" },
       { type: "separator", margin: "md" },
-      { type: "text", text: "もしもの時に、LINEのメッセージがないとご家族に通知するサービスだよ。", wrap: true, margin: "lg" },
-    ],
+      { type: "text", text: "もしもの時に、LINEのメッセージがないとご家族に通知するサービスだよ。", wrap: true, margin: "lg" }
+    ]
   },
   footer: {
     type: "box",
@@ -257,7 +304,7 @@ const buildWatchMenuFlex = (isEnabled) => ({
         action: {
           type: "uri",
           label: "詳しく見る・利用登録",
-          uri: String(WATCH_SERVICE_FORM_BASE_URL || "").replace("/edit","/viewform")
+          uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, { [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId })
         }
       },
       {
@@ -272,6 +319,7 @@ const buildWatchMenuFlex = (isEnabled) => ({
     ]
   }
 });
+
 
 const buildEmergencyFlex = (type) => ({
   "type": "bubble",
@@ -371,6 +419,14 @@ const handleEventSafely = async (event) => {
     return;
   }
 
+  // ★ 修正：メッセージ受信時に必ず Firestore に userId を保存する（保険）
+  if (userId) {
+    await db.collection('users').doc(userId).set({
+      lineUserId: userId,
+      lastSeen: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  }
+
   await touchWatch(userId, userMessage);
 
   // 「見守り」と言われたらメニュー（停止/再開ボタン付き）を必ず出す
@@ -378,7 +434,7 @@ const handleEventSafely = async (event) => {
     const snap = await db.collection('users').doc(userId).get();
     const isEnabled = !!(snap.exists && snap.data()?.watchService?.isEnabled);
     await safeReply(event.replyToken, [
-      { type: 'flex', altText: '見守りサービスメニュー', contents: buildWatchMenuFlex(isEnabled) }
+      { type: 'flex', altText: '見守りサービスメニュー', contents: buildWatchMenuFlex(isEnabled, userId) }
     ], userId, event.source);
     return;
   }
@@ -390,14 +446,16 @@ const handleEventSafely = async (event) => {
         text: '会員登録や情報の変更はここからできるよ！',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'uri', label: '大人の新規登録', uri: String(ADULT_FORM_BASE_URL||'').replace('/edit','/viewform') } },
-            { type: 'action', action: { type: 'uri', label: '学生の新規登録', uri: String(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL||'').replace('/edit','/viewform') } },
-            { type: 'action', action: { type: 'uri', label: '登録情報変更', uri: String(MEMBER_CHANGE_FORM_BASE_URL||'').replace('/edit','/viewform') } },
-            { type: 'action', action: { type: 'uri', label: '退会手続き', uri: String(MEMBER_CANCEL_FORM_BASE_URL || MEMBER_CHANGE_FORM_BASE_URL || '').replace('/edit','/viewform') } },
+            // ★ 修正: 小学生（同意書）のボタンをクイックリプライに追加
+            { type:'action', action:{ type:'uri', label:'小学生（同意書）', uri: prefillUrl(AGREEMENT_FORM_BASE_URL, { [AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
+            { type:'action', action:{ type:'uri', label:'学生の新規登録', uri: prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, { [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
+            { type:'action', action:{ type:'uri', label:'大人の新規登録', uri: prefillUrl(ADULT_FORM_BASE_URL, { [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
+            { type:'action', action:{ type:'uri', label:'登録情報変更', uri: prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, { [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
+            { type:'action', action:{ type:'uri', label:'退会手続き', uri: prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, { [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
           ]
         }
       },
-      { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex() }
+      { type: 'flex', altText: '会員登録・情報変更メニュー', contents: buildRegistrationFlex(userId) }
     ], userId, event.source);
     return;
   }
@@ -435,24 +493,16 @@ const handleEventSafely = async (event) => {
 
   const specialReply = checkSpecialReply(userMessage);
   if (specialReply) {
-    if (userMessage.includes('見守り') || userMessage.includes('みまもり') || userMessage.includes('まもり')) {
-        try {
-          await safeReply(event.replyToken, [
-              { type: 'text', text: specialReply },
-              { type: 'flex', altText: "見守りサービスメニュー", contents: buildWatchMenuFlex(isEnabled) }
-          ], userId, event.source);
-        } catch (e) {
-          briefErr('replyMessage failed (specialReply)', e);
-        }
+    // ★ 修正：specialReplyでisEnabledが未定義になるバグを修正
+    if (/(見守り|みまもり|まもり)/.test(userMessage)) {
+      const snap = await db.collection('users').doc(userId).get();
+      const isEnabled = !!(snap.exists && snap.data()?.watchService?.isEnabled);
+      await safeReply(event.replyToken, [
+        { type: 'text', text: specialReply },
+        { type: 'flex', altText: '見守りサービスメニュー', contents: buildWatchMenuFlex(isEnabled, userId) }
+      ], userId, event.source);
     } else {
-        try {
-          await safeReply(event.replyToken, [{
-              type: 'text',
-              text: specialReply,
-          }], userId, event.source);
-        } catch (e) {
-          briefErr('replyMessage failed (specialReply)', e);
-        }
+      await safeReply(event.replyToken, [{ type: 'text', text: specialReply }], userId, event.source);
     }
     return;
   }
