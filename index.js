@@ -311,6 +311,13 @@ const sensitiveBlockers = [
 
 // === 以前のコードの続きから ===
 // LINEのWebhookハンドラ
+const apiLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 60 minutes
+    max: 100, // Limit each IP to 100 requests per `window` (here, per hour)
+    message: 'このIPからのリクエストが多すぎます。しばらくしてから再度お試しください。'
+});
+app.use('/callback', apiLimiter);
+
 app.post('/callback', middleware({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
@@ -504,13 +511,13 @@ async function handleMessageEvent(event) {
         const userRef = db.collection('users').doc(userId);
         const doc = await userRef.get();
         const isEnabled = doc.exists && doc.data().watchService?.enabled;
-        const flex = buildWatchMenuFlex(isEnabled);
+        const flex = buildWatchMenuFlex(isEnabled, userId);
         await client.replyMessage(event.replyToken, flex);
         return;
     }
 
-    // ここからAI応答ロジック
-    // ... （省略） ...
+    // AI応答ロジック
+    // ...
 }
 
 async function handlePostbackEvent(event) {
@@ -557,7 +564,6 @@ async function handlePostbackEvent(event) {
                 text: 'うん、元気でよかった！🌸\nまた3日後に連絡するね！😊'
             });
         } else {
-            // OFF状態なら何もしない
             await client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: '見守りサービスは現在停止中です。ONにするには、「見守りサービスをONにする」を押してね。'
@@ -571,7 +577,7 @@ async function handlePostbackEvent(event) {
         }, {
             merge: true
         });
-        await scheduleNextPing(userId); // ONにしたら即座に次のpingをスケジュール
+        await scheduleNextPing(userId);
         await client.replyMessage(event.replyToken, {
             type: 'text',
             text: "見守りサービスをONにしたよ🌸　何かあったら、こころちゃんが事務局へ通知するから安心してね💖"
@@ -608,7 +614,15 @@ async function handleFollowEvent(event) {
     await db.collection('users').doc(userId).set({
         firstContactAt: Timestamp.now(),
         lastMessageAt: Timestamp.now(),
+        watchService: {
+            enabled: true,
+            awaitingReply: false,
+        }
+    }, {
+        merge: true
     });
+    // 初回の見守り送信予定（3日後15:00 JST）をセット
+    await scheduleNextPing(userId, new Date());
 }
 
 async function handleUnfollowEvent(event) {
@@ -654,7 +668,6 @@ async function handleMemberEvents(event) {
 async function checkAndSendPing() {
     console.log('--- Cron job: checkAndSendPing started ---');
     const now = dayjs().tz(JST_TZ).toDate();
-    const threeDaysAgo = dayjs(now).tz(JST_TZ).subtract(PING_INTERVAL_DAYS, 'day').toDate();
 
     const usersRef = db.collection('users');
     const q = usersRef.where('watchService.enabled', '==', true)
@@ -815,7 +828,7 @@ async function checkAndSendEscalation() {
     const q = usersRef.where('watchService.enabled', '==', true)
         .where('watchService.awaitingReply', '==', true)
         .where('watchService.nextPingAt', '<=', escalateThreshold)
-        .where('watchService.lastReminderAt', '<=', escalateThreshold);
+        .where('watchService.lastReminderAt', '<=', now);
 
     const snapshot = await q.get();
 
@@ -855,9 +868,9 @@ async function checkAndSendEscalation() {
 }
 
 // 見守りメニューのFlexメッセージを生成する関数
-function buildWatchMenuFlex(isEnabled) {
+function buildWatchMenuFlex(isEnabled, userId) {
     const WATCH_PRIVACY_URL = 'https://gamma.app/docs/-iwcjofrc870g681?mode=doc';
-    
+
     const buttons = [];
     if (isEnabled) {
         buttons.push({
@@ -886,7 +899,7 @@ function buildWatchMenuFlex(isEnabled) {
             margin: "md"
         });
     }
-    
+
     // 見守り登録フォーム（URLがあれば出す）
     if (WATCH_SERVICE_FORM_BASE_URL) {
         buttons.push({
@@ -895,7 +908,7 @@ function buildWatchMenuFlex(isEnabled) {
                 type: "uri",
                 label: "見守り登録フォームを開く",
                 uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
-                    [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: (typeof LINE_ADD_FRIEND_URL === 'string' ? '' : '') || ''
+                    [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
                 })
             },
             style: "secondary",
