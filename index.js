@@ -567,9 +567,14 @@ async function handleMessageEvent(event) {
                 altText: "危険ワードを検知しました",
                 contents: buildDangerFlex(text)
             }]);
-            auditIf(true, 'danger_word_detected', {
+            audit('danger_word_detected', {
                 userId: userHash(userId),
                 text: gTrunc(text, 50)
+            });
+            await notifyOfficerNow({
+                userId,
+                kind: 'danger',
+                text
             });
             return;
         }
@@ -589,9 +594,14 @@ async function handleMessageEvent(event) {
                 altText: "詐欺の可能性を検知しました",
                 contents: buildScamFlex()
             }]);
-            auditIf(true, 'scam_word_detected', {
+            audit('scam_word_detected', {
                 userId: userHash(userId),
                 text: gTrunc(text, 50)
+            });
+            await notifyOfficerNow({
+                userId,
+                kind: 'scam',
+                text
             });
             return;
         }
@@ -1000,6 +1010,45 @@ async function checkAndSendEscalation() {
     console.log('--- Cron job: checkAndSendEscalation finished ---');
 }
 
+async function notifyOfficerNow({
+    userId,
+    kind,
+    text
+}) {
+    if (!OFFICER_GROUP_ID) return;
+    try {
+        const profile = await client.getProfile(userId).catch(() => null);
+        const name = profile?.displayName || '不明なユーザー';
+        const head = kind === 'danger' ? '⚠️危険ワード検知' : '🛑詐欺ワード検知';
+        const body = `ユーザー: ${name} (${userHash(userId).slice(0,8)})\n内容: ${gTrunc(text, 100)}`;
+        await client.pushMessage(OFFICER_GROUP_ID, {
+            type: 'text',
+            text: `${head}\n${body}`
+        });
+        audit('officer_notified', {
+            kind,
+            userId: userHash(userId)
+        });
+    } catch (e) {
+        briefErr('notify-officer-failed', e);
+    }
+}
+
+const makeTelButton = (label, phone) => {
+    const p = String(phone || '').replace(/[^\d+]/g, '');
+    if (!p) return null;
+    return {
+        type: "button",
+        style: "primary",
+        color: "#FF69B4",
+        action: {
+            type: "uri",
+            label,
+            uri: `tel:${p}`
+        }
+    };
+};
+
 const buildRegistrationFlex = (userId) => {
     const buttons = [];
 
@@ -1194,154 +1243,148 @@ const buildWatchMenuFlex = (isEnabled, userId) => {
     };
 };
 
-const buildDangerFlex = (text) => ({
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [{
-            type: "text",
-            text: "【危険ワード検知】",
-            weight: "bold",
-            color: "#FF0000",
-            size: "xl",
-            align: "center"
-        }, {
-            type: "text",
-            text: "大丈夫だよ、落ち着いてね。もし不安なことがあったら、信頼できる大人や警察に相談してみてね。連絡先については、このあと表示される案内を見てね。",
-            wrap: true,
-            margin: "md"
-        }, {
-            type: "text",
-            text: "あなたもがんばって安心できるよう、応援してるよ。",
-            wrap: true,
-            margin: "md"
-        }]
-    },
-    footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "sm",
-        contents: [{
-            type: "button",
-            style: "primary",
-            color: "#FF4B4B",
-            action: {
-                type: "uri",
-                label: "警察（電話）",
-                uri: "tel:110"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#1E90FF",
-            action: {
-                type: "uri",
-                label: "消防・救急（電話）",
-                uri: "tel:119"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#32CD32",
-            action: {
-                type: "uri",
-                label: "チャイルドライン（電話・チャット）",
-                uri: "https://childline.or.jp/"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#32CD32",
-            action: {
-                type: "uri",
-                label: "いのちの電話（電話）",
-                uri: "https://www.inochinodenwa.org/"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#FF69B4",
-            action: {
-                type: "uri",
-                label: "こころちゃん事務局（電話）",
-                uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
-            }
-        }, ]
-    }
-});
+const buildDangerFlex = (text) => {
+    const contents = [{
+        type: "button",
+        style: "primary",
+        color: "#FF4B4B",
+        action: {
+            type: "uri",
+            label: "警察（電話）",
+            uri: "tel:110"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#1E90FF",
+        action: {
+            type: "uri",
+            label: "消防・救急（電話）",
+            uri: "tel:119"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#32CD32",
+        action: {
+            type: "uri",
+            label: "チャイルドライン（電話・チャット）",
+            uri: "https://childline.or.jp/"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#32CD32",
+        action: {
+            type: "uri",
+            label: "いのちの電話（電話）",
+            uri: "https://www.inochinodenwa.org/"
+        }
+    }];
+    const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
+    if (officeBtn) contents.push(officeBtn);
 
-const buildScamFlex = () => ({
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [{
-            type: "text",
-            text: "【詐欺注意】",
-            weight: "bold",
-            color: "#FF0000",
-            size: "xl",
-            align: "center"
-        }, {
-            type: "text",
-            text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
-            wrap: true,
-            margin: "md"
-        }]
-    },
-    footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "sm",
-        contents: [{
-            type: "button",
-            style: "primary",
-            color: "#FF4B4B",
-            action: {
-                type: "uri",
-                label: "警察（電話）",
-                uri: "tel:110"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#1E90FF",
-            action: {
-                type: "uri",
-                label: "消費者ホットライン",
-                uri: "tel:188"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#32CD32",
-            action: {
-                type: "uri",
-                label: "警察相談専用電話",
-                uri: "tel:9110"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#32CD32",
-            action: {
-                type: "uri",
-                label: "国民生活センター",
-                uri: "https://www.kokusen.go.jp/"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            color: "#FF69B4",
-            action: {
-                type: "uri",
-                label: "こころちゃん事務局（電話）",
-                uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
-            }
-        }]
-    }
-});
+    return {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: "【危険ワード検知】",
+                weight: "bold",
+                color: "#FF0000",
+                size: "xl",
+                align: "center"
+            }, {
+                type: "text",
+                text: "大丈夫だよ、落ち着いてね。もし不安なことがあったら、信頼できる大人や警察に相談してみてね。連絡先については、このあと表示される案内を見てね。",
+                wrap: true,
+                margin: "md"
+            }, {
+                type: "text",
+                text: "あなたもがんばって安心できるよう、応援してるよ。",
+                wrap: true,
+                margin: "md"
+            }]
+        },
+        footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents
+        }
+    };
+};
+
+const buildScamFlex = () => {
+    const contents = [{
+        type: "button",
+        style: "primary",
+        color: "#FF4B4B",
+        action: {
+            type: "uri",
+            label: "警察（電話）",
+            uri: "tel:110"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#1E90FF",
+        action: {
+            type: "uri",
+            label: "消費者ホットライン",
+            uri: "tel:188"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#32CD32",
+        action: {
+            type: "uri",
+            label: "警察相談専用電話",
+            uri: "tel:9110"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#32CD32",
+        action: {
+            type: "uri",
+            label: "国民生活センター",
+            uri: "https://www.kokusen.go.jp/"
+        }
+    }];
+    const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
+    if (officeBtn) contents.push(officeBtn);
+
+    return {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: "【詐欺注意】",
+                weight: "bold",
+                color: "#FF0000",
+                size: "xl",
+                align: "center"
+            }, {
+                type: "text",
+                text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
+                wrap: true,
+                margin: "md"
+            }]
+        },
+        footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents
+        }
+    };
+};
 
 cron.schedule('0 15 * * *', checkAndSendPing, {
     scheduled: true,
