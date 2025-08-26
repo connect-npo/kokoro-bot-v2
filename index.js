@@ -106,7 +106,6 @@ const httpAgent = new require('http').Agent({
 const httpsAgent = new require('https').Agent({
     keepAlive: true
 });
-// ★ 改善：タイムアウトを6秒に延長
 const httpInstance = axios.create({
     timeout: 6000,
     httpAgent,
@@ -239,18 +238,22 @@ const specialRepliesMap = new Map([
     [/(見守り|みまもり|まもり).*(サービス|登録|画面)/i, "見守りサービスに興味があるんだね！いつでも安心して話せるように、私がお手伝いするよ💖"],
 ]);
 
+// ★ 修正：dangerWords から誤検知の温床となる言葉を削除
 const dangerWords = [
-    "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
-    "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり",
-    "いじめ", "イジメ", "ハラスメント",
+    "しにたい", "死にたい", "自殺", "消えたい", "リストカット", "OD", "オーバードーズ",
+    "殴られる", "たたかれる", "暴力", "DV", "無理やり",
+    "虐待", "パワハラ", "セクハラ", "ハラスメント",
     "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
 ];
+
+// ★ 修正：scamWords を明示的な詐欺ワードに絞り込み
 const scamWords = [
-    /詐欺(かも|だ|です|かもしれない)?/i,
-    /フィッシング/i, /架空請求/i, /ワンクリック詐欺/i,
-    /ギフトカード|プリペイドカード/i,
-    /口座凍結|名義変更/i,
-    /認証コード|暗証番号|パスワード/i
+    /詐欺(かも|だ|です|ですか|かもしれない)?/i,
+    /(フィッシング|架空請求|ワンクリック詐欺)/i,
+    // 秘密情報要求の明示
+    /(認証コード|暗証番号|パスワード|個人情報).*(教えて|入力|送って)/i,
+    // 口座凍結・名義変更の明示
+    /(口座凍結|名義変更)/i,
 ];
 
 const inappropriateWords = [
@@ -281,15 +284,13 @@ const sensitiveBlockers = [
     /(教材|答案|模試|過去問|解答|問題集).*(販売|入手|譲って|買いたい|売りたい)/i,
 ];
 
-// ★ 改善：NGトピックワードリストを統合・強化
 const politicalWords = /(自民党|国民民主党|参政党|政治|選挙|与党|野党)/i;
 const religiousWords = /(仏教|キリスト教|イスラム教|宗教|信仰)/i;
 const medicalWords = /(癌|がん|医療|治療|薬|診断|発達障害|精神疾患|病気|病院|認知症|介護|病気)/i;
-const specialWords = /(理事長|松本博文|怪しい|胡散臭い|反社|税金泥棒)/i; // 追加
+const specialWords = /(理事長|松本博文|怪しい|胡散臭い|反社|税金泥棒)/i;
 
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || 'local-dev';
 
-// ★ 追加：送信テキストのクリーンアップ関数群
 function tidyJa(text = "") {
     let t = String(text);
     t = t.replace(/([!?！？])。/g, '$1');
@@ -318,10 +319,12 @@ function dropQuestions(text, maxQuestions = 0) {
     return kept.join('').trim();
 }
 
-function finalizeUtterance(text, opts = {
+// ★ 修正：noQuestionsフラグに応じて質問を抑制
+function finalizeUtterance(text, noQuestions = false, opts = {
     maxQ: 0
 }) {
-    let t = dropQuestions(text, opts.maxQ);
+    let finalMaxQ = noQuestions ? 0 : opts.maxQ;
+    let t = dropQuestions(text, finalMaxQ);
     t = tidyJa(t);
     const EMOJI_RE = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu;
     let cnt = 0;
@@ -437,31 +440,31 @@ async function generateSupportiveText({
     }
 }
 
-async function generateGeneralReply(userText) {
+async function generateGeneralReply(userText, noQuestions = false) {
     const geminiApiKey = GEMINI_API_KEY;
     const openaiApiKey = OPENAI_API_KEY;
     const FALLBACK_TEXT = "読ませてもらったよ。無理しないでね、ここにいるよ🌸";
 
+    const systemInstruction = `あなたは「皆守こころ」(14)。やさしく短く話す。結論→ねぎらいの順。質問は原則しない（最大1つ）。政治/宗教/医療/法的助言は答えない。攻撃的表現・露骨な表現は禁止。顔文字0〜2。繰り返しは避け、表現を少し変える。
+    ユーザーが「〇〇についてどう思う？」と意見を求めた場合、「〇〇は辛いよね...」のように共感で返してください。` +
+        (noQuestions ? `\n\n【重要】ユーザーは質問を望んでいません。どんな状況でも絶対に質問しないでください。` : '');
+
     if (toGraphemes(userText).length <= 50 && geminiApiKey) {
         const geminiModel = 'gemini-1.5-flash-latest';
-        const system = `あなたは「皆守こころ」(14)。やさしく短く話す。結論→ねぎらいの順。質問は原則しない（最大1つ）。政治/宗教/医療/法的助言は答えない。攻撃的表現・露骨な表現は禁止。顔文字0〜2。繰り返しは避け、表現を少し変える。
-        ユーザーが「〇〇についてどう思う？」と意見を求めた場合、「〇〇は辛いよね...」のように共感で返してください。`;
         try {
             const res = await httpInstance.post(
                 `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`, {
                     contents: [{
                         role: "user",
                         parts: [{
-                            text: `システム: ${system}\nユーザー: ${userText}`
+                            text: `システム: ${systemInstruction}\nユーザー: ${userText}`
                         }]
                     }]
                 }, {
                     timeout: 1800
                 }
             );
-            return finalizeUtterance(res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT, {
-                maxQ: 0
-            });
+            return finalizeUtterance(res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT, noQuestions);
         } catch (e) {
             briefErr('gemini-general-fallback', e);
         }
@@ -469,15 +472,13 @@ async function generateGeneralReply(userText) {
 
     if (openaiApiKey) {
         const openaiModel = OPENAI_MODEL || 'gpt-4o-mini';
-        const system = `あなたは「皆守こころ」(14)。やさしく短く話す。結論→ねぎらいの順。質問は原則しない（最大1つ）。政治/宗教/医療/法的助言は答えない。攻撃的表現・露骨な表現は禁止。顔文字0〜2。繰り返しは避け、表現を少し変える。
-        ユーザーが「〇〇についてどう思う？」と意見を求めた場合、「〇〇は辛いよね...」のように共感で返してください。`;
         try {
             const r = await httpInstance.post('https://api.openai.com/v1/chat/completions', {
                 model: openaiModel,
                 temperature: 0.6,
                 messages: [{
                     role: 'system',
-                    content: system
+                    content: systemInstruction
                 }, {
                     role: 'user',
                     content: userText
@@ -488,17 +489,13 @@ async function generateGeneralReply(userText) {
                 },
                 timeout: 1800
             });
-            return finalizeUtterance(r.data?.choices?.[0]?.message?.content ?? FALLBACK_TEXT, {
-                maxQ: 0
-            });
+            return finalizeUtterance(r.data?.choices?.[0]?.message?.content ?? FALLBACK_TEXT, noQuestions);
         } catch (e) {
             briefErr('openai-general-fallback', e);
         }
     }
 
-    return finalizeUtterance(FALLBACK_TEXT, {
-        maxQ: 0
-    });
+    return finalizeUtterance(FALLBACK_TEXT, noQuestions);
 }
 
 const apiLimiter = rateLimit({
@@ -522,7 +519,6 @@ function dedupe(event) {
     return false;
 }
 
-// ★ 改善：即時ACKと非同期処理
 app.post(['/callback', '/webhook'], middleware({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
@@ -598,8 +594,7 @@ function looksLikeTest(text, userId) {
     return /(テスト|test)/i.test(text) || BOT_ADMIN_IDS.includes(userId);
 }
 
-// ★ 改善：キーワード誤検知と連投抑止
-const notifyCooldown = new Map(); // key: `${kind}:${userId}` -> expires(ms)
+const notifyCooldown = new Map();
 function shouldNotify(kind, userId, text) {
     const now = Date.now();
     const key = `${kind}:${userId}`;
@@ -615,7 +610,6 @@ function shouldNotify(kind, userId, text) {
     return true;
 }
 
-// ★ 改善：NGトピックガードを強化
 function guardTopics(userText) {
     if (politicalWords.test(userText) || religiousWords.test(userText) || medicalWords.test(userText)) {
         return "ごめんね、このテーマには私から専門的には答えられないの🙏 でも気持ちに寄りそいたいよ🌸";
@@ -626,7 +620,6 @@ function guardTopics(userText) {
     return null;
 }
 
-// ★ 追加：クイズ出題のショートカット
 function tryGenerateQuiz(text) {
     if (/高校.*数学.*(問題|問|出して)/.test(text)) {
         return "【高校数学（例）】\n1) 極限 lim_{x→0} (sin x)/x を求めよ。\n2) xについて解け：2x^2-3x-2=0\n3) ベクトルa,bが|a|=2,|b|=3, a・b=3 のとき |a+b| を求めよ。";
@@ -646,10 +639,28 @@ async function handleMessageEvent(event) {
     } = event.message;
     const userRef = db.collection('users').doc(userId);
     const doc = await userRef.get();
+    const userData = doc.exists ? doc.data() : {};
 
-    if (doc.exists && doc.data()?.banned) {
+    if (userData?.banned) {
         return;
     }
+
+    // ★ 追加：「質問やめて」のフラグを検知し、保存
+    if (/(質問しないで|質問やめて|質問は無し|質問いらない|質問するな)/.test(text)) {
+        await userRef.set({
+            prefs: {
+                noQuestions: true
+            }
+        }, {
+            merge: true
+        });
+        await safePushMessage(userId, {
+            type: 'text',
+            text: 'わかったよ😊 これからは質問しないね！'
+        }, 'no_questions_set');
+        return;
+    }
+
     await userRef.set({
         lastMessageAt: Timestamp.now(),
         lastText: text
@@ -726,7 +737,6 @@ async function handleMessageEvent(event) {
         }
     }
 
-    // ★ 改善：NGトピックガードを最優先で実行
     const guardedReply = guardTopics(text);
     if (guardedReply) {
         await safePushMessage(userId, {
@@ -736,7 +746,6 @@ async function handleMessageEvent(event) {
         return;
     }
 
-    // ★ 改善：クイズ出題ショートカット
     const quiz = tryGenerateQuiz(text);
     if (quiz) {
         await safePushMessage(userId, {
@@ -882,7 +891,7 @@ async function handleMessageEvent(event) {
 
     for (const word of inappropriateWords) {
         if (text.includes(word)) {
-            const count = (doc.data()?.badWordsCount || 0) + 1;
+            const count = (userData?.badWordsCount || 0) + 1;
             await userRef.set({
                 badWordsCount: count
             }, {
@@ -923,7 +932,7 @@ async function handleMessageEvent(event) {
     }
 
     if (text === '見守り' || text === 'みまもり') {
-        const isEnabled = doc.exists && doc.data().watchService?.enabled;
+        const isEnabled = userData.watchService?.enabled;
         const flex = buildWatchMenuFlex(isEnabled, userId);
         await safePushMessage(userId, {
             type: "flex",
@@ -933,7 +942,7 @@ async function handleMessageEvent(event) {
         return;
     }
 
-    const replyText = await generateGeneralReply(text);
+    const replyText = await generateGeneralReply(text, userData.prefs?.noQuestions);
     await safePushMessage(userId, {
         type: 'text',
         text: replyText || 'うん、読んだよ。私はこう思うよ🌸 また教えてね。'
