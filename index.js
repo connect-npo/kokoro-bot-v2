@@ -1166,7 +1166,6 @@ const buildEmergencyFlex = (type) => ({
             "color": "#18A701",
             "margin": "sm"
         }, ],
-    },
     "footer": {
         "type": "box",
         "layout": "vertical",
