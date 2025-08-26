@@ -412,8 +412,6 @@ async function handleMessageEvent(event) {
         }
     }
 
-    // === ここからFlexメッセージへの変更 ===
-
     // 会員登録フォームの表示
     if (text === '会員登録') {
         const flex = buildRegistrationFlex(userId);
@@ -438,9 +436,6 @@ async function handleMessageEvent(event) {
         });
         return;
     }
-
-    // AI応答ロジック
-    // ...
 }
 
 async function handlePostbackEvent(event) {
@@ -790,7 +785,6 @@ async function checkAndSendEscalation() {
     console.log('--- Cron job: checkAndSendEscalation finished ---');
 }
 
-// === あなたが提供した「正しい」Flexメッセージのコード ===
 // Flex: 会員登録
 const buildRegistrationFlex = (userId) => {
     const buttons = [];
@@ -910,6 +904,7 @@ const buildRegistrationFlex = (userId) => {
 const buildWatchMenuFlex = (isEnabled, userId) => {
     const footerButtons = [];
 
+    // ① 登録フォーム（URLが正しければ必ず出る）
     if (WATCH_SERVICE_FORM_BASE_URL) {
         footerButtons.push({
             type: "button",
@@ -918,12 +913,13 @@ const buildWatchMenuFlex = (isEnabled, userId) => {
                 type: "uri",
                 label: "詳しく見る・利用登録",
                 uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
-                    [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
-                })
-            }
+                    [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId,
+                }),
+            },
         });
     }
 
+    // ② ON/OFF トグル（常に出る）
     footerButtons.push({
         type: "button",
         style: "secondary",
@@ -931,8 +927,8 @@ const buildWatchMenuFlex = (isEnabled, userId) => {
             type: "postback",
             label: isEnabled ? "見守り停止" : "見守り再開",
             data: isEnabled ? "watch:off" : "watch:on",
-            displayText: isEnabled ? "見守り停止" : "見守り再開"
-        }
+            displayText: isEnabled ? "見守り停止" : "見守り再開",
+        },
     });
 
     return {
@@ -944,23 +940,34 @@ const buildWatchMenuFlex = (isEnabled, userId) => {
                 type: "text",
                 text: "見守りサービス",
                 weight: "bold",
-                size: "xl"
+                size: "lg",
+                align: "center",
+                color: "#FF69B4"
+            }, {
+                type: "text",
+                text: `現在の状態: ${isEnabled ? "ON" : "OFF"}`,
+                size: "sm",
+                align: "center",
+                margin: "md",
+                color: isEnabled ? "#32CD32" : "#FF4500"
             }, {
                 type: "separator",
                 margin: "md"
             }, {
                 type: "text",
-                text: "もしもの時に、LINEのメッセージがないとご家族に通知するサービスです🌸",
+                text: "29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。",
                 wrap: true,
-                margin: "lg"
-            }]
+                margin: "md",
+                size: "sm",
+                align: "center"
+            }, ],
         },
         footer: {
             type: "box",
             layout: "vertical",
             spacing: "sm",
             contents: footerButtons
-        }
+        },
     };
 };
 
@@ -1189,7 +1196,6 @@ const buildEmergencyFlex = (type) => ({
         }]
     }
 });
-
 
 // Cronジョブ設定
 cron.schedule('0 15 * * *', checkAndSendPing, {
