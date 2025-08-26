@@ -245,17 +245,11 @@ const dangerWords = [
     "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
 ];
 const scamWords = [
-    /詐欺(かも|だ|です|ですか|かもしれない)?/i,
-    /騙(す|される|された)/i,
-    /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
-    /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
-    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅を教え/i,
-    /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
-    /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
-    /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /蓋をしないと、安全に関する警告が発せられなくなる場合があります。修理費/i, /遠隔操作/i, /セキュリティ警告/i, /年金/i, /健康保険/i, /給付金/i,
-    /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
-    /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
-    /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
+    /詐欺(かも|だ|です|かもしれない)?/i,
+    /フィッシング/i, /架空請求/i, /ワンクリック詐欺/i,
+    /ギフトカード|プリペイドカード/i,
+    /口座凍結|名義変更/i,
+    /認証コード|暗証番号|パスワード/i
 ];
 
 const inappropriateWords = [
@@ -397,6 +391,35 @@ async function generateSupportiveText({
     }
 }
 
+
+// ★ 追加：質問を1つに制限し、逆質問だけの応答を抑止
+function postprocessReplyLimitQuestions(text) {
+    if (!text) return text;
+    let t = String(text).replace(/\s+/g, ' ').trim();
+    const parts = t.split(/(?<=[。！？!?])/);
+    const nonQs = parts.filter(p => !/[？?]$/.test(p)).slice(0, 2);
+    const q = parts.find(p => /[？?]$/.test(p));
+    const out = [...nonQs, q].filter(Boolean).join(' ').trim();
+    const emojis = (out.match(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu) || []);
+    if (emojis.length > 2) {
+        let count = 0;
+        t = out.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, m => (++count <= 2 ? m : ''));
+        return t;
+    }
+    return out;
+}
+
+// ★ 追加：LLMを待ちすぎないラッパ
+async function withFastTimeout(promise, ms = 900, fallback) {
+    let timer;
+    const timeout = new Promise(resolve => {
+        timer = setTimeout(() => resolve(fallback), ms);
+    });
+    const res = await Promise.race([promise, timeout]);
+    clearTimeout(timer);
+    return res;
+}
+
 async function generateGeneralReply(userText) {
     const geminiApiKey = GEMINI_API_KEY;
     const openaiApiKey = OPENAI_API_KEY;
@@ -533,6 +556,40 @@ async function handleEvent(event) {
         });
         await handleMemberEvents(event);
     }
+}
+
+// ★ 追加：危険の高優先度（即通報）と、詐欺の通常優先度（要確認）を分ける
+function isHighSeverityDanger(text) {
+    const t = (text || '').toLowerCase();
+    const hard = ['死にたい', '自殺', 'リストカット', '殴られる', '虐待', 'dv', '無理やり', 'ストーカー'];
+    return hard.some(k => t.includes(k));
+}
+
+function hasScamSignals(text) {
+    const t = (text || '').toLowerCase();
+    const url = /(https?:\/\/|[^\s]+\.[a-z]{2,})(\/\S*)?/i.test(t);
+    const money = /(\d{4,}|[０-９]{4,}|円|万|振込|送金|ギフトカード|プリペイド)/i.test(t);
+    const phone = /(\b0\d{1,3}[-\s]?\d{2,4}[-\s]?\d{3,4}\b|電話|電話番号)/i.test(t);
+    const pressure = /(至急|今すぐ|期限|本日中|緊急|すぐに)/i.test(t);
+    const askPII = /(暗証番号|認証コード|パスワード|個人情報|口座|名義)/i.test(t);
+    const twoKeywords = /(詐欺|フィッシング|騙|未納|架空請求)/i.test(t) && (pressure || askPII || money);
+
+    return url || (money && pressure) || (askPII && pressure) || twoKeywords || phone;
+}
+
+function looksLikeTest(text, userId) {
+    return /(テスト|test)/i.test(text) || BOT_ADMIN_IDS.includes(userId);
+}
+
+// ★ 追加：通報の連投抑止
+const notifyCD = new Map(); // key: `${kind}:${userId}` -> expires(ms)
+function canNotify(kind, userId, cdMs = 15 * 60 * 1000) {
+    const k = `${kind}:${userId}`;
+    const now = Date.now();
+    const exp = notifyCD.get(k) || 0;
+    if (exp > now) return false;
+    notifyCD.set(k, now + cdMs);
+    return true;
 }
 
 async function handleMessageEvent(event) {
@@ -678,10 +735,14 @@ async function handleMessageEvent(event) {
 
     if (isDanger || isScam) {
         if (isDanger) {
-            const supportive = await generateSupportiveText({
-                type: 'danger',
-                userText: text
-            });
+            const supportive = await withFastTimeout(
+                generateSupportiveText({
+                    type: 'danger',
+                    userText: text
+                }),
+                900,
+                'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下の案内も使えるからね。'
+            );
             await safeReply({
                 replyToken: event.replyToken,
                 userId,
@@ -699,18 +760,50 @@ async function handleMessageEvent(event) {
                 userId: userHash(userId),
                 text: gTrunc(text, 50)
             });
-            notifyOfficerNow({
-                userId,
-                kind: 'danger',
-                text
-            }).catch(e => briefErr('notify-officer-failed', e));
+
+            if (isHighSeverityDanger(text) && canNotify('danger', userId)) {
+                notifyOfficerNow({
+                    userId,
+                    kind: 'danger',
+                    text
+                }).catch(e => briefErr('notify-officer-failed', e));
+            } else {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: 'もし緊急対応が必要なら「通報して」を押してね。止めたいときは「通報しない」だよ。',
+                    quickReply: {
+                        items: [{
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '通報して',
+                                data: 'admin:sendCheck:' + userId,
+                                displayText: '通報して'
+                            }
+                        }, {
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '通報しない',
+                                data: 'admin:noreport:' + userId,
+                                displayText: '通報しない'
+                            }
+                        }]
+                    }
+                }, 'danger_confirm');
+            }
+            return;
         }
 
         if (isScam) {
-            const supportive = await generateSupportiveText({
-                type: 'scam',
-                userText: text
-            });
+            const supportive = await withFastTimeout(
+                generateSupportiveText({
+                    type: 'scam',
+                    userText: text
+                }),
+                900,
+                '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。'
+            );
             await safeReply({
                 replyToken: event.replyToken,
                 userId,
@@ -728,13 +821,34 @@ async function handleMessageEvent(event) {
                 userId: userHash(userId),
                 text: gTrunc(text, 50)
             });
-            notifyOfficerNow({
-                userId,
-                kind: 'scam',
-                text
-            }).catch(e => briefErr('notify-officer-failed', e));
+
+            if (!looksLikeTest(text, userId) && hasScamSignals(text) && canNotify('scam', userId)) {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '事務局へ共有して支援を受けますか？',
+                    quickReply: {
+                        items: [{
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '共有する',
+                                data: 'admin:sendCheck:' + userId,
+                                displayText: '共有する'
+                            }
+                        }, {
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '今はしない',
+                                data: 'admin:noreport:' + userId,
+                                displayText: '今はしない'
+                            }
+                        }]
+                    }
+                }, 'scam_confirm');
+            }
+            return;
         }
-        return;
     }
 
     for (const word of inappropriateWords) {
@@ -810,16 +924,32 @@ async function handleMessageEvent(event) {
         return;
     }
 
-    const reply = await generateGeneralReply(text);
+    const rawReply = await withFastTimeout(
+        generateGeneralReply(text),
+        900,
+        null
+    );
+
+    const reply = postprocessReplyLimitQuestions(rawReply);
+
     await safeReply({
         replyToken: event.replyToken,
         userId,
         tag: 'general',
         messages: {
             type: 'text',
-            text: reply
+            text: reply || 'うん、読んだよ。私はこう思うよ🌸 また教えてね。'
         }
     });
+
+    if (!rawReply) {
+        generateGeneralReply(text).then(postprocessReplyLimitQuestions).then(ans => {
+            if (ans) safePushMessage(userId, {
+                type: 'text',
+                text: ans
+            }, 'general-late');
+        }).catch(() => {});
+    }
 }
 
 async function handlePostbackEvent(event) {
@@ -976,6 +1106,17 @@ async function handlePostbackEvent(event) {
                         text: '見守りを一時停止しました。'
                     }
                 });
+            } else if (action === 'noreport' && targetId === userId) {
+                await safeReply({
+                    replyToken: event.replyToken,
+                    userId,
+                    tag: 'no_report',
+                    messages: {
+                        type: 'text',
+                        text: 'わかったよ。必要になったらいつでも言ってね🌸'
+                    }
+                });
+                return;
             } else {
                 await safeReply({
                     replyToken: event.replyToken,
@@ -1330,7 +1471,7 @@ async function notifyOfficerNow({
                     wrap: true
                 }, {
                     type: "text",
-                    text: `Hash: ${userHash(userId).slice(0,8)}`,
+                    text: `Hash: ${userHash(userId).slice(0, 8)}`,
                     size: "xs",
                     color: "#999999"
                 }, {
