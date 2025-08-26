@@ -380,18 +380,11 @@ async function handleMessageEvent(event) {
     // 危険ワードチェック
     for (const word of dangerWords) {
         if (text.includes(word)) {
-            const dangerMessage = {
-                type: 'text',
-                text: 'ごめんね、そのお話は危険な可能性があるので、専門の相談窓口に連絡してね。\n緊急の場合は、警察や病院に相談してください。\n\n▶こころの健康相談ダイヤル\nhttps://www.npo.connect-npo.or.jp/call\n\nもし、もう一度私とお話したくなったら、いつでも声をかけてね。あなたのこと、心配しているよ💖'
-            };
-            const officerMessage = {
-                type: 'text',
-                text: `⚠緊急アラート⚠\nユーザー[${userHash(userId)}]が危険なワードを送信しました。\n\n-----原文-----\n${sanitizeForLog(text)}\n--------------\n\nユーザーの安全を確保するため、速やかに対応をお願いします。\n`
-            };
-            await Promise.all([
-                client.replyMessage(event.replyToken, dangerMessage),
-                client.pushMessage(OFFICER_GROUP_ID, officerMessage)
-            ]);
+            await client.replyMessage(event.replyToken, {
+                type: "flex",
+                altText: "危険ワードを検知しました",
+                contents: buildDangerFlex(text)
+            });
             return;
         }
     }
@@ -399,11 +392,11 @@ async function handleMessageEvent(event) {
     // 詐欺ワードチェック
     for (const pattern of scamWords) {
         if (pattern.test(text)) {
-            const scamMessage = {
-                type: 'text',
-                text: 'そのお話は、もしかしたら詐欺かもしれません。\n\nまずは、落ち着いて相手の言うことを信じないでね。\n\n家族や警察に相談するか、以下の相談窓口を利用してください。\n\n▶消費者ホットライン\n📞188\n\n▶フィッシング対策協議会\nhttps://www.antiphishing.jp/\n\n心配なことがあったら、またいつでも話してね💖'
-            };
-            await client.replyMessage(event.replyToken, scamMessage);
+            await client.replyMessage(event.replyToken, {
+                type: "flex",
+                altText: "詐欺の可能性を検知しました",
+                contents: buildScamFlex()
+            });
             return;
         }
     }
@@ -422,7 +415,7 @@ async function handleMessageEvent(event) {
     // === ここからFlexメッセージへの変更 ===
 
     // 会員登録フォームの表示
-    if (text === '会員登録' || text === 'メンバー変更' || text === 'メンバーキャンセル') {
+    if (text === '会員登録') {
         const flex = buildRegistrationFlex(userId);
         await client.replyMessage(event.replyToken, {
             type: "flex",
@@ -970,6 +963,171 @@ const buildWatchMenuFlex = (isEnabled, userId) => {
         }
     };
 };
+
+// Flex: 危険ワード検知（画像から再現）
+const buildDangerFlex = (text) => ({
+    type: "bubble",
+    body: {
+        type: "box",
+        layout: "vertical",
+        contents: [{
+            type: "text",
+            text: "【危険ワード検知】",
+            weight: "bold",
+            color: "#FF0000",
+            size: "xl",
+            align: "center"
+        }, {
+            type: "text",
+            text: "大丈夫だよ、落ち着いてね。もし不安なことがあったら、信頼できる大人や警察に相談してみてね。連絡先については、このあと表示される案内を見てね。",
+            wrap: true,
+            margin: "md"
+        }, {
+            type: "text",
+            text: "あなたもがんばって安心できるよう、応援してるよ。",
+            wrap: true,
+            margin: "md"
+        }]
+    },
+    footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [{
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "警察（電話）",
+                uri: "tel:110" // 仮の電話番号
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "消防・救急（電話）",
+                uri: "tel:119" // 仮の電話番号
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "チャイルドライン（電話・チャット）",
+                uri: "https://childline.or.jp/"
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "いのちの電話（電話）",
+                uri: "https://www.inochinodenwa.org/"
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "チャットもるん（チャット）",
+                uri: "https://child-yell.or.jp/chatroom/morun"
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "警視庁（電話）",
+                uri: "tel:0335814321" // 仮の電話番号
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "子供を守る声（電話）",
+                uri: "tel:0570078310" // 仮の電話番号
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "こころちゃん事務局（電話）",
+                uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
+            }
+        }]
+    }
+});
+
+// Flex: 詐欺注意（画像から再現）
+const buildScamFlex = () => ({
+    type: "bubble",
+    body: {
+        type: "box",
+        layout: "vertical",
+        contents: [{
+            type: "text",
+            text: "【詐欺注意】",
+            weight: "bold",
+            color: "#FF0000",
+            size: "xl",
+            align: "center"
+        }, {
+            type: "text",
+            text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
+            wrap: true,
+            margin: "md"
+        }]
+    },
+    footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [{
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "警察（電話）",
+                uri: "tel:110" // 仮の電話番号
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "消費者ホットライン",
+                uri: "tel:188"
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "警察相談専用電話",
+                uri: "tel:9110" // 仮の電話番号
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "国民生活センター",
+                uri: "https://www.kokusen.go.jp/"
+            }
+        }, {
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "こころちゃん事務局（電話）",
+                uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
+            }
+        }]
+    }
+});
 
 // Flex: 緊急メッセージ
 const buildEmergencyFlex = (type) => ({
