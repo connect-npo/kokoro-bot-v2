@@ -311,6 +311,54 @@ const sensitiveBlockers = [
 
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || 'local-dev';
 
+// GPT寄り添い文生成（OpenAI Chat Completionsをaxiosで直叩き）
+async function generateSupportiveText({ type, userText }) {
+    const apiKey = OPENAI_API_KEY;
+    const model = OPENAI_MODEL || 'gpt-4o-mini';
+
+    // キーがない or 環境で使えない場合のフォールバック
+    if (!apiKey) {
+        return type === 'danger' ?
+            '今のお話、とてもつらかったね…。一人で抱え込まなくて大丈夫だよ。まずは深呼吸しよう。私はあなたの味方だよ。すぐ下の案内から頼れる窓口にもつながれるから、必要なら使ってね。' :
+            '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。必要なら、今の状況を一緒に整理しよう。';
+    }
+
+    const system = `あなたは日本語のメンタルヘルス／安全支援アシスタントです。
+- 100〜200文字程度で、やさしく具体的に寄り添う。
+- 相手を責めない・指示しすぎない。
+- ただちにできる行動（深呼吸・安全確保・第三者に相談）をそっと提案。
+- 固有名や診断はしない。
+- 最後に「下のボタン（案内）も使えるよ」と一言添える。`;
+
+    const user = `種類: ${type === 'danger' ? '危険(いのち・暴力・自傷など)' : '詐欺・金銭トラブル'}\nユーザー入力: ${userText}`;
+
+    try {
+        const res = await httpInstance.post(
+            'https://api.openai.com/v1/chat/completions', {
+                model,
+                messages: [{
+                    role: 'system',
+                    content: system
+                }, {
+                    role: 'user',
+                    content: user
+                }],
+                temperature: 0.4,
+            }, {
+                headers: {
+                    Authorization: `Bearer ${apiKey}`
+                }
+            }
+        );
+        return res.data?.choices?.[0]?.message?.content?.trim() ||
+            'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下の案内も使えるからね。';
+    } catch (e) {
+        briefErr('openai-completion-failed', e);
+        return 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下の案内も使えるからね。';
+    }
+}
+
+
 // LINEのWebhookハンドラ
 const apiLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 60 minutes
@@ -378,6 +426,9 @@ async function handleMessageEvent(event) {
         text
     } = event.message;
 
+    // BOT_ADMIN_IDSに含まれているか確認
+    const isAdmin = BOT_ADMIN_IDS.includes(userId);
+
     // 診断用コマンド
     if (text === 'VERSION') {
         await client.replyMessage(event.replyToken, {
@@ -390,6 +441,64 @@ async function handleMessageEvent(event) {
         });
         return;
     }
+
+    // 管理者のみが使えるデバッグコマンド
+    if (isAdmin) {
+        if (text === 'DEBUG:PING_NOW') {
+            await db.collection('users').doc(userId).set({
+                watchService: {
+                    enabled: true,
+                    nextPingAt: Timestamp.fromDate(new Date(Date.now() - 60_000)) // 1分前
+                }
+            }, {
+                merge: true
+            });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: '次のPing対象にしました（1分過去）。次の毎時チェックでPingが来ます。'
+            });
+            return;
+        }
+
+        if (text === 'DEBUG:REMIND_NOW') {
+            const past24h = dayjs().subtract(24, 'hour').toDate();
+            await db.collection('users').doc(userId).set({
+                watchService: {
+                    enabled: true,
+                    awaitingReply: true,
+                    nextPingAt: Timestamp.fromDate(past24h),
+                    lastReminderAt: null
+                }
+            }, {
+                merge: true
+            });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'リマインド対象にしました（24時間過去）。次の毎時チェックでリマインドが来ます。'
+            });
+            return;
+        }
+
+        if (text === 'DEBUG:ESCALATE_NOW') {
+            const past29h = dayjs().subtract(29, 'hour').toDate();
+            await db.collection('users').doc(userId).set({
+                watchService: {
+                    enabled: true,
+                    awaitingReply: true,
+                    nextPingAt: Timestamp.fromDate(past29h),
+                    lastReminderAt: Timestamp.fromDate(dayjs().subtract(5, 'hour').toDate())
+                }
+            }, {
+                merge: true
+            });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'エスカレーション対象にしました（29時間過去）。次の毎時チェックでエスカレーションが来ます。'
+            });
+            return;
+        }
+    }
+
 
     // 固定返信のチェック
     for (const [pattern, reply] of specialRepliesMap.entries()) {
@@ -405,11 +514,18 @@ async function handleMessageEvent(event) {
     // 危険ワードチェック
     for (const word of dangerWords) {
         if (text.includes(word)) {
-            await client.replyMessage(event.replyToken, {
+            const supportive = await generateSupportiveText({
+                type: 'danger',
+                userText: text
+            });
+            await client.replyMessage(event.replyToken, [{
+                type: 'text',
+                text: supportive
+            }, {
                 type: "flex",
                 altText: "危険ワードを検知しました",
                 contents: buildDangerFlex(text)
-            });
+            }]);
             return;
         }
     }
@@ -417,11 +533,18 @@ async function handleMessageEvent(event) {
     // 詐欺ワードチェック
     for (const pattern of scamWords) {
         if (pattern.test(text)) {
-            await client.replyMessage(event.replyToken, {
+            const supportive = await generateSupportiveText({
+                type: 'scam',
+                userText: text
+            });
+            await client.replyMessage(event.replyToken, [{
+                type: 'text',
+                text: supportive
+            }, {
                 type: "flex",
                 altText: "詐欺の可能性を検知しました",
                 contents: buildScamFlex()
-            });
+            }]);
             return;
         }
     }
@@ -996,231 +1119,192 @@ const buildWatchMenuFlex = (isEnabled, userId) => {
     };
 };
 
-// Flex: 危険ワード検知（画像から再現）
+// Flex: 危険ワード検知（カラフル版）
 const buildDangerFlex = (text) => ({
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [{
-            type: "text",
-            text: "【危険ワードを検知しました】",
-            weight: "bold",
-            color: "#FF0000",
-            size: "xl",
-            align: "center"
-        }, {
-            type: "text",
-            text: "大丈夫だよ、落ち着いてね。もし不安なことがあったら、信頼できる大人や警察に相談してみてね。連絡先については、このあと表示される案内を見てね。",
-            wrap: true,
-            margin: "md"
-        }, {
-            type: "text",
-            text: "あなたもがんばって安心できるよう、応援してるよ。",
-            wrap: true,
-            margin: "md"
-        }, ]
-    },
-    footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "sm",
-        contents: [{
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "警察（電話）",
-                uri: "tel:110" // 仮の電話番号
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "消防・救急（電話）",
-                uri: "tel:119" // 仮の電話番号
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "チャイルドライン（電話・チャット）",
-                uri: "https://childline.or.jp/"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "いのちの電話（電話）",
-                uri: "https://www.inochinodenwa.org/"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "チャットもるん（チャット）",
-                uri: "https://child-yell.or.jp/chatroom/morun"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "警視庁（電話）",
-                uri: "tel:0335814321" // 仮の電話番号
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "子供を守る声（電話）",
-                uri: "tel:0570078310" // 仮の電話番号
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "こころちゃん事務局（電話）",
-                uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
-            }
-        }]
-    }
+  type: "bubble",
+  body: {
+    type: "box",
+    layout: "vertical",
+    contents: [
+      {
+        type: "text",
+        text: "【危険ワード検知】",
+        weight: "bold",
+        color: "#FF0000",
+        size: "xl",
+        align: "center"
+      },
+      {
+        type: "text",
+        text: "大丈夫だよ、落ち着いてね。もし不安なことがあったら、信頼できる大人や警察に相談してみてね。連絡先については、このあと表示される案内を見てね。",
+        wrap: true,
+        margin: "md"
+      }
+    ]
+  },
+  footer: {
+    type: "box",
+    layout: "vertical",
+    spacing: "sm",
+    contents: [
+      {
+        type: "button",
+        style: "primary",
+        color: "#FF4B4B", // 赤
+        action: { type: "uri", label: "警察（電話）", uri: "tel:110" }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#1E90FF", // 青
+        action: { type: "uri", label: "消防・救急（電話）", uri: "tel:119" }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#32CD32", // 緑
+        action: { type: "uri", label: "いのちの電話", uri: "tel:0570064556" }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#FF69B4", // ピンク
+        action: { type: "uri", label: "こころちゃん事務局（電話）", uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` }
+      }
+    ]
+  }
 });
 
-// Flex: 詐欺注意（画像から再現）
+// Flex: 詐欺ワード検知（シンプル警告版）
 const buildScamFlex = () => ({
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [{
-            type: "text",
-            text: "【詐欺注意】",
-            weight: "bold",
-            color: "#FF0000",
-            size: "xl",
-            align: "center"
-        }, {
-            type: "text",
-            text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
-            wrap: true,
-            margin: "md"
-        }]
-    },
-    footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "sm",
-        contents: [{
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "警察（電話）",
-                uri: "tel:110" // 仮の電話番号
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "消費者ホットライン",
-                uri: "tel:188"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "警察相談専用電話",
-                uri: "tel:9110" // 仮の電話番号
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "国民生活センター",
-                uri: "https://www.kokusen.go.jp/"
-            }
-        }, {
-            type: "button",
-            style: "primary",
-            action: {
-                type: "uri",
-                label: "こころちゃん事務局（電話）",
-                uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
-            }
-        }]
-    }
+  type: "bubble",
+  body: {
+    type: "box",
+    layout: "vertical",
+    contents: [
+      {
+        type: "text",
+        text: "【詐欺注意】",
+        weight: "bold",
+        color: "#FF0000",
+        size: "xl",
+        align: "center"
+      },
+      {
+        type: "text",
+        text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にしてみてね💖",
+        wrap: true,
+        margin: "md"
+      }
+    ]
+  },
+  footer: {
+    type: "box",
+    layout: "vertical",
+    spacing: "sm",
+    contents: [
+      {
+        type: "button",
+        style: "primary",
+        color: "#FF4500", // オレンジ
+        action: { type: "uri", label: "警察（電話）", uri: "tel:110" }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#1E90FF", // 青
+        action: { type: "uri", label: "消費者ホットライン", uri: "tel:188" }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#32CD32", // 緑
+        action: { type: "uri", label: "警察相談専用電話", uri: "tel:9110" }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#FFA500", // 黄色オレンジ
+        action: { type: "uri", label: "国民生活センター", uri: "https://www.kokusen.go.jp/" }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#FF69B4", // ピンク
+        action: { type: "uri", label: "こころちゃん事務局（電話）", uri: `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}` }
+      }
+    ]
+  }
 });
 
-// Flex: 緊急メッセージ
+// Flex: 緊急メッセージ（カラフル配色版）
 const buildEmergencyFlex = (type) => ({
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "contents": [{
-            "type": "text",
-            "text": `【${type}を検知しました】`,
-            "weight": "bold",
-            "color": "#FF0000",
-            "align": "center",
-            "size": "xl"
-        }, {
-            "type": "separator",
-            "margin": "md"
-        }, {
-            "type": "text",
-            "text": "一人で悩まないで。専門の機関に頼ってね。",
-            "wrap": true,
-            "align": "center",
-            "margin": "lg"
-        }, {
-            "type": "text",
-            "text": "緊急の場合はすぐに電話してね。",
-            "wrap": true,
-            "align": "center",
-            "size": "sm"
-        }, {
-            "type": "text",
-            "text": EMERGENCY_CONTACT_PHONE_NUMBER,
-            "weight": "bold",
-            "align": "center",
-            "size": "lg",
-            "color": "#18A701",
-            "margin": "sm"
-        }, ],
-    }, // この閉じ括弧が抜けていた
-    "footer": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "sm",
-        "contents": [{
-            "type": "button",
-            "action": {
-                "type": "uri",
-                "label": "いのちの電話",
-                "uri": "tel:0570064556"
-            },
-            "style": "primary"
-        }, {
-            "type": "button",
-            "action": {
-                "type": "uri",
-                "label": "消費者庁ホットライン",
-                "uri": "tel:188"
-            },
-            "style": "primary"
-        }]
-    }
+  type: "bubble",
+  body: {
+    type: "box",
+    layout: "vertical",
+    contents: [
+      {
+        type: "text",
+        text: `【${type}を検知しました】`,
+        weight: "bold",
+        color: "#FF0000",
+        align: "center",
+        size: "xl"
+      },
+      { type: "separator", margin: "md" },
+      {
+        type: "text",
+        text: "一人で悩まないで。専門の機関に頼ってね。",
+        wrap: true,
+        align: "center",
+        margin: "lg"
+      },
+      {
+        type: "text",
+        text: "緊急の場合はすぐに電話してね。",
+        wrap: true,
+        align: "center",
+        size: "sm"
+      },
+      {
+        type: "text",
+        text: EMERGENCY_CONTACT_PHONE_NUMBER,
+        weight: "bold",
+        align: "center",
+        size: "lg",
+        color: "#18A701",
+        margin: "sm"
+      }
+    ]
+  },
+  footer: {
+    type: "box",
+    layout: "vertical",
+    spacing: "sm",
+    contents: [
+      {
+        type: "button",
+        style: "primary",
+        color: "#FF4B4B", // 赤
+        action: {
+          type: "uri",
+          label: "いのちの電話",
+          uri: "tel:0570064556"
+        }
+      },
+      {
+        type: "button",
+        style: "primary",
+        color: "#1E90FF", // 青
+        action: {
+          type: "uri",
+          label: "消費者庁ホットライン",
+          uri: "tel:188"
+        }
+      }
+    ]
+  }
 });
 
 // Cronジョブ設定
