@@ -123,6 +123,40 @@ const MEMBERSHIP_CONFIG = {
     },
 };
 
+// ★ 追加: 見守りスケジュール定数（JST基準）
+const JST_TZ = 'Asia/Tokyo';
+const PING_HOUR_JST = 15; // 15:00 に定期メッセージ
+const PING_INTERVAL_DAYS = 3; // 3日に1度
+const REMINDER_AFTER_HOURS = 24; // 24時間でリマインド
+const ESCALATE_AFTER_HOURS = 29; // 29時間でオフィサー通知（= 24h + 5h）
+
+// ★ 追加: JST日付計算ユーティリティ（UTCで正確に15:00JSTを作る）
+function toJstParts(date) {
+  // date を JST にずらしたうえで、Y/M/D を取り出す
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return {
+    y: jst.getUTCFullYear(),
+    m: jst.getUTCMonth(),
+    d: jst.getUTCDate()
+  };
+}
+
+function makeDateAtJst(y, m, d, hourJst = 0, min = 0, sec = 0) {
+  // JSTの hour を UTC に直して Date を生成（JST=UTC+9）
+  const utcHour = hourJst - 9; // 15:00JST → 06:00UTC
+  return new Date(Date.UTC(y, m, d, utcHour, min, sec, 0));
+}
+
+function nextPingAtFrom(baseDate /* Date */ ) {
+  // baseDate の JST 日付を取って +3日 15:00(JST) のUTC日時を返す
+  const {
+    y,
+    m,
+    d
+  } = toJstParts(baseDate);
+  return makeDateAtJst(y, m, d + PING_INTERVAL_DAYS, PING_HOUR_JST, 0, 0);
+}
+
 // 固定返信
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋げたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
 const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
