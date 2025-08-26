@@ -280,9 +280,14 @@ const sensitiveBlockers = [
     /(教材|答案|模試|過去問|解答|問題集).*(販売|入手|譲って|買いたい|売りたい)/i,
 ];
 
+const politicalWords = /(自民党|国民民主党|参政党|政治|選挙|与党|野党)/i;
+const religiousWords = /(仏教|キリスト教|イスラム教|宗教|信仰)/i;
+const medicalWords = /(癌|がん|医療|治療|薬|診断|発達障害|精神疾患|病気|病院)/i;
+
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || 'local-dev';
 
-async function safeReply({
+// ★ 修正：replyかpushのどちらか一方に統一
+async function safeReplyOrPush({
     replyToken,
     userId,
     messages,
@@ -302,8 +307,7 @@ async function safeReply({
         }
         await client.replyMessage(replyToken, arr);
     } catch (err) {
-        console.error('[ERR] LINE reply failed -> fallback to push', JSON.stringify({
-            tag,
+        console.warn(`[ERR] LINE reply failed -> fallback to push: ${tag}`, JSON.stringify({
             status: err?.statusCode || err?.response?.status,
             data: err?.response?.data || err?.message
         }, null, 2));
@@ -392,21 +396,22 @@ async function generateSupportiveText({
 }
 
 
-// ★ 追加：質問を1つに制限し、逆質問だけの応答を抑止
-function postprocessReplyLimitQuestions(text) {
+// ★ 追加：疑問文を完全に削除
+function postprocessNoQuestions(text) {
     if (!text) return text;
     let t = String(text).replace(/\s+/g, ' ').trim();
-    const parts = t.split(/(?<=[。！？!?])/);
-    const nonQs = parts.filter(p => !/[？?]$/.test(p)).slice(0, 2);
-    const q = parts.find(p => /[？?]$/.test(p));
-    const out = [...nonQs, q].filter(Boolean).join(' ').trim();
+    const parts = t.split(/(?<=[。！？!])/);
+    const nonQs = parts.filter(p => !/[？?]$/.test(p));
+    let out = nonQs.join(' ').trim();
+    if (out.length > 0 && out.slice(-1) !== '。') {
+        out += '。';
+    }
     const emojis = (out.match(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu) || []);
     if (emojis.length > 2) {
         let count = 0;
-        t = out.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, m => (++count <= 2 ? m : ''));
-        return t;
+        out = out.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, m => (++count <= 2 ? m : ''));
     }
-    return out;
+    return out.trim();
 }
 
 // ★ 追加：LLMを待ちすぎないラッパ
@@ -455,8 +460,7 @@ async function generateGeneralReply(userText) {
   * 好きなアニメ：ヴァイオレット・エヴァーガーデン（心に響く）
   * 好きなアーティスト：ClariS
   * 一番好きな曲：コネクト（元気をもらえる）
-- 結論→短い補足→最後に自然な質問を1つだけ。
-- ユーザーの入力内容を深く理解して応答を生成する。`;
+- 結論→短い補足。質問は絶対しない。`;
         try {
             const r = await httpInstance.post('https://api.openai.com/v1/chat/completions', {
                 model: openaiModel,
@@ -592,6 +596,14 @@ function canNotify(kind, userId, cdMs = 15 * 60 * 1000) {
     return true;
 }
 
+// ★ 追加：政治・宗教・医療のガード
+function guardSensitiveTopics(text) {
+    if (politicalWords.test(text) || religiousWords.test(text) || medicalWords.test(text)) {
+        return "ごめんね、このテーマについては私は専門的に答えられないの🙏 でもあなたの気持ちを大事に思ってるよ🌸";
+    }
+    return null;
+}
+
 async function handleMessageEvent(event) {
     const {
         userId
@@ -615,7 +627,7 @@ async function handleMessageEvent(event) {
     const isAdmin = BOT_ADMIN_IDS.includes(userId);
 
     if (text === 'VERSION') {
-        await safeReply({
+        await safeReplyOrPush({
             replyToken: event.replyToken,
             userId,
             tag: 'version',
@@ -640,7 +652,7 @@ async function handleMessageEvent(event) {
             }, {
                 merge: true
             });
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'debug_ping',
@@ -664,7 +676,7 @@ async function handleMessageEvent(event) {
             }, {
                 merge: true
             });
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'debug_remind',
@@ -688,7 +700,7 @@ async function handleMessageEvent(event) {
             }, {
                 merge: true
             });
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'debug_escalate',
@@ -701,10 +713,24 @@ async function handleMessageEvent(event) {
         }
     }
 
+    // ★ 修正：コンプライアンスチェックをLLMより先に実行
+    const guardedReply = guardSensitiveTopics(text);
+    if (guardedReply) {
+        await safeReplyOrPush({
+            replyToken: event.replyToken,
+            userId,
+            tag: 'guarded_topic',
+            messages: {
+                type: 'text',
+                text: guardedReply
+            }
+        });
+        return;
+    }
 
     for (const [pattern, reply] of specialRepliesMap.entries()) {
         if (pattern.test(text)) {
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'special',
@@ -743,7 +769,7 @@ async function handleMessageEvent(event) {
                 900,
                 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下の案内も使えるからね。'
             );
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'danger_word',
@@ -804,7 +830,7 @@ async function handleMessageEvent(event) {
                 900,
                 '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。'
             );
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'scam_word',
@@ -869,7 +895,7 @@ async function handleMessageEvent(event) {
                     userId: userHash(userId),
                     count
                 });
-                await safeReply({
+                await safeReplyOrPush({
                     replyToken: event.replyToken,
                     userId,
                     tag: 'banned',
@@ -880,7 +906,7 @@ async function handleMessageEvent(event) {
                 });
                 return;
             }
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'inappropriate',
@@ -895,7 +921,7 @@ async function handleMessageEvent(event) {
 
     if (text === '会員登録') {
         const flex = buildRegistrationFlex(userId);
-        await safeReply({
+        await safeReplyOrPush({
             replyToken: event.replyToken,
             userId,
             tag: 'registration',
@@ -911,7 +937,7 @@ async function handleMessageEvent(event) {
     if (text === '見守り' || text === 'みまもり') {
         const isEnabled = doc.exists && doc.data().watchService?.enabled;
         const flex = buildWatchMenuFlex(isEnabled, userId);
-        await safeReply({
+        await safeReplyOrPush({
             replyToken: event.replyToken,
             userId,
             tag: 'watch_menu',
@@ -930,9 +956,9 @@ async function handleMessageEvent(event) {
         null
     );
 
-    const reply = postprocessReplyLimitQuestions(rawReply);
+    const reply = postprocessNoQuestions(rawReply);
 
-    await safeReply({
+    await safeReplyOrPush({
         replyToken: event.replyToken,
         userId,
         tag: 'general',
@@ -943,7 +969,7 @@ async function handleMessageEvent(event) {
     });
 
     if (!rawReply) {
-        generateGeneralReply(text).then(postprocessReplyLimitQuestions).then(ans => {
+        generateGeneralReply(text).then(postprocessNoQuestions).then(ans => {
             if (ans) safePushMessage(userId, {
                 type: 'text',
                 text: ans
@@ -990,7 +1016,7 @@ async function handlePostbackEvent(event) {
         });
         if (isUserEnabled) {
             await scheduleNextPing(userId);
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'watch_ok',
@@ -1000,7 +1026,7 @@ async function handlePostbackEvent(event) {
                 }
             });
         } else {
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'watch_ok_but_off',
@@ -1019,7 +1045,7 @@ async function handlePostbackEvent(event) {
             merge: true
         });
         await scheduleNextPing(userId);
-        await safeReply({
+        await safeReplyOrPush({
             replyToken: event.replyToken,
             userId,
             tag: 'watch_on',
@@ -1038,7 +1064,7 @@ async function handlePostbackEvent(event) {
         }, {
             merge: true
         });
-        await safeReply({
+        await safeReplyOrPush({
             replyToken: event.replyToken,
             userId,
             tag: 'watch_off',
@@ -1060,7 +1086,7 @@ async function handlePostbackEvent(event) {
                     type: 'text',
                     text: '事務局です。先ほどのメッセージについてご無事でしょうか？\nこのメッセージにそのまま返信してください。必要なら「110」や「119」にすぐ連絡してください。'
                 }, 'push:admin_check');
-                await safeReply({
+                await safeReplyOrPush({
                     replyToken: event.replyToken,
                     userId,
                     tag: 'admin_check_ok',
@@ -1078,7 +1104,7 @@ async function handlePostbackEvent(event) {
                 }, {
                     merge: true
                 });
-                await safeReply({
+                await safeReplyOrPush({
                     replyToken: event.replyToken,
                     userId,
                     tag: 'admin_ping_ok',
@@ -1097,7 +1123,7 @@ async function handlePostbackEvent(event) {
                 }, {
                     merge: true
                 });
-                await safeReply({
+                await safeReplyOrPush({
                     replyToken: event.replyToken,
                     userId,
                     tag: 'admin_watch_off_ok',
@@ -1107,7 +1133,7 @@ async function handlePostbackEvent(event) {
                     }
                 });
             } else if (action === 'noreport' && targetId === userId) {
-                await safeReply({
+                await safeReplyOrPush({
                     replyToken: event.replyToken,
                     userId,
                     tag: 'no_report',
@@ -1118,7 +1144,7 @@ async function handlePostbackEvent(event) {
                 });
                 return;
             } else {
-                await safeReply({
+                await safeReplyOrPush({
                     replyToken: event.replyToken,
                     userId,
                     tag: 'admin_unknown',
@@ -1130,7 +1156,7 @@ async function handlePostbackEvent(event) {
             }
         } catch (e) {
             briefErr('admin-postback-failed', e);
-            await safeReply({
+            await safeReplyOrPush({
                 replyToken: event.replyToken,
                 userId,
                 tag: 'admin_failed',
@@ -1154,7 +1180,7 @@ async function handleFollowEvent(event) {
         type: 'text',
         text: '「見守りサービス」と送ると、定期的に私から連絡が届くよ。\n\nもしもの時に、みんながすぐにSOSを出せるようにするサービスなんだ😊\n\nもしよかったら使ってみてね！'
     }];
-    await safeReply({
+    await safeReplyOrPush({
         replyToken: event.replyToken,
         userId,
         tag: 'follow',
@@ -1184,7 +1210,7 @@ async function handleGroupEvents(event) {
             type: 'text',
             text: '皆さん、はじめまして！皆守こころです🌸\n\nこのグループに招待してくれてありがとう😊\n\nいつでも皆さんの心の健康と安全を守るお手伝いをするよ💖'
         };
-        await safeReply({
+        await safeReplyOrPush({
             replyToken: event.replyToken,
             userId: event.source.groupId,
             tag: 'join_group',
