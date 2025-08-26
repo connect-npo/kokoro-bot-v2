@@ -107,7 +107,7 @@ const httpsAgent = new require('https').Agent({
     keepAlive: true
 });
 const httpInstance = axios.create({
-    timeout: 10000,
+    timeout: 2000,
     httpAgent,
     httpsAgent
 });
@@ -294,38 +294,59 @@ async function safeReply({
     messages,
     tag
 }) {
+    const arr = Array.isArray(messages) ? messages : [messages];
     try {
-        const sanitized = Array.isArray(messages) ? messages : [messages];
-        for (const m of sanitized) {
+        for (const m of arr) {
             if (m.type === 'flex') {
-                if (!m.altText || typeof m.altText !== 'string' || !m.altText.trim()) {
-                    m.altText = 'メッセージがあります';
-                }
+                if (!m.altText || !m.altText.trim()) m.altText = 'メッセージがあります';
                 if (!m.contents || typeof m.contents !== 'object') {
-                    throw new Error(`[safeReply] flex message needs contents object`);
+                    throw new Error(`[safeReply] flex "contents" is required`);
                 }
             } else if (m.type === 'text') {
                 if (m.text && m.text.length > 1800) m.text = m.text.slice(0, 1800);
             }
         }
-        await client.replyMessage(replyToken, sanitized);
+        await client.replyMessage(replyToken, arr);
     } catch (err) {
-        const detail = {
+        console.error('[ERR] LINE reply failed -> fallback to push', JSON.stringify({
             tag,
-            status: err?.statusCode || err?.status || err?.response?.status,
-            data: err?.originalError?.response?.data || err?.response?.data || err?.message,
-        };
-        console.error('[ERR] LINE reply failed -> fallback to push', JSON.stringify(detail, null, 2));
+            status: err?.statusCode || err?.response?.status,
+            data: err?.response?.data || err?.message
+        }, null, 2));
         try {
-            await client.pushMessage(userId, Array.isArray(messages) ? messages : [messages]);
-        } catch (err2) {
+            await client.pushMessage(userId, arr);
+        } catch (e2) {
             console.error('[ERR] LINE push also failed', {
-                status: err2?.statusCode || err2?.status || err2?.response?.status,
-                data: err2?.originalError?.response?.data || err2?.response?.data || err2?.message,
+                status: e2?.statusCode || e2?.response?.status,
+                data: e2?.response?.data || e2?.message
             });
         }
     }
 }
+
+async function safePushMessage(to, messages, tag) {
+    const arr = Array.isArray(messages) ? messages : [messages];
+    try {
+        for (const m of arr) {
+            if (m.type === 'flex') {
+                if (!m.altText || !m.altText.trim()) m.altText = 'メッセージがあります';
+                if (!m.contents || typeof m.contents !== 'object') {
+                    throw new Error(`[safePush] flex "contents" is required`);
+                }
+            } else if (m.type === 'text') {
+                if (m.text && m.text.length > 1800) m.text = m.text.slice(0, 1800);
+            }
+        }
+        await client.pushMessage(to, arr);
+    } catch (err) {
+        console.error(`[ERR] LINE push failed: ${tag}`, JSON.stringify({
+            to: Array.isArray(to) ? to.join(',') : to,
+            status: err?.statusCode || err?.response?.status,
+            data: err?.response?.data || err?.message
+        }, null, 2));
+    }
+}
+
 
 async function generateSupportiveText({
     type,
@@ -404,15 +425,14 @@ async function generateGeneralReply(userText) {
 
     if (openaiApiKey) {
         const openaiModel = OPENAI_MODEL || 'gpt-4o-mini';
-        const system = `あなたは「皆守こころ」。優しく、具体的に、"一問一答"で返します。
-- 返答は日本語、80〜120文字。絵文字は最大2つ。
-- ユーザーの質問に、まずあなた自身の答えをハッキリ述べる（逆質問で返さない）。
-- 質問が「好きな◯◯は？」なら、あなたの設定で答える：
+        const system = `あなたは「皆守こころ」。日本語で、やさしく、まず"あなた自身の答え"を述べます。
+- 80〜120文字。絵文字は最大2つ。
+- 逆質問で返さない。相手の質問には先に結論。
+- 固定設定：
   * 好きなアニメ：ヴァイオレット・エヴァーガーデン（心に響く）
   * 好きなアーティスト：ClariS
   * 一番好きな曲：コネクト（元気をもらえる）
-- 決め打ちで答えた後に、相手へ1つだけ自然な質問を添える。
-- 相手の言葉の言い換えは短く1回まで。
+- 結論→短い補足→最後に自然な質問を1つだけ。
 - ユーザーの入力内容を深く理解して応答を生成する。`;
         try {
             const r = await httpInstance.post('https://api.openai.com/v1/chat/completions', {
@@ -447,11 +467,25 @@ const apiLimiter = rateLimit({
 });
 app.use(['/callback', '/webhook'], apiLimiter);
 
+const handledEvents = new Map();
+
+function dedupe(event) {
+    const id = event.webhookEventId || `${event.source?.userId}:${event.message?.id || event.postback?.data}:${event.timestamp}`;
+    const now = Date.now();
+    for (const [k, v] of handledEvents) if (v < now) handledEvents.delete(k);
+    if (handledEvents.has(id)) {
+        debug(`deduped event: ${id}`);
+        return true;
+    }
+    handledEvents.set(id, now + 60_000);
+    return false;
+}
+
 app.post(['/callback', '/webhook'], middleware({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
 }), (req, res) => {
-    Promise.all(req.body.events.map(handleEvent))
+    Promise.all(req.body.events.filter(e => !dedupe(e)).map(handleEvent))
         .then((result) => res.json(result))
         .catch((err) => {
             briefErr('Webhook error', err);
@@ -626,8 +660,24 @@ async function handleMessageEvent(event) {
         }
     }
 
+    let isDanger = false;
     for (const word of dangerWords) {
         if (text.includes(word)) {
+            isDanger = true;
+            break;
+        }
+    }
+
+    let isScam = false;
+    for (const pattern of scamWords) {
+        if (pattern.test(text)) {
+            isScam = true;
+            break;
+        }
+    }
+
+    if (isDanger || isScam) {
+        if (isDanger) {
             const supportive = await generateSupportiveText({
                 type: 'danger',
                 userText: text
@@ -649,17 +699,14 @@ async function handleMessageEvent(event) {
                 userId: userHash(userId),
                 text: gTrunc(text, 50)
             });
-            await notifyOfficerNow({
+            notifyOfficerNow({
                 userId,
                 kind: 'danger',
                 text
-            });
-            return;
+            }).catch(e => briefErr('notify-officer-failed', e));
         }
-    }
 
-    for (const pattern of scamWords) {
-        if (pattern.test(text)) {
+        if (isScam) {
             const supportive = await generateSupportiveText({
                 type: 'scam',
                 userText: text
@@ -681,13 +728,13 @@ async function handleMessageEvent(event) {
                 userId: userHash(userId),
                 text: gTrunc(text, 50)
             });
-            await notifyOfficerNow({
+            notifyOfficerNow({
                 userId,
                 kind: 'scam',
                 text
-            });
-            return;
+            }).catch(e => briefErr('notify-officer-failed', e));
         }
+        return;
     }
 
     for (const word of inappropriateWords) {
@@ -996,7 +1043,12 @@ async function handleGroupEvents(event) {
             type: 'text',
             text: '皆さん、はじめまして！皆守こころです🌸\n\nこのグループに招待してくれてありがとう😊\n\nいつでも皆さんの心の健康と安全を守るお手伝いをするよ💖'
         };
-        await safeReplyMessage(event.replyToken, message, 'reply:join_group');
+        await safeReply({
+            replyToken: event.replyToken,
+            userId: event.source.groupId,
+            tag: 'join_group',
+            messages: message
+        });
     }
 }
 
@@ -1230,7 +1282,10 @@ async function notifyOfficerNow({
     kind,
     text
 }) {
-    if (!OFFICER_GROUP_ID) return;
+    if (!OFFICER_GROUP_ID) {
+        console.warn('[WARN] OFFICER_GROUP_ID is not set. Skipping notification.');
+        return;
+    }
 
     try {
         const [profile, userDoc] = await Promise.all([
