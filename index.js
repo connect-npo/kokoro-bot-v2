@@ -309,7 +309,6 @@ const sensitiveBlockers = [
     /(教材|答案|模試|過去問|解答|問題集).*(販売|入手|譲って|買いたい|売りたい)/i,
 ];
 
-// === 以前のコードの続きから ===
 // LINEのWebhookハンドラ
 const apiLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 60 minutes
@@ -420,89 +419,16 @@ async function handleMessageEvent(event) {
         }
     }
 
+    // === ここからFlexメッセージへの変更 ===
+
     // 会員登録フォームの表示
     if (text === '会員登録' || text === 'メンバー変更' || text === 'メンバーキャンセル') {
-        const userId = event.source.userId;
-        const quickReplyItems = [];
-
-        // 共通フォーム
-        const commonForms = [{
-            label: '入会（同意書）',
-            url: AGREEMENT_FORM_BASE_URL,
-            entryId: AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID
-        }, {
-            label: '入会（成人）',
-            url: ADULT_FORM_BASE_URL,
-            entryId: ADULT_FORM_LINE_USER_ID_ENTRY_ID
-        }, {
-            label: '入会（学生）',
-            url: STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL,
-            entryId: STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID
-        }, ];
-        commonForms.forEach(form => {
-            if (form.url) {
-                quickReplyItems.push({
-                    type: "action",
-                    action: {
-                        type: "uri",
-                        label: form.label,
-                        uri: prefillUrl(form.url, {
-                            [form.entryId]: userId
-                        })
-                    }
-                });
-            }
+        const flex = buildRegistrationFlex(userId);
+        await client.replyMessage(event.replyToken, {
+            type: "flex",
+            altText: "会員登録・情報変更メニュー",
+            contents: flex
         });
-
-        // メンバー情報変更・キャンセル
-        if (MEMBER_CHANGE_FORM_BASE_URL) {
-            quickReplyItems.push({
-                type: "action",
-                action: {
-                    type: "uri",
-                    label: "メンバー情報変更",
-                    uri: prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, {
-                        [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId
-                    })
-                }
-            });
-        }
-        if (MEMBER_CANCEL_FORM_BASE_URL) {
-            quickReplyItems.push({
-                type: "action",
-                action: {
-                    type: "uri",
-                    label: "メンバー退会",
-                    uri: prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, {
-                        [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId
-                    })
-                }
-            });
-        }
-
-        const messages = [{
-            type: 'text',
-            text: '会員登録や情報の変更はここからできるよ！',
-        }];
-        if (quickReplyItems.length > 0) {
-            messages[0].quickReply = {
-                items: quickReplyItems
-            };
-        } else {
-            // 何も出せないときは原因ヒントを返す（環境変数名も表示）
-            const hints = [
-                ['AGREEMENT_FORM_BASE_URL', AGREEMENT_FORM_BASE_URL],
-                ['STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL', STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL],
-                ['ADULT_FORM_BASE_URL', ADULT_FORM_BASE_URL],
-                ['MEMBER_CHANGE_FORM_BASE_URL', MEMBER_CHANGE_FORM_BASE_URL],
-                ['MEMBER_CANCEL_FORM_BASE_URL', MEMBER_CANCEL_FORM_BASE_URL],
-            ].filter(([k, v]) => !v).map(([k]) => k).join(', ');
-            messages.push({
-                type: 'text',
-                text: `ごめんね💦 フォームのURLが未設定みたい。\n管理者向けメモ: ${hints || '（環境変数名の特定不可）'} を確認してね。`
-            });
-        }
-        await client.replyMessage(event.replyToken, messages);
         return;
     }
 
@@ -512,7 +438,11 @@ async function handleMessageEvent(event) {
         const doc = await userRef.get();
         const isEnabled = doc.exists && doc.data().watchService?.enabled;
         const flex = buildWatchMenuFlex(isEnabled, userId);
-        await client.replyMessage(event.replyToken, flex);
+        await client.replyMessage(event.replyToken, {
+            type: "flex",
+            altText: "見守りサービスメニュー",
+            contents: flex
+        });
         return;
     }
 
@@ -717,7 +647,7 @@ async function checkAndSendPing() {
     }, {
         text: '「疲れたな」って思った時は、思い切って休憩してみてね😊\n\n頑張り屋さんのあなたを、いつも応援しているよ🌸'
     }, {
-        text: 'もしつらい気持ちになったら、ひとりで抱え込まないでね。\n\n私に話してくれるだけでも、きっと少し楽になるはずだよ💖'
+        text: 'もしつらい気持ちになったら、ひとりで抱え込まないでね。\n\n言葉にすることで、スッキリすることもあるからね💖'
     }, {
         text: '元気がないな…って感じたら、自分をたくさん甘やかしてあげてね😊\n\n温かい飲み物を飲んだり、好きな音楽を聴いたりするのもおすすめだよ🌸'
     }, {
@@ -867,97 +797,242 @@ async function checkAndSendEscalation() {
     console.log('--- Cron job: checkAndSendEscalation finished ---');
 }
 
-// 見守りメニューのFlexメッセージを生成する関数
-function buildWatchMenuFlex(isEnabled, userId) {
-    const WATCH_PRIVACY_URL = 'https://gamma.app/docs/-iwcjofrc870g681?mode=doc';
-
+// === あなたが提供した「正しい」Flexメッセージのコード ===
+// Flex: 会員登録
+const buildRegistrationFlex = (userId) => {
     const buttons = [];
-    if (isEnabled) {
-        buttons.push({
-            type: "button",
-            action: {
-                type: "postback",
-                label: "見守りサービスをOFFにする",
-                data: "watch:off",
-                displayText: "見守りサービスをOFFにしたよ"
-            },
-            style: "primary",
-            height: "sm",
-            margin: "md"
-        });
-    } else {
-        buttons.push({
-            type: "button",
-            action: {
-                type: "postback",
-                label: "見守りサービスをONにする",
-                data: "watch:on",
-                displayText: "見守りサービスをONにしたよ🌸"
-            },
-            style: "primary",
-            height: "sm",
-            margin: "md"
-        });
-    }
 
-    // 見守り登録フォーム（URLがあれば出す）
-    if (WATCH_SERVICE_FORM_BASE_URL) {
+    // AGREEMENT_FORM_BASE_URLが設定されている場合のみボタンを追加
+    if (AGREEMENT_FORM_BASE_URL) {
         buttons.push({
             type: "button",
+            style: "primary",
+            height: "sm",
             action: {
                 type: "uri",
-                label: "見守り登録フォームを開く",
-                uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
-                    [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                label: "小学生（同意書）",
+                uri: prefillUrl(AGREEMENT_FORM_BASE_URL, {
+                    [AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID]: userId
                 })
-            },
-            style: "secondary",
-            height: "sm",
-            margin: "md"
+            }
         });
     }
 
-    buttons.push({
-        type: "button",
-        action: {
-            type: "uri",
-            label: "プライバシーポリシー",
-            uri: WATCH_PRIVACY_URL
-        },
-        style: "link",
-        height: "sm",
-        margin: "md"
-    });
+    // STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URLが設定されている場合のみボタンを追加
+    if (STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "primary",
+            height: "sm",
+            action: {
+                type: "uri",
+                label: "中高生・大学生",
+                uri: prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, {
+                    [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    // ADULT_FORM_BASE_URLが設定されている場合のみボタンを追加
+    if (ADULT_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "primary",
+            height: "sm",
+            action: {
+                type: "uri",
+                label: "成人",
+                uri: prefillUrl(ADULT_FORM_BASE_URL, {
+                    [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    // MEMBER_CHANGE_FORM_BASE_URLが設定されている場合のみボタンを追加
+    if (MEMBER_CHANGE_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            margin: "lg",
+            action: {
+                type: "uri",
+                label: "登録情報変更",
+                uri: prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, {
+                    [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    // MEMBER_CANCEL_FORM_BASE_URLが設定されている場合のみボタンを追加
+    if (MEMBER_CANCEL_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            action: {
+                type: "uri",
+                label: "退会手続き",
+                uri: prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, {
+                    [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
 
     return {
-        type: "flex",
-        altText: "見守りサービスメニュー",
-        contents: {
-            type: "bubble",
-            body: {
-                type: "box",
-                layout: "vertical",
-                contents: [{
-                    type: "text",
-                    text: "見守りサービスメニュー",
-                    weight: "bold",
-                    size: "md"
-                }, {
-                    type: "text",
-                    text: "必要に応じてボタンを押してね。",
-                    size: "sm",
-                    margin: "md"
-                }]
-            },
-            footer: {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: "会員登録・情報変更",
+                weight: "bold",
+                size: "xl"
+            }, {
+                type: "separator",
+                margin: "md"
+            }, {
                 type: "box",
                 layout: "vertical",
                 spacing: "sm",
-                contents: buttons
-            }
+                margin: "lg",
+                contents: [{
+                    type: "text",
+                    text: "ご希望のメニューを選んでね🌸",
+                    size: "md",
+                    align: "center",
+                    margin: "md"
+                }, ...buttons]
+            }]
         }
     };
-}
+};
+
+// Flex: 見守りメニュー
+const buildWatchMenuFlex = (isEnabled, userId) => {
+    const footerButtons = [];
+
+    if (WATCH_SERVICE_FORM_BASE_URL) {
+        footerButtons.push({
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "詳しく見る・利用登録",
+                uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
+                    [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    footerButtons.push({
+        type: "button",
+        style: "secondary",
+        action: {
+            type: "postback",
+            label: isEnabled ? "見守り停止" : "見守り再開",
+            data: isEnabled ? "watch:off" : "watch:on",
+            displayText: isEnabled ? "見守り停止" : "見守り再開"
+        }
+    });
+
+    return {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: "見守りサービス",
+                weight: "bold",
+                size: "xl"
+            }, {
+                type: "separator",
+                margin: "md"
+            }, {
+                type: "text",
+                text: "もしもの時に、LINEのメッセージがないとご家族に通知するサービスです🌸",
+                wrap: true,
+                margin: "lg"
+            }]
+        },
+        footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: footerButtons
+        }
+    };
+};
+
+// Flex: 緊急メッセージ
+const buildEmergencyFlex = (type) => ({
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [{
+            "type": "text",
+            "text": `【${type}を検知しました】`,
+            "weight": "bold",
+            "color": "#FF0000",
+            "align": "center",
+            "size": "xl"
+        }, {
+            "type": "separator",
+            "margin": "md"
+        }, {
+            "type": "text",
+            "text": "一人で悩まないで。専門の機関に頼ってね。",
+            "wrap": true,
+            "align": "center",
+            "margin": "lg"
+        }, {
+            "type": "text",
+            "text": "緊急の場合はすぐに電話してね。",
+            "wrap": true,
+            "align": "center",
+            "size": "sm"
+        }, {
+            "type": "text",
+            "text": EMERGENCY_CONTACT_PHONE_NUMBER,
+            "weight": "bold",
+            "align": "center",
+            "size": "lg",
+            "color": "#18A701",
+            "margin": "sm"
+        }, ],
+    },
+    "footer": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [{
+            "type": "button",
+            "action": {
+                "type": "uri",
+                "label": "いのちの電話",
+                "uri": "tel:0570064556"
+            },
+            "style": "primary"
+        }, {
+            "type": "button",
+            "action": {
+                "type": "uri",
+                "label": "消費者庁ホットライン",
+                "uri": "tel:188"
+            },
+            "style": "primary"
+        }]
+    }
+});
+
 
 // Cronジョブ設定
 cron.schedule('0 15 * * *', checkAndSendPing, {
