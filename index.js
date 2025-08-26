@@ -781,7 +781,7 @@ async function sendEmergencyResponse(userId, replyToken, message, type, source) 
         text: `このメッセージを事務局に転送していいかな？🌸\n\n【転送される内容】\n${message}`
     }, {
         type: 'text',
-        text: '返信してくれるか、「転送して」と返信してみてね。\n\nすぐに誰かに話したいときは、こころの窓口まで電話してみてね。\n${EMERGENCY_CONTACT_PHONE_NUMBER}`
+        text: `返信してくれるか、「転送して」と返信してみてね。\n\nすぐに誰かに話したいときは、心の窓口まで電話してみてね。\n${EMERGENCY_CONTACT_PHONE_NUMBER}`
     }];
     await safeReply(replyToken, messages, userId, source);
 
