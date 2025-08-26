@@ -664,7 +664,7 @@ async function checkAndSendPing() {
     }, {
         text: '今日も一日、よく頑張ったね！\n\n明日もあなたにとって素敵な一日になりますように🌸'
     }];
-    
+
     for (const doc of snapshot.docs) {
         const userId = doc.id;
         const userData = doc.data();
