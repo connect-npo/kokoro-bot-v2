@@ -12,6 +12,11 @@ const {
     URL,
     URLSearchParams
 } = require('url');
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
@@ -23,10 +28,30 @@ const {
 
 // 環境変数の値に付いているゴミを除去してURLを正規化する関数
 const normalizeFormUrl = s => {
-    let v = String(s || '').trim();
-    v = v.replace(/^usp=header\s*/i, '');
-    if (v && !/^https?:\/\//i.test(v)) return '';
+  let v = String(s || '').trim();
+  if (!v) return '';
+  // 先頭のゴミ掃除
+  v = v.replace(/^usp=header\s*/i, '');
+  // スキーム省略（docs.google.com など）を救済
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  try {
+    // 妥当性最終チェック
+    new URL(v);
     return v;
+  } catch {
+    console.warn('[WARN] Invalid form URL in env:', s);
+    return '';
+  }
+};
+
+const prefillUrl = (base, params) => {
+    const url = new URL(base);
+    for (const [key, value] of Object.entries(params)) {
+        if (value) {
+            url.searchParams.set(key, value);
+        }
+    }
+    return url.toString();
 };
 
 // 環境変数
@@ -45,6 +70,9 @@ const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
+const BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS || '[]');
+const OWNER_USER_ID = process.env.OWNER_USER_ID || BOT_ADMIN_IDS[0];
+const OWNER_GROUP_ID = process.env.OWNER_GROUP_ID || null;
 
 // 各Googleフォームの「line_user_id」質問に対応するentry ID
 // 環境変数が設定されている場合はそちらを優先し、なければ直接指定のIDを使用
@@ -56,10 +84,23 @@ const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_
 const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
 
 // Firebase Admin SDKの初期化
-const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString());
-firebaseAdmin.initializeApp({
-    credential: firebaseAdmin.credential.cert(serviceAccount)
-});
+let creds = null;
+if (process.env.FIREBASE_CREDENTIALS_BASE64) {
+    creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
+}
+if (!firebaseAdmin.apps.length) {
+    if (!creds) {
+        try {
+            creds = require("./serviceAccountKey.json");
+        } catch {
+            throw new Error("FIREBASE_CREDENTIALS_BASE64 か serviceAccountKey.json が必要です");
+        }
+    }
+    firebaseAdmin.initializeApp({
+        credential: firebaseAdmin.credential.cert(creds),
+    });
+    console.log("✅ Firebase initialized");
+}
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
 
@@ -92,9 +133,8 @@ app.use(helmet());
 const audit = (event, detail) => {
     console.log(`[AUDIT] ${event}`, JSON.stringify(detail));
 };
-const briefErr = (event, e) => {
-    console.error(`[ERROR] ${event}`, e.message);
-    console.error(e.stack);
+const briefErr = (msg, e) => {
+    console.error(`[ERR] ${msg}:`, e.response?.data || e.message);
 };
 const debug = (message) => {
     console.log(`[DEBUG] ${message}`);
