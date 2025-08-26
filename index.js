@@ -28,20 +28,20 @@ const {
 
 // 環境変数の値に付いているゴミを除去してURLを正規化する関数
 const normalizeFormUrl = s => {
-  let v = String(s || '').trim();
-  if (!v) return '';
-  // 先頭のゴミ掃除
-  v = v.replace(/^usp=header\s*/i, '');
-  // スキーム省略（docs.google.com など）を救済
-  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
-  try {
-    // 妥当性最終チェック
-    new URL(v);
-    return v;
-  } catch {
-    console.warn('[WARN] Invalid form URL in env:', s);
-    return '';
-  }
+    let v = String(s || '').trim();
+    if (!v) return '';
+    // 先頭のゴミ掃除
+    v = v.replace(/^usp=header\s*/i, '');
+    // スキーム省略（docs.google.com など）を救済
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+    try {
+        // 妥当性最終チェック
+        new URL(v);
+        return v;
+    } catch {
+        console.warn('[WARN] Invalid form URL in env:', s);
+        return '';
+    }
 };
 
 const prefillUrl = (base, params) => {
@@ -309,15 +309,17 @@ const sensitiveBlockers = [
     /(教材|答案|模試|過去問|解答|問題集).*(販売|入手|譲って|買いたい|売りたい)/i,
 ];
 
+const APP_VERSION = process.env.RENDER_GIT_COMMIT || 'local-dev';
+
 // LINEのWebhookハンドラ
 const apiLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 60 minutes
     max: 100, // Limit each IP to 100 requests per `window` (here, per hour)
     message: 'このIPからのリクエストが多すぎます。しばらくしてから再度お試しください。'
 });
-app.use('/callback', apiLimiter);
+app.use(['/callback', '/webhook'], apiLimiter);
 
-app.post('/callback', middleware({
+app.post(['/callback', '/webhook'], middleware({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
 }), (req, res) => {
@@ -328,6 +330,16 @@ app.post('/callback', middleware({
             res.status(500).end();
         });
 });
+
+app.get('/version', (_, res) => {
+    res.json({
+        version: APP_VERSION,
+        hasWatchUrl: !!WATCH_SERVICE_FORM_BASE_URL,
+        hasAgreementUrl: !!AGREEMENT_FORM_BASE_URL,
+        hasAdultUrl: !!ADULT_FORM_BASE_URL,
+    });
+});
+console.log('✅ running version:', APP_VERSION);
 
 async function handleEvent(event) {
     if (event.source.type === 'user') {
@@ -365,6 +377,19 @@ async function handleMessageEvent(event) {
     const {
         text
     } = event.message;
+
+    // 診断用コマンド
+    if (text === 'VERSION') {
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text:
+                `ver: ${APP_VERSION}\n` +
+                `WATCH_URL: ${!!WATCH_SERVICE_FORM_BASE_URL}\n` +
+                `AGREE_URL: ${!!AGREEMENT_FORM_BASE_URL}\n` +
+                `ADULT_URL: ${!!ADULT_FORM_BASE_URL}\n`
+        });
+        return;
+    }
 
     // 固定返信のチェック
     for (const [pattern, reply] of specialRepliesMap.entries()) {
@@ -979,7 +1004,7 @@ const buildDangerFlex = (text) => ({
         layout: "vertical",
         contents: [{
             type: "text",
-            text: "【危険ワード検知】",
+            text: "【危険ワードを検知しました】",
             weight: "bold",
             color: "#FF0000",
             size: "xl",
@@ -994,7 +1019,7 @@ const buildDangerFlex = (text) => ({
             text: "あなたもがんばって安心できるよう、応援してるよ。",
             wrap: true,
             margin: "md"
-        }]
+        }, ]
     },
     footer: {
         type: "box",
@@ -1173,6 +1198,7 @@ const buildEmergencyFlex = (type) => ({
             "color": "#18A701",
             "margin": "sm"
         }, ],
+    }, // この閉じ括弧が抜けていた
     "footer": {
         "type": "box",
         "layout": "vertical",
