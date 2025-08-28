@@ -1041,68 +1041,66 @@ async function handlePostbackEvent(event) {
         }
 
         try {
-  if (action === 'sendCheck' && targetId) {
-    await safePushMessage(targetId, {
-      type: 'text',
-      text:
-        'こころチャット 事務局です。先ほどのメッセージについてご無事でしょうか？\n' +
-        'この後もこころちゃんが対応します。\n' +
-        'まずは落ち着いてください。必要なら「110」や「119」にすぐ連絡してくださいね。'
-    }, 'push:admin_check');
-
-    await safePushMessage(userId, {
-      type: 'text',
-      text: '本人へ安否確認を送信しました。'
-    }, 'admin_check_ok');
-
-  } else if (action === 'pingNow' && targetId) {
-    await db.collection('users').doc(targetId).set({
-      watchService: {
-        enabled: true,
-        nextPingAt: Timestamp.fromDate(new Date(Date.now() - 60_000))
-      }
-    }, { merge: true });
-
-    await safePushMessage(userId, {
-      type: 'text',
-      text: '次回Pingを即時化しました。'
-    }, 'admin_ping_ok');
-
-  } else if (action === 'watchOff' && targetId) {
-    await db.collection('users').doc(targetId).set({
-      watchService: {
-        enabled: false,
-        awaitingReply: false,
-        nextPingAt: firebaseAdmin.firestore.FieldValue.delete()
-      }
-    }, { merge: true });
-
-    await safePushMessage(userId, {
-      type: 'text',
-      text: '見守りを一時停止しました。'
-    }, 'admin_watch_off_ok');
-
-  } else if (action === 'noreport' && targetId === userId) {
-    await safePushMessage(userId, {
-      type: 'text',
-      text: 'わかったよ。必要になったらいつでも言ってね🌸'
-    }, 'no_report');
-    return;
-
-  } else {
-    await safePushMessage(userId, {
-      type: 'text',
-      text: '不明な管理アクションです。'
-    }, 'admin_unknown');
-  }
-} catch (e) {
-  briefErr('admin-postback-failed', e);
-  await safePushMessage(userId, {
-    type: 'text',
-    text: '処理に失敗しました。サーバーログを確認してください。'
-  }, 'admin_failed');
+            if (action === 'sendCheck' && targetId) {
+                await safePushMessage(targetId, {
+                    type: 'text',
+                    text: '事務局です。先ほどのメッセージについてご無事でしょうか？\nこのメッセージにそのまま返信してください。必要なら「110」や「119」にすぐ連絡してください。'
+                }, 'push:admin_check');
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '本人へ安否確認を送信しました。'
+                }, 'admin_check_ok');
+            } else if (action === 'pingNow' && targetId) {
+                await db.collection('users').doc(targetId).set({
+                    watchService: {
+                        enabled: true,
+                        nextPingAt: Timestamp.fromDate(new Date(Date.now() - 60_000))
+                    }
+                }, {
+                    merge: true
+                });
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '次回Pingを即時化しました。'
+                }, 'admin_ping_ok');
+            } else if (action === 'watchOff' && targetId) {
+                await db.collection('users').doc(targetId).set({
+                    watchService: {
+                        enabled: false,
+                        awaitingReply: false,
+                        nextPingAt: firebaseAdmin.firestore.FieldValue.delete()
+                    }
+                }, {
+                    merge: true
+                });
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '見守りを一時停止しました。'
+                }, 'admin_watch_off_ok');
+            } else if (action === 'noreport' && targetId === userId) {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: 'わかったよ。必要になったらいつでも言ってね🌸'
+                }, 'no_report');
+                return;
+            } else {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '不明な管理アクションです。'
+                }, 'admin_unknown');
+            }
+        } catch (e) {
+            briefErr('admin-postback-failed', e);
+            await safePushMessage(userId, {
+                type: 'text',
+                text: '処理に失敗しました。サーバーログを確認してください。'
+            }, 'admin_failed');
+        }
+    } else {
+        debug(`unknown postback data: ${data}`);
+    }
 }
-        
+
 async function handleFollowEvent(event) {
     const userId = event.source.userId;
     const messages = [{
