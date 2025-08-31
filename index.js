@@ -462,11 +462,12 @@ async function generateGeneralReply(userText, noQuestions = false) {
 - 政治/宗教/医療/法律の助言はしない。攻撃的・露骨な表現は禁止。
 - 絵文字は0〜2個。言い回しは少しずつ変える（くり返し過多NG）。
 - 「〜についてどう思う？」には、評価ではなく共感で返す。`;
+
   if (noQuestions) {
     systemInstruction += `\n【重要】ユーザーは質問を望んでいません。どんな状況でも質問しないでください。`;
   }
 
-  // ① 短文なら Gemini（高速）
+  // ★ 短文なら Gemini（高速）
   if (geminiApiKey && toGraphemes(userText).length <= 50) {
     try {
       const geminiModel = 'gemini-1.5-flash-latest';
@@ -480,15 +481,17 @@ async function generateGeneralReply(userText, noQuestions = false) {
         },
         { timeout: 1800 }
       );
-      const out = res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT;
-      return finalizeUtterance(out, noQuestions);
+      return finalizeUtterance(
+        res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT,
+        noQuestions
+      );
     } catch (e) {
       briefErr('gemini-general-fallback', e);
-      // 続いて OpenAI へフォールバック
+      // ここで OpenAI フォールバック処理へ進む
     }
   }
 
-  // ② OpenAI（安定）
+  // ★ OpenAI（安定）
   if (openaiApiKey) {
     try {
       const model = OPENAI_MODEL || 'gpt-4o-mini';
@@ -504,14 +507,16 @@ async function generateGeneralReply(userText, noQuestions = false) {
         },
         { headers: { Authorization: `Bearer ${openaiApiKey}` }, timeout: 2000 }
       );
-      const out = r.data?.choices?.[0]?.message?.content?.trim() ?? FALLBACK_TEXT;
-      return finalizeUtterance(out, noQuestions);
+      return finalizeUtterance(
+        r.data?.choices?.[0]?.message?.content?.trim() ?? FALLBACK_TEXT,
+        noQuestions
+      );
     } catch (e) {
       briefErr('openai-general-fallback', e);
     }
   }
 
-  // ③ どちらもだめなら固定文
+  // どちらも失敗したら固定文
   return finalizeUtterance(FALLBACK_TEXT, noQuestions);
 }
 
