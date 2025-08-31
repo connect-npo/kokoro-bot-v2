@@ -403,64 +403,117 @@ async function safePushMessage(to, messages, tag) {
     }
 }
 
+async function generateSupportiveText({ type, userText }) {
+  const apiKey = OPENAI_API_KEY;
+  const model = OPENAI_MODEL || 'gpt-4o-mini';
 
-async function generateSupportiveText({
-    type,
-    userText
-}) {
-    const apiKey = OPENAI_API_KEY;
-    const model = OPENAI_MODEL || 'gpt-4o-mini';
+  if (!apiKey) {
+    return type === 'danger'
+      ? '今のお話、とてもつらかったね…。一人で抱え込まなくて大丈夫だよ。まずは深呼吸しよう。私はあなたの味方だよ。すぐ下の案内から頼れる窓口にもつながれるから、必要なら使ってね。'
+      : '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。必要なら、今の状況を一緒に整理しよう。';
+  }
 
-    if (!apiKey) {
-        return type === 'danger' ?
-            '今のお話、とてもつらかったね…。一人で抱え込まなくて大丈夫だよ。まずは深呼吸しよう。私はあなたの味方だよ。すぐ下の案内から頼れる窓口にもつながれるから、必要なら使ってね。' :
-            '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。必要なら、今の状況を一緒に整理しよう。';
-    }
+  // ★ こころちゃん（14）の天使モード／緊急時ポリシー
+  const system =
+`あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
+- 100〜200文字で、やさしく具体的に寄り添う。相手を責めない・決めつけない。
+- まず結論と安心感→次に短い提案（深呼吸/安全確保/信頼できる人へ相談）。
+- 医療・診断・法律判断はしない。固有名の断定もしない。
+- 緊急が疑われる時は、「下のボタン（案内）も使えるよ」とそっと促す（110/119と直接は言わない）。
+- 口調は柔らかく、絵文字は0〜2個。繰り返しすぎない。`;
 
-    const system = `あなたは日本語のメンタルヘルス／安全支援アシスタントです。
-- 100〜200文字程度で、やさしく具体的に寄り添う。
-- 相手を責めない・指示しすぎない。
-- ただちにできる行動（深呼吸・安全確保・第三者に相談）をそっと提案。
-- 固有名や診断はしない。
-- 最後に「下のボタン（案内）も使えるよ」と一言添える。`;
+  const user =
+`種類: ${type === 'danger' ? '危険(いのち・暴力・自傷など)' : '詐欺・金銭トラブル'}
+ユーザー入力: ${userText}`;
 
-    const user = `種類: ${type === 'danger' ? '危険(いのち・暴力・自傷など)' : '詐欺・金銭トラブル'}\nユーザー入力: ${userText}`;
-
-    try {
-        const res = await httpInstance.post(
-            'https://api.openai.com/v1/chat/completions', {
-                model,
-                messages: [{
-                    role: 'system',
-                    content: system
-                }, {
-                    role: 'user',
-                    content: user
-                }],
-                temperature: 0.4,
-            }, {
-                headers: {
-                    Authorization: `Bearer ${apiKey}`
-                },
-                timeout: 1800
-            }
-        );
-        return res.data?.choices?.[0]?.message?.content?.trim() ||
-            'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下の案内も使えるからね。';
-    } catch (e) {
-        briefErr('openai-completion-failed', e);
-        return 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下の案内も使えるからね。';
-    }
+  try {
+    const res = await httpInstance.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature: 0.4,
+      },
+      { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 1800 }
+    );
+    const out =
+      res.data?.choices?.[0]?.message?.content?.trim() ||
+      'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
+    return out;
+  } catch (e) {
+    briefErr('openai-completion-failed', e);
+    return 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
+  }
 }
 
 async function generateGeneralReply(userText, noQuestions = false) {
-    const geminiApiKey = GEMINI_API_KEY;
-    const openaiApiKey = OPENAI_API_KEY;
-    const FALLBACK_TEXT = "読ませてもらったよ。無理しないでね、ここにいるよ🌸";
+  const geminiApiKey = GEMINI_API_KEY;
+  const openaiApiKey = OPENAI_API_KEY;
+  const FALLBACK_TEXT = "読ませてもらったよ。無理しないでね、ここにいるよ🌸";
 
-    const systemInstruction = `あなたは「皆守こころ」(14)。やさしく短く話す。結論→ねぎらいの順。質問は原則しない（最大1つ）。政治/宗教/医療/法的助言は答えない。攻撃的表現・露骨な表現は禁止。顔文字0〜2。繰り返しは避け、表現を少し変える。
-    ユーザーが「〇〇についてどう思う？」と意見を求めた場合、「〇〇は辛いよね...」のように共感で返してください。` +
-        (noQuestions ? `\n\n【重要】ユーザーは質問を望んでいません。どんな状況でも絶対に質問しないでください。` : '');
+  // こころちゃん（14）通常会話の指示
+  let systemInstruction =
+`あなたは「皆守こころ（14）」です。やさしく短く話す。
+- まず結論で寄り添い→ねぎらい→必要なら1つだけ促す。
+- 質問は原則しない（最大1つまで）。無理に質問しない。
+- 政治/宗教/医療/法律の助言はしない。攻撃的・露骨な表現は禁止。
+- 絵文字は0〜2個。言い回しは少しずつ変える（くり返し過多NG）。
+- 「〜についてどう思う？」には、評価ではなく共感で返す。`;
+  if (noQuestions) {
+    systemInstruction += `\n【重要】ユーザーは質問を望んでいません。どんな状況でも質問しないでください。`;
+  }
+
+  // ① 短文なら Gemini（高速）
+  if (geminiApiKey && toGraphemes(userText).length <= 50) {
+    try {
+      const geminiModel = 'gemini-1.5-flash-latest';
+      const res = await httpInstance.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
+        {
+          contents: [{
+            role: "user",
+            parts: [{ text: `システム: ${systemInstruction}\nユーザー: ${userText}` }]
+          }]
+        },
+        { timeout: 1800 }
+      );
+      const out = res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT;
+      return finalizeUtterance(out, noQuestions);
+    } catch (e) {
+      briefErr('gemini-general-fallback', e);
+      // 続いて OpenAI へフォールバック
+    }
+  }
+
+  // ② OpenAI（安定）
+  if (openaiApiKey) {
+    try {
+      const model = OPENAI_MODEL || 'gpt-4o-mini';
+      const r = await httpInstance.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: userText },
+          ],
+          temperature: 0.6,
+        },
+        { headers: { Authorization: `Bearer ${openaiApiKey}` }, timeout: 2000 }
+      );
+      const out = r.data?.choices?.[0]?.message?.content?.trim() ?? FALLBACK_TEXT;
+      return finalizeUtterance(out, noQuestions);
+    } catch (e) {
+      briefErr('openai-general-fallback', e);
+    }
+  }
+
+  // ③ どちらもだめなら固定文
+  return finalizeUtterance(FALLBACK_TEXT, noQuestions);
+}
 
     if (toGraphemes(userText).length <= 50 && geminiApiKey) {
         const geminiModel = 'gemini-1.5-flash-latest';
