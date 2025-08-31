@@ -1855,6 +1855,21 @@ const buildScamFlex = () => {
     };
 };
 
+// ===== cron の設定 =====
+cron.schedule('0 15 * * *', checkAndSendPing, { 
+    scheduled: true, 
+    timezone: JST_TZ 
+});
+cron.schedule('0 * * * *', checkAndSendReminder, { 
+    scheduled: true, 
+    timezone: JST_TZ 
+});
+cron.schedule('0 * * * *', checkAndSendEscalation, { 
+    scheduled: true, 
+    timezone: JST_TZ 
+});
+
+// ===== サーバー起動 =====
 app.listen(PORT, () => {
     console.log(`サーバーはポート${PORT}で実行されています`);
 });
