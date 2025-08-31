@@ -8,9 +8,7 @@
     "start": "node index.js",
     "watch": "node watch-service.js"
   },
-  "engines": {
-    "node": "20.x"
-  },
+  "engines": { "node": "20.x" },
   "dependencies": {
     "@line/bot-sdk": "^9.4.4",
     "axios": "^1.6.8",
