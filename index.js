@@ -520,7 +520,7 @@ async function generateGeneralReply(userText, noQuestions = false) {
   return finalizeUtterance(FALLBACK_TEXT, noQuestions);
 }
 
-   
+
 const apiLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 100,
@@ -1854,19 +1854,6 @@ const buildScamFlex = () => {
         }
     };
 };
-
-cron.schedule('0 15 * * *', checkAndSendPing, {
-    scheduled: true,
-    timezone: JST_TZ
-});
-cron.schedule('0 * * * *', checkAndSendReminder, {
-    scheduled: true,
-    timezone: JST_TZ
-});
-cron.schedule('0 * * * *', checkAndSendEscalation, {
-    scheduled: true,
-    timezone: JST_TZ
-});
 
 app.listen(PORT, () => {
     console.log(`サーバーはポート${PORT}で実行されています`);
