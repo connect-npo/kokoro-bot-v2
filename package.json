@@ -1,5 +1,5 @@
 {
-  "name": "kokoro-bot-v2",
+  "name": "kokoro-bot",
   "version": "1.0.0",
   "private": true,
   "main": "index.js",
