@@ -520,55 +520,7 @@ async function generateGeneralReply(userText, noQuestions = false) {
   return finalizeUtterance(FALLBACK_TEXT, noQuestions);
 }
 
-    if (toGraphemes(userText).length <= 50 && geminiApiKey) {
-        const geminiModel = 'gemini-1.5-flash-latest';
-        try {
-            const res = await httpInstance.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`, {
-                    contents: [{
-                        role: "user",
-                        parts: [{
-                            text: `システム: ${systemInstruction}\nユーザー: ${userText}`
-                        }]
-                    }]
-                }, {
-                    timeout: 1800
-                }
-            );
-            return finalizeUtterance(res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT, noQuestions);
-        } catch (e) {
-            briefErr('gemini-general-fallback', e);
-        }
-    }
-
-    if (openaiApiKey) {
-        const openaiModel = OPENAI_MODEL || 'gpt-4o-mini';
-        try {
-            const r = await httpInstance.post('https://api.openai.com/v1/chat/completions', {
-                model: openaiModel,
-                temperature: 0.6,
-                messages: [{
-                    role: 'system',
-                    content: systemInstruction
-                }, {
-                    role: 'user',
-                    content: userText
-                }]
-            }, {
-                headers: {
-                    Authorization: `Bearer ${openaiApiKey}`
-                },
-                timeout: 1800
-            });
-            return finalizeUtterance(r.data?.choices?.[0]?.message?.content ?? FALLBACK_TEXT, noQuestions);
-        } catch (e) {
-            briefErr('openai-general-fallback', e);
-        }
-    }
-
-    return finalizeUtterance(FALLBACK_TEXT, noQuestions);
-}
-
+   
 const apiLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 100,
