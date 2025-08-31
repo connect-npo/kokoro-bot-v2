@@ -403,6 +403,17 @@ async function safePushMessage(to, messages, tag) {
     }
 }
 
+// ★ タイムアウトラッパー（失敗しても握りつぶす）
+async function withFastTimeout(promise, ms = 2000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
+  ]).catch(e => {
+    console.error("withFastTimeout error:", e.message);
+    return null;
+  });
+}
+
 async function generateSupportiveText({ type, userText }) {
   const apiKey = OPENAI_API_KEY;
   const model = OPENAI_MODEL || 'gpt-4o-mini';
