@@ -1,12 +1,14 @@
-// tools/init-watchService.js
+// tools/backfill-watch-nextPingAt.js
 'use strict';
 
-/**
- * usersコレクションで watchService が未作成のユーザーに
- * 最低限のフィールドを一括付与する初期化スクリプト。
- */
-
 const firebaseAdmin = require('firebase-admin');
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const tz = require('dayjs/plugin/timezone');
+dayjs.extend(utc);
+dayjs.extend(tz);
+
+const JST = 'Asia/Tokyo';
 
 const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64 || '';
 if (!FIREBASE_CREDENTIALS_BASE64) {
@@ -25,45 +27,39 @@ try {
 firebaseAdmin.initializeApp({ credential: firebaseAdmin.credential.cert(cred) });
 const db = firebaseAdmin.firestore();
 
+// nextPingAt を「今から15分後」にセット
+const nextPingAtFrom = (from = new Date()) =>
+  dayjs(from).tz(JST).add(15, 'minute').second(0).millisecond(0).toDate();
+
 (async () => {
-  console.log('init-watchService: start');
+  console.log('backfill-watch-nextPingAt: start');
 
-  const usersSnap = await db.collection('users').get();
-  let batch = db.batch();
-  let staged = 0, updated = 0;
+  const snap = await db.collection('users').where('watchService.enabled', '==', true).get();
+  let batch = db.batch(), count = 0, updated = 0;
 
-  usersSnap.forEach(doc => {
-    const data = doc.data();
-    if (!data.watchService) {
-      const ref = doc.ref;
-      batch.update(ref, {
-        watchService: {
-          enabled: true,
-          isEnabled: true,
-          awaitingReply: false,
-          enrolledAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
-          lastNotifiedAt: null,
-          lastPingAt: null,
-          lastRepliedAt: null,
-          lastRepliedMessage: null,
-          lastReplyReason: null,
-          privacyPolicyVersion: "v1"
-        }
+  snap.forEach(doc => {
+    const ws = doc.data().watchService || {};
+    if (!ws.awaitingReply && !ws.nextPingAt) {
+      batch.update(doc.ref, {
+        'watchService.nextPingAt': firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(new Date())),
+        'watchService.awaitingReply': false,
+        'watchService.lastReminderAt': firebaseAdmin.firestore.FieldValue.delete(),
+        'watchService.lastCheckinMessageAt': firebaseAdmin.firestore.FieldValue.delete(),
       });
-      staged++;
-      if (staged >= 400) {
+      count++;
+      updated++;
+      if (count >= 400) {
         batch.commit();
         batch = db.batch();
-        staged = 0;
+        count = 0;
       }
-      updated++;
     }
   });
 
-  if (staged > 0) {
+  if (count > 0) {
     await batch.commit();
   }
 
-  console.log(`init-watchService: completed, updated ${updated} users`);
+  console.log(`backfill-watch-nextPingAt: completed, updated ${updated} users`);
   process.exit(0);
 })();
