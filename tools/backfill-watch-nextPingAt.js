@@ -27,7 +27,7 @@ try {
 firebaseAdmin.initializeApp({ credential: firebaseAdmin.credential.cert(cred) });
 const db = firebaseAdmin.firestore();
 
-// nextPingAt を「今から15分後」にセット
+// nextPingAt を「今から15分後」に設定
 const nextPingAtFrom = (from = new Date()) =>
   dayjs(from).tz(JST).add(15, 'minute').second(0).millisecond(0).toDate();
 
