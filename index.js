@@ -1214,3 +1214,8 @@ function makeSupportFormButton(label, formBaseUrl, entryId) {
         }
     };
 }
+
+// ===== サーバー起動 =====
+app.listen(PORT, () => {
+    console.log(`サーバーはポート${PORT}で実行されています`);
+});
