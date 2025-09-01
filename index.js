@@ -62,6 +62,7 @@ const WATCH_SERVICE_FORM_BASE_URL = normalizeFormUrl(process.env.WATCH_SERVICE_F
 const MEMBER_CHANGE_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
 const MEMBER_CANCEL_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
@@ -70,6 +71,8 @@ const OWNER_USER_ID = process.env.OWNER_USER_ID || BOT_ADMIN_IDS[0];
 const OWNER_GROUP_ID = process.env.OWNER_GROUP_ID || null;
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const WATCH_LOG_LEVEL = (process.env.WATCH_LOG_LEVEL || 'info').toLowerCase();
+const WATCH_NOTIFY_DANGER = process.env.WATCH_NOTIFY_DANGER === '1';
+const WATCH_NOTIFY_SCAM = process.env.WATCH_NOTIFY_SCAM === '1';
 
 
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
@@ -290,30 +293,36 @@ async function warmupFill() {
 const OFFICER_NOTIFICATION_MIN_GAP_HOURS = Number(process.env.OFFICER_NOTIFICATION_MIN_GAP_HOURS || 1);
 
 const maskPhone = p => {
-  const v = String(p||'').replace(/[^0-9+]/g,'');
-  if (!v) return '—';
-  return v.length <= 4 ? `**${v}` : `${'*'.repeat(Math.max(0, v.length-4))}${v.slice(-4)}`;
+    const v = String(p || '').replace(/[^0-9+]/g, '');
+    if (!v) return '—';
+    return v.length <= 4 ? `**${v}` : `${'*'.repeat(Math.max(0, v.length - 4))}${v.slice(-4)}`;
 };
-const buildOfficerFlex = ({name='—', address='—', selfPhone='', kinName='', kinPhone=''}) => {
-  const callBtns = [];
-  if (selfPhone) callBtns.push({ type:'button', style:'primary', action:{ type:'uri', label:'本人に電話', uri:`tel:${selfPhone}` }});
-  if (kinPhone)  callBtns.push({ type:'button', style:'primary', action:{ type:'uri', label:'近親者に電話', uri:`tel:${kinPhone}` }});
-  return {
-    type:'flex', altText:'【29時間未応答】',
-    contents:{ type:'bubble',
-      body:{ type:'box', layout:'vertical', spacing:'sm', contents:[
-        { type:'text', text:'【29時間未応答】', weight:'bold' },
-        { type:'text', text:`利用者：${name}`, wrap:true },
-        { type:'text', text:`住所：${address}`, size:'sm', wrap:true },
-        { type:'text', text:`本人TEL：${maskPhone(selfPhone)}`, size:'sm', color:'#777' },
-        { type:'text', text:`近親者：${kinName || '—'}（${maskPhone(kinPhone)}）`, size:'sm', color:'#777', wrap:true },
-      ]},
-      footer:{ type:'box', layout:'vertical', spacing:'sm', contents:[
-        ...callBtns,
-      ]}
-    }
+const buildWatcherFlex = ({name='—', address='—', selfPhone='', kinName='', kinPhone='', userId}) => {
+    const telBtn = p => p ? { type:'button', style:'primary',
+      action:{ type:'uri', label:'本人に電話', uri:`tel:${p}` }} : null;
+    const kinBtn = p => p ? { type:'button', style:'secondary',
+      action:{ type:'uri', label:'近親者に電話', uri:`tel:${p}` }} : null;
+  
+    return {
+      type:'flex', altText:'【見守りアラート】',
+      contents:{
+        type:'bubble',
+        body:{ type:'box', layout:'vertical', spacing:'sm', contents:[
+          { type:'text', text:'【見守りアラート】', weight:'bold' },
+          { type:'text', text:`利用者：${name}`, wrap:true },
+          { type:'text', text:`住所：${address || '—'}`, size:'sm', wrap:true },
+          { type:'text', text:`本人TEL：${maskPhone(selfPhone)}`, size:'sm', color:'#777' },
+          { type:'text', text:`近親者：${kinName || '—'}（${maskPhone(kinPhone)})`, size:'sm', color:'#777', wrap:true },
+        ]},
+        footer:{ type:'box', layout:'vertical', spacing:'sm', contents:[
+          { type:'button', style:'primary',
+            action:{ type:'postback', label:'LINEで連絡', data:`action=notify_user&uid=${encodeURIComponent(userId)}` }},
+          ...(telBtn(selfPhone) ? [telBtn(selfPhone)] : []),
+          ...(kinBtn(kinPhone) ? [kinBtn(kinPhone)] : []),
+        ]}
+      }
+    };
   };
-};
 
 function watchLog(msg, level = 'info') {
     if (WATCH_LOG_LEVEL === 'silent') return;
@@ -460,30 +469,39 @@ async function checkAndSendPing() {
 
             } else if (mode === 'escalate') {
                 const canNotifyOfficer =
-                  OFFICER_GROUP_ID &&
-                  (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
-              
+                    WATCH_GROUP_ID &&
+                    (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
+
                 if (canNotifyOfficer) {
-                  const u = (await ref.get()).data() || {};
-                  const prof = u.profile || {};
-                  const emerg = u.emergency || {};
-                  const name = prof.name || '—';
-                  const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
-                  const selfPhone = prof.phone || '';
-                  const kinName   = emerg.contactName || '';
-                  const kinPhone  = emerg.contactPhone || '';
-              
-                  await safePush(OFFICER_GROUP_ID, buildOfficerFlex({ name, address, selfPhone, kinName, kinPhone }));
+                    const u = (await ref.get()).data() || {};
+                    const prof = u.profile || {};
+                    const emerg = u.emergency || {};
+                    const name = prof.name || '—';
+                    const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
+                    const selfPhone = prof.phone || '';
+                    const kinName = emerg.contactName || '';
+                    const kinPhone = emerg.contactPhone || '';
+
+                    await safePush(WATCH_GROUP_ID, buildWatcherFlex({
+                        name,
+                        address,
+                        selfPhone,
+                        kinName,
+                        kinPhone,
+                        userId: doc.id
+                    }));
                 }
                 await ref.set({
-                  watchService: {
-                    lastNotifiedAt: Timestamp.now(),
-                    awaitingReply: false,
-                    lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
-                    nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS,'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
-                  },
-                }, { merge: true });
-              }
+                    watchService: {
+                        lastNotifiedAt: Timestamp.now(),
+                        awaitingReply: false,
+                        lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+                        nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
+                    },
+                }, {
+                    merge: true
+                });
+            }
 
         } catch (e) {
             console.error('[ERROR] send/update failed:', e?.response?.data || e.message);
@@ -496,29 +514,29 @@ async function checkAndSendPing() {
 async function withLock(lockId, ttlSec, fn) {
     const ref = db.collection('locks').doc(lockId);
     return db.runTransaction(async tx => {
-      const snap = await tx.get(ref);
-      const now = Date.now();
-      const until = now + ttlSec * 1000;
-      const cur = snap.exists ? snap.data() : null;
-      if (cur && cur.until && cur.until.toMillis() > now) {
-        // すでに誰かが実行中
-        return false;
-      }
-      tx.set(ref, {
-        until: Timestamp.fromMillis(until)
-      });
-      return true;
+        const snap = await tx.get(ref);
+        const now = Date.now();
+        const until = now + ttlSec * 1000;
+        const cur = snap.exists ? snap.data() : null;
+        if (cur && cur.until && cur.until.toMillis() > now) {
+            // すでに誰かが実行中
+            return false;
+        }
+        tx.set(ref, {
+            until: Timestamp.fromMillis(until)
+        });
+        return true;
     }).then(async acquired => {
-      if (!acquired) {
-        watchLog(`[watch-service] Lock acquisition failed, skipping.`, 'info');
-        return false;
-      }
-      try {
-        await fn();
-      } finally {
-        await db.collection('locks').doc(lockId).delete().catch(() => {});
-      }
-      return true;
+        if (!acquired) {
+            watchLog(`[watch-service] Lock acquisition failed, skipping.`, 'info');
+            return false;
+        }
+        try {
+            await fn();
+        } finally {
+            await db.collection('locks').doc(lockId).delete().catch(() => {});
+        }
+        return true;
     });
 }
 if (WATCH_RUNNER !== 'external') {
@@ -811,14 +829,10 @@ const specialRepliesMap = new Map([
     [/(どこの\s*)?団体(なの|ですか)?[？?~～]?/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/団体.*(どこ|なに|何)/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
 
-    // 置き換え後（「アニメは？」/「アニメって？」/「好きなアニメ？」なども拾う）
-[/(?:好きな|推しの)?\s*アニメ(?:\s*は|って)?\s*(?:なに|何|どれ|好き|すき)?[！!。．、,\s]*[?？]?$/i,
-  "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
-],
-
-    [/アニメ.*(おすすめ|教えて)[！!。．、,\s]*[?？]?$/i,
-  "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
-],
+    // --- 好きなアニメ（「とかある？」/「あるの？」/自由語尾にもヒット）---
+    [/(好きな|推しの)?\s*アニメ.*(ある|いる|なに|何|どれ|教えて|好き|すき)[！!。\.、,\s]*[?？]?$/i,
+        "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
+    ],
 
     // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
     [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
@@ -1154,6 +1168,20 @@ const handlePostbackEvent = async (event, userId) => {
       });
       return;
     }
+    if (action === 'notify_user') {
+        const uid = data.get('uid');
+        // セーフガード：呼び出し元が見守りグループかチェック
+        if (event.source.type === 'group' && event.source.groupId === WATCH_GROUP_ID) {
+            await safePush(uid, {
+                type:'text',
+                text:'見守りグループからご様子確認のご連絡です。大丈夫なら「OKだよ💖」を押すか、一言返信してくださいね💖'
+            });
+            await client.replyMessage(event.replyToken, { type:'text', text:'了解、本人に連絡しました。' });
+        } else {
+            await client.replyMessage(event.replyToken, { type:'text', text:'許可されていないグループです。' });
+        }
+        return;
+    }
 };
 
 const handleEvent = async (event) => {
@@ -1161,9 +1189,11 @@ const handleEvent = async (event) => {
         replyToken
     } = event;
     const userId = event.source.userId;
-    const user = (await db.collection('users').doc(userId).get()).data() || {};
+    const userDoc = await db.collection('users').doc(userId).get();
+    const user = userDoc.data() || {};
     const watchServiceEnabled = user?.watchService?.enabled || false;
     const watchServiceAwaitingReply = user?.watchService?.awaitingReply || false;
+    const notifySettings = user?.watchService?.notify || {};
 
     if (watchServiceAwaitingReply) {
         await db.collection('users').doc(userId).set({
@@ -1207,6 +1237,20 @@ const handleEvent = async (event) => {
                 contents: EMERGENCY_FLEX_MESSAGE
             }, ]
         });
+        const allow = notifySettings?.danger === true;
+        if (WATCH_NOTIFY_DANGER && WATCH_GROUP_ID && allow) {
+            const prof = user?.profile || {};
+            const emerg = user?.emergency || {};
+            const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
+            await safePushMessage(WATCH_GROUP_ID, buildWatcherFlex({
+              name: prof.name,
+              address: address,
+              selfPhone: prof.phone,
+              kinName: emerg.contactName,
+              kinPhone: emerg.contactPhone,
+              userId
+            }));
+        }
         return;
     }
 
@@ -1227,6 +1271,20 @@ const handleEvent = async (event) => {
                 contents: makeScamMessageFlex(EMERGENCY_CONTACT_PHONE_NUMBER)
             }, ]
         });
+        const allow = notifySettings?.scam === true;
+        if (WATCH_NOTIFY_SCAM && WATCH_GROUP_ID && allow) {
+            const prof = user?.profile || {};
+            const emerg = user?.emergency || {};
+            const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
+            await safePushMessage(WATCH_GROUP_ID, buildWatcherFlex({
+              name: prof.name,
+              address: address,
+              selfPhone: prof.phone,
+              kinName: emerg.contactName,
+              kinPhone: emerg.contactPhone,
+              userId
+            }));
+        }
         return;
     }
 
@@ -1264,6 +1322,11 @@ const handleFollowEvent = async (event) => {
             membership: 'guest',
             watchService: {
                 enabled: false,
+                notify: {
+                    danger: false,
+                    scam: false,
+                    sharePhone: false,
+                }
             },
         });
     }
