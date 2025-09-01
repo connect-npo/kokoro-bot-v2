@@ -205,10 +205,10 @@ const specialRepliesMap = new Map([
     [/(どこの\s*)?団体(なの|ですか)?[？?~～]?/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/団体.*(どこ|なに|何)/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
 
-    // --- 好きなアニメ（「とかある？」/「あるの？」/自由語尾にもヒット）---
-    [/(好きな|推しの)?\s*アニメ.*(ある|いる|なに|何|どれ|教えて|好き|すき)[！!。\.、,\s]*[?？]?$/i,
-        "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
-    ],
+   // --- 好きなアニメ（ゆらぎ対応・末尾に装飾や絵文字があってもOK）---
+[/(好きな|推しの)?\s*アニメ[^？\n]*?(ある|いる|なに|何|どれ|教えて|好き|すき)?[^？\n]*?[?？]?\s*([~〜～ー♪✨💖⭐️🌸😭😂🤣🙂🙃😇😅😆😌💫💬…\s]*)?$/i,
+  "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
+],
 
     // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
    [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
@@ -1880,147 +1880,52 @@ cron.schedule('0 * * * *', checkAndSendEscalation, {
     timezone: JST_TZ 
 });
 
-/* ==== HOTFIX: FLEX + OFFICER NOTIFY (drop-in, no other edits) ==== */
-
-// 電話番号マスク＆整形
-function __maskPhone(num) {
-  const s = String(num||'').replace(/\D/g,'');
-  if (!s) return '';
-  if (s.length <= 4) return '*'.repeat(s.length);
-  return s.slice(0, s.length-4).replace(/\d/g,'＊') + s.slice(-4);
-}
-function __telRaw(num){ return String(num||'').replace(/\D/g,''); }
-
-// ユーザー向け FLEX（危険）
-function createDangerFlex(user, text) {
-  const raw = __telRaw(typeof EMERGENCY_CONTACT_PHONE_NUMBER==='undefined' ? '' : EMERGENCY_CONTACT_PHONE_NUMBER);
-  const masked = __maskPhone(EMERGENCY_CONTACT_PHONE_NUMBER);
-  const buttons = [
-    { type:"button", style:"primary", color:"#FF4B4B", action:{ type:"uri", label:"警察（110）", uri:"tel:110" } },
-    { type:"button", style:"primary", color:"#1E90FF", action:{ type:"uri", label:"救急（119）", uri:"tel:119" } },
-    { type:"button", style:"primary", color:"#00A381", action:{ type:"uri", label:"チャイルドライン", uri:"https://childline.or.jp/" } },
-    { type:"button", style:"primary", color:"#B15BFF", action:{ type:"uri", label:"いのちの電話", uri:"https://www.inochinodenwa.org/" } },
-  ];
-  if (raw) buttons.push({ type:"button", style:"primary", color:"#6A5ACD",
-    action:{ type:"uri", label:`事務局に電話（${masked}）`, uri:`tel:${raw}` } });
-
-  return {
-    type:"flex",
-    altText:"🚨緊急のご案内です",
-    contents:{
-      type:"bubble",
-      body:{ type:"box", layout:"vertical", contents:[
-        { type:"text", text:"【緊急のご案内】", weight:"bold", color:"#FF0000", size:"xl", align:"center" },
-        { type:"text", text:"いまは一人で抱えなくて大丈夫。下のボタンから頼れる窓口にもつながれるよ。", wrap:true, margin:"md" },
-        { type:"text", text:`受信: ${gTrunc(String(text||''),160)}`, size:"xs", color:"#666666", wrap:true, margin:"sm" }
-      ]},
-      footer:{ type:"box", layout:"vertical", spacing:"sm", contents: buttons }
-    }
-  };
-}
-
-// ユーザー向け FLEX（詐欺）
-function createScamFlex(user, text) {
-  const raw = __telRaw(typeof EMERGENCY_CONTACT_PHONE_NUMBER==='undefined' ? '' : EMERGENCY_CONTACT_PHONE_NUMBER);
-  const masked = __maskPhone(EMERGENCY_CONTACT_PHONE_NUMBER);
-  const buttons = [
-    { type:"button", style:"primary", color:"#FF8C00", action:{ type:"uri", label:"警察相談（#9110）", uri:"tel:9110" } },
-    { type:"button", style:"primary", color:"#1E90FF", action:{ type:"uri", label:"消費者ホットライン（188）", uri:"tel:188" } },
-    { type:"button", style:"primary", color:"#32CD32", action:{ type:"uri", label:"国民生活センター", uri:"https://www.kokusen.go.jp/" } },
-  ];
-  if (raw) buttons.push({ type:"button", style:"primary", color:"#6A5ACD",
-    action:{ type:"uri", label:`事務局に電話（${masked}）`, uri:`tel:${raw}` } });
-
-  return {
-    type:"flex",
-    altText:"⚠️詐欺の注意です",
-    contents:{
-      type:"bubble",
-      body:{ type:"box", layout:"vertical", contents:[
-        { type:"text", text:"【詐欺の可能性があります】", weight:"bold", color:"#FF8C00", size:"xl", align:"center" },
-        { type:"text", text:"リンクは開かない・コードは渡さないでね。不安なら下のボタンから公的窓口へ相談できるよ。", wrap:true, margin:"md" },
-        { type:"text", text:`受信: ${gTrunc(String(text||''),160)}`, size:"xs", color:"#666666", wrap:true, margin:"sm" }
-      ]},
-      footer:{ type:"box", layout:"vertical", spacing:"sm", contents: buttons }
-    }
-  };
-}
-
-// 見守り（オフィサー）向け FLEX
-function createOfficerFlex(userId, userProfile, kind, userText) {
-  const raw = __telRaw(typeof EMERGENCY_CONTACT_PHONE_NUMBER==='undefined' ? '' : EMERGENCY_CONTACT_PHONE_NUMBER);
-  const masked = __maskPhone(EMERGENCY_CONTACT_PHONE_NUMBER);
-  const headerColor = kind === 'danger' ? '#FF4B4B' : '#FF8C00';
-  const footer = [
-    raw ? { type:"button", style:"primary", color:"#6A5ACD",
-            action:{ type:"uri", label:`事務局に発信（${masked}）`, uri:`tel:${raw}` } } : null,
-    { type:"button", style:"primary", color:"#1E90FF",
-      action:{ type:"postback", label:"LINEで安否送信", data:`admin:sendSafety:${userId}` } },
-    { type:"button", style:"secondary", color:"#32CD32",
-      action:{ type:"postback", label:"既読・対応済み", data:`admin:check:${userId}` } },
-    { type:"button", style:"secondary", color:"#FF69B4",
-      action:{ type:"postback", label:"Pingを今すぐ", data:`admin:ping:${userId}` } },
-    { type:"button", style:"secondary",
-      action:{ type:"postback", label:"見守り停止", data:`admin:watchOff:${userId}` } },
-  ].filter(Boolean);
-
-  return {
-    type:"flex",
-    altText:(kind === 'danger' ? '🚨危険' : '⚠️詐欺') + `検知: ${userProfile?.displayName || 'ユーザー'}`,
-    contents:{
-      type:"bubble",
-      body:{ type:"box", layout:"vertical", contents:[
-        { type:"text", text: kind === 'danger' ? "【危険ワード検知】" : "【詐欺ワード検知】",
-          weight:"bold", size:"lg", color: headerColor, align:"center" },
-        { type:"text", text:`ユーザー: ${userProfile?.displayName || '(不明)'}`, wrap:true, margin:"md" },
-        { type:"text", text:`本文: ${String(userText||'').slice(0,300)}`, wrap:true, margin:"sm" }
-      ]},
-      footer:{ type:"box", layout:"vertical", spacing:"sm", contents: footer }
-    }
-  };
-}
-
-// ★ safePushMessage を上書き（タグに応じて宛先を強制・FLEXのaltTextを補完・分割送信）
+// === HOTFIX v2: push先を確実にグループへ強制（日本語タグ対応 & 内容検出） ===
 async function safePushMessage(to, messages, tag) {
   try {
-    const arr = Array.isArray(messages) ? messages : [messages];
+    const arr0 = Array.isArray(messages) ? messages : [messages];
 
-    // 危険/詐欺の通知は必ずグループ宛に強制
-    if (tag === 'danger_notify' || tag === 'scam_notify') {
-      const groupId = process.env.OFFICER_GROUP_ID || process.env.WATCH_GROUP_ID || to;
-      if (groupId && /^C/i.test(groupId)) to = groupId;
+    // 1) タグに danger/scam/日本語が含まれるか判定
+    const tagText = String(tag || '').toLowerCase();
+    const isAlertTag =
+      /danger|scam|notify|危険|詐欺|アラート|通知/.test(tagText);
+
+    // 2) メッセージ内容からも“危険/詐欺 通知っぽさ”を検出
+    const textJoined = arr0
+      .map(m => (m?.type === 'text' ? String(m.text || '') : (m?.altText || '')))
+      .join(' ')
+      .toLowerCase();
+    const isAlertContent =
+      /危険|緊急|詐欺|不適切|検知|officer/i.test(textJoined);
+
+    // 3) 宛先が U... (個人) なら、見守りグループIDに強制切り替え
+    const officerId = process.env.OFFICER_GROUP_ID || process.env.WATCH_GROUP_ID || to;
+    const toLooksUser = typeof to === 'string' && /^U/i.test(to);
+    if ((isAlertTag || isAlertContent) && officerId && /^C/i.test(officerId) && toLooksUser) {
+      to = officerId; // ← ここで必ずグループに飛ばす
     }
 
-    // 各メッセージを安全化（FLEXはaltText必須）
-    const normalized = arr.map((m) => {
+    // 4) FLEX を安全化（altText補完）＆ 1件ずつ送信
+    for (let m of arr0) {
       if (m && m.type === 'flex') {
-        if (!m.altText || !String(m.altText).trim()) {
-          m.altText = 'メッセージがあります';
-        }
+        if (!m.altText || !String(m.altText).trim()) m.altText = 'メッセージがあります';
         if (!m.contents || typeof m.contents !== 'object') {
-          // 壊れていたらテキストにフォールバック
-          return { type: 'text', text: '（表示用メッセージ）' };
+          m = { type: 'text', text: '（表示用メッセージ）' };
         }
-      } else if (m && m.type === 'text') {
-        if (m.text && m.text.length > 1800) m.text = m.text.slice(0, 1800);
+      } else if (m && m.type === 'text' && m.text && m.text.length > 1800) {
+        m.text = m.text.slice(0, 1800);
       }
-      return m;
-    });
-
-    // まとめて失敗するケースを避けるため、1件ずつ送信
-    for (const m of normalized) {
       await client.pushMessage(to, [m]);
     }
   } catch (err) {
-    console.error('[ERR] LINE push failed (HOTFIX)', JSON.stringify({
-      to, tag,
-      status: err?.statusCode || err?.response?.status,
+    console.error('[ERR] LINE プッシュ に失敗しました（HOTFIX v2）', JSON.stringify({
+      宛先: to,
+      タグ: tag,
+      ステータス: err?.statusCode || err?.response?.status,
       data: err?.response?.data || err?.message
     }, null, 2));
   }
 }
-
-/* ==== HOTFIX END ==== */
 
 // ===== サーバー起動 =====
 app.listen(PORT, () => {
