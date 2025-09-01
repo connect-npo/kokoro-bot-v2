@@ -246,14 +246,13 @@ async function fetchTargets() {
     const targets = [];
     try {
         const snap = await usersRef
-            .where('watchService.enabled', '==', true)
             .where('watchService.awaitingReply', '==', false)
             .where('watchService.nextPingAt', '<=', now.toDate())
             .limit(200)
             .get();
         targets.push(...snap.docs);
     } catch (e) {
-        const snap = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
+        const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
             const ws = (d.data().watchService) || {};
             if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
@@ -292,6 +291,7 @@ async function warmupFill() {
         if (!ws.awaitingReply && !ws.nextPingAt) {
             batch.set(d.ref, {
                 watchService: {
+                    enabled: true,
                     nextPingAt: Timestamp.now()
                 }
             }, {
@@ -591,7 +591,6 @@ const EMERGENCY_FLEX_MESSAGE = {
             "type": "text",
             "text": "🚨【危険ワード検知】🚨",
             "weight": "bold",
-            "color": "#DD0000",
             "size": "xl"
         }, {
             "type": "text",
@@ -610,7 +609,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "message",
-                "label": "警察 (電話)",
+                "label": "警察 (110)",
                 "text": "110に電話する"
             },
             "color": "#FF4500"
@@ -620,7 +619,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "message",
-                "label": "消防・救急 (電話)",
+                "label": "消防・救急 (119)",
                 "text": "119に電話する"
             },
             "color": "#FF6347"
@@ -630,7 +629,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "uri",
-                "label": "チャイルドライン (電話・チャット)",
+                "label": "チャイルドライン",
                 "uri": "https://childline.or.jp/tel"
             },
             "color": "#1E90FF"
@@ -640,7 +639,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "message",
-                "label": "いのちの電話 (電話)",
+                "label": "いのちの電話",
                 "text": "0570-064-556に電話する"
             },
             "color": "#32CD32"
@@ -650,7 +649,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "uri",
-                "label": "チャットまもるん(チャット)",
+                "label": "チャットまもるん",
                 "uri": "https://www.web-mamorun.com/"
             },
             "color": "#FFA500"
@@ -660,20 +659,10 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "message",
-                "label": "警視庁(電話)",
+                "label": "警視庁",
                 "text": "03-3581-4321に電話する"
             },
             "color": "#FF4500"
-        }, {
-            "type": "button",
-            "style": "primary",
-            "height": "sm",
-            "action": {
-                "type": "message",
-                "label": "子供を守る声(電話)",
-                "text": `${EMERGENCY_CONTACT_PHONE_NUMBER}に電話する`
-            },
-            "color": "#FFA500"
         }]
     }
 };
@@ -729,7 +718,6 @@ const makeScamMessageFlex = (tel = '') => {
                 type: "text",
                 text: "【詐欺注意】",
                 weight: "bold",
-                color: "#FF0000",
                 size: "xl",
                 align: "center"
             }, {
