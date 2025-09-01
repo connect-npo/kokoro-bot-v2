@@ -68,6 +68,9 @@ const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
 const BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS || '[]');
 const OWNER_USER_ID = process.env.OWNER_USER_ID || BOT_ADMIN_IDS[0];
 const OWNER_GROUP_ID = process.env.OWNER_GROUP_ID || null;
+const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
+const WATCH_LOG_LEVEL = (process.env.WATCH_LOG_LEVEL || 'info').toLowerCase();
+
 
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
 const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
@@ -201,7 +204,7 @@ const pickWatchMsg = () => watchMessages[Math.floor(Math.random() * watchMessage
 
 
 async function scheduleNextPing(userId, fromDate = new Date()) {
-    const nextAt = dayjs(fromDate).tz(JST_TZ).add(3, 'day').hour(15).minute(0).second(0).millisecond(0).toDate();
+    const nextAt = dayjs(fromDate).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate();
     await db.collection('users').doc(userId).set({
         watchService: {
             nextPingAt: Timestamp.fromDate(nextAt),
@@ -273,7 +276,7 @@ async function warmupFill() {
         if (!ws.awaitingReply && !ws.nextPingAt) {
             batch.set(d.ref, {
                 watchService: {
-                    nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(dayjs(now).tz(JST_TZ).add(3, 'day').hour(15).minute(0).second(0).millisecond(0).toDate())
+                    nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(dayjs(now).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate())
                 }
             }, {
                 merge: true
@@ -312,11 +315,13 @@ const buildOfficerFlex = ({name='—', address='—', selfPhone='', kinName='', 
   };
 };
 
-function logDebug(msg) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(msg);
-    }
-  }
+function watchLog(msg, level = 'info') {
+    if (WATCH_LOG_LEVEL === 'silent') return;
+    if (WATCH_LOG_LEVEL === 'error' && level !== 'error') return;
+    console.log(msg);
+}
+const logDebug = (msg) => watchLog(msg, 'info');
+
 
 async function checkAndSendPing() {
     const now = dayjs().utc();
@@ -475,7 +480,7 @@ async function checkAndSendPing() {
                     lastNotifiedAt: Timestamp.now(),
                     awaitingReply: false,
                     lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
-                    nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ).add(3,'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
+                    nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS,'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
                   },
                 }, { merge: true });
               }
@@ -488,7 +493,42 @@ async function checkAndSendPing() {
     logDebug(`[watch-service] end ${dayjs().utc().format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 }
 
-cron.schedule('*/5 * * * *', checkAndSendPing, { scheduled: true, timezone: 'UTC' });
+async function withLock(lockId, ttlSec, fn) {
+    const ref = db.collection('locks').doc(lockId);
+    return db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      const now = Date.now();
+      const until = now + ttlSec * 1000;
+      const cur = snap.exists ? snap.data() : null;
+      if (cur && cur.until && cur.until.toMillis() > now) {
+        // すでに誰かが実行中
+        return false;
+      }
+      tx.set(ref, {
+        until: Timestamp.fromMillis(until)
+      });
+      return true;
+    }).then(async acquired => {
+      if (!acquired) {
+        watchLog(`[watch-service] Lock acquisition failed, skipping.`, 'info');
+        return false;
+      }
+      try {
+        await fn();
+      } finally {
+        await db.collection('locks').doc(lockId).delete().catch(() => {});
+      }
+      return true;
+    });
+}
+if (WATCH_RUNNER !== 'external') {
+    cron.schedule('*/5 * * * *', () => {
+        withLock('watch-cron', 240, checkAndSendPing);
+    }, {
+        scheduled: true,
+        timezone: 'UTC'
+    });
+}
 
 
 // --- Flex Message テンプレート (緊急時連絡先) ---
