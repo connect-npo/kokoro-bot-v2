@@ -62,7 +62,15 @@ const WATCH_SERVICE_FORM_BASE_URL = normalizeFormUrl(process.env.WATCH_SERVICE_F
 const MEMBER_CHANGE_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
 const MEMBER_CANCEL_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-const WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || '';
+let _WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || '';
+_WATCH_GROUP_ID = _WATCH_GROUP_ID.trim().replace(/\u200b/g, '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, s =>
+  String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+);
+if (_WATCH_GROUP_ID && !/^C[0-9a-f]{32}$/i.test(_WATCH_GROUP_ID)) {
+  console.warn('[WARN] WATCH_GROUP_ID format suspicious:', JSON.stringify(_WATCH_GROUP_ID));
+}
+const WATCH_GROUP_ID = _WATCH_GROUP_ID;
+
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
@@ -219,11 +227,27 @@ async function scheduleNextPing(userId, fromDate = new Date()) {
 
 
 async function safePush(to, messages) {
-    try {
-        await client.pushMessage(to, Array.isArray(messages) ? messages : [messages]);
-    } catch (err) {
-        console.error(`[ERROR] push to ${to} failed:`, err?.response?.data || err.message);
+  const arr = Array.isArray(messages) ? messages : [messages];
+  try {
+    for (const m of arr) {
+      if (m.type === 'flex') {
+        if (!m.altText || !m.altText.trim()) m.altText = '通知があります';
+        if (!m.contents || typeof m.contents !== 'object') {
+          throw new Error(`[safePush] flex "contents" is required`);
+        }
+      } else if (m.type === 'text') {
+        m.text = String(m.text || '').trim() || '（内容なし）';
+        if (m.text.length > 1800) m.text = m.text.slice(0, 1800);
+      }
     }
+    await client.pushMessage(to, arr);
+  } catch (err) {
+    console.error('[ERR] LINE push failed', {
+      to,
+      status: err?.statusCode || err?.response?.status,
+      data: err?.response?.data
+    });
+  }
 }
 
 async function fetchTargets() {
@@ -232,14 +256,13 @@ async function fetchTargets() {
     const targets = [];
     try {
         const snap = await usersRef
-            .where('watchService.enabled', '==', true)
             .where('watchService.awaitingReply', '==', false)
             .where('watchService.nextPingAt', '<=', now.toDate())
             .limit(200)
             .get();
         targets.push(...snap.docs);
     } catch (e) {
-        const snap = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
+        const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
             const ws = (d.data().watchService) || {};
             if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
@@ -249,13 +272,12 @@ async function fetchTargets() {
     }
     try {
         const snap = await usersRef
-            .where('watchService.enabled', '==', true)
             .where('watchService.awaitingReply', '==', true)
             .limit(200)
             .get();
         targets.push(...snap.docs);
     } catch (e) {
-        const snap = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
+        const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
             const ws = (d.data().watchService) || {};
             if (ws.awaitingReply === true) targets.push(d);
@@ -269,7 +291,7 @@ async function fetchTargets() {
 async function warmupFill() {
     const now = dayjs().utc();
     const usersRef = db.collection('users');
-    const snap = await usersRef.where('watchService.enabled', '==', true).limit(200).get();
+    const snap = await usersRef.limit(200).get();
     let batch = db.batch(),
         cnt = 0;
     for (const d of snap.docs) {
@@ -295,32 +317,39 @@ const maskPhone = p => {
     if (!v) return '—';
     return v.length <= 4 ? `**${v}` : `${'*'.repeat(Math.max(0, v.length - 4))}${v.slice(-4)}`;
 };
-const buildWatcherFlex = ({name='—', address='—', selfPhone='', kinName='', kinPhone='', userId}) => {
-    const telBtn = p => p ? { type:'button', style:'primary',
-      action:{ type:'uri', label:'本人に電話', uri:`tel:${p}` }} : null;
-    const kinBtn = p => p ? { type:'button', style:'secondary',
-      action:{ type:'uri', label:'近親者に電話', uri:`tel:${p}` }} : null;
-  
-    return {
-      type:'flex', altText:'【見守りアラート】',
-      contents:{
-        type:'bubble',
-        body:{ type:'box', layout:'vertical', spacing:'sm', contents:[
-          { type:'text', text:'【見守りアラート】', weight:'bold' },
-          { type:'text', text:`利用者：${name}`, wrap:true },
-          { type:'text', text:`住所：${address || '—'}`, size:'sm', wrap:true },
-          { type:'text', text:`本人TEL：${maskPhone(selfPhone)}`, size:'sm', color:'#777' },
-          { type:'text', text:`近親者：${kinName || '—'}（${maskPhone(kinPhone)})`, size:'sm', color:'#777', wrap:true },
-        ]},
-        footer:{ type:'box', layout:'vertical', spacing:'sm', contents:[
-          { type:'button', style:'primary',
-            action:{ type:'postback', label:'LINEで連絡', data:`action=notify_user&uid=${encodeURIComponent(userId)}` }},
-          ...(telBtn(selfPhone) ? [telBtn(selfPhone)] : []),
-          ...(kinBtn(kinPhone) ? [kinBtn(kinPhone)] : []),
-        ]}
+const buildWatcherFlex = ({ name='—', address='—', selfPhone='', kinName='', kinPhone='', userId }) => {
+  const telBtn = (label, p, style='primary') => p ? ({
+    type: 'button', style,
+    action: { type: 'uri', label, uri: `tel:${p}` }
+  }) : null;
+
+  return {
+    type: 'flex',
+    altText: '【見守りアラート】',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm',
+        contents: [
+          { type: 'text', text: '【見守りアラート】', weight: 'bold', size: 'lg' },
+          { type: 'text', text: `利用者：${name}`, wrap: true },
+          { type: 'text', text: `住所：${address || '—'}`, size: 'sm', wrap: true },
+          { type: 'text', text: `本人TEL：${maskPhone(selfPhone)}`, size: 'sm', color: '#777' },
+          { type: 'text', text: `近親者：${kinName || '—'}（${maskPhone(kinPhone)}）`, size: 'sm', color: '#777', wrap: true },
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', spacing: 'sm',
+        contents: [
+          { type: 'button', style: 'primary',
+            action: { type: 'postback', label: 'LINEで連絡', data: `action=notify_user&uid=${encodeURIComponent(userId)}` } },
+          ...(telBtn('本人に電話', selfPhone) ? [telBtn('本人に電話', selfPhone, 'secondary')] : []),
+          ...(telBtn('近親者に電話', kinPhone, 'secondary') ? [telBtn('近親者に電話', kinPhone, 'secondary')] : []),
+        ]
       }
-    };
+    }
   };
+};
 
 function watchLog(msg, level = 'info') {
     if (WATCH_LOG_LEVEL === 'silent') return;
@@ -466,37 +495,36 @@ async function checkAndSendPing() {
                 });
 
             } else if (mode === 'escalate') {
-                const canNotifyOfficer =
-                    (WATCH_GROUP_ID && WATCH_GROUP_ID.trim()) &&
-                    (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
-                
-                if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
-                
-                if (canNotifyOfficer) {
+                 const canNotifyOfficer =
+                     (WATCH_GROUP_ID && WATCH_GROUP_ID.trim()) &&
+                     (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
+                 
+                 if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
+                 
+                 if (canNotifyOfficer) {
                     const u = (await ref.get()).data() || {};
                     const prof = u.profile || {};
                     const emerg = u.emergency || {};
+                    const name = prof.name || '—';
                     const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
+                    const selfPhone = prof.phone || '';
+                    const kinName = emerg.contactName || '';
+                    const kinPhone = emerg.contactPhone || '';
                     await safePush(WATCH_GROUP_ID, buildWatcherFlex({
-                        name,
-                        address,
-                        selfPhone,
-                        kinName,
-                        kinPhone,
-                        userId: doc.id
+                      name, address, selfPhone, kinName, kinPhone, userId: doc.id
                     }));
-                }
-                await ref.set({
-                    watchService: {
-                        lastNotifiedAt: Timestamp.now(),
-                        awaitingReply: false,
-                        lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
-                        nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
-                    },
-                }, {
-                    merge: true
-                });
-            }
+                 }
+                 await ref.set({
+                     watchService: {
+                         lastNotifiedAt: Timestamp.now(),
+                         awaitingReply: false,
+                         lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+                         nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
+                     },
+                 }, {
+                     merge: true
+                 });
+             }
 
         } catch (e) {
             console.error('[ERROR] send/update failed:', e?.response?.data || e.message);
@@ -1319,18 +1347,22 @@ const handleEvent = async (event) => {
 };
 
 const handleFollowEvent = async (event) => {
-    const userId = event.source.userId;
-    const userRef = db.collection('users').doc(userId);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) {
-        await userRef.set({
-            createdAt: Timestamp.now(),
-            membership: 'guest',
-            watchService: {
-                enabled: false,
-            },
-        });
-    }
+  const userId = event.source.userId;
+  const userRef = db.collection('users').doc(userId);
+  const userDoc = await userRef.get();
+  if (!userDoc.exists) {
+    await userRef.set({
+      createdAt: Timestamp.now(),
+      membership: 'guest',
+      watchService: {
+        enabled: true,
+        awaitingReply: false,
+        nextPingAt: Timestamp.fromDate(
+          dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()
+        ),
+      },
+    }, { merge: true });
+  }
 
     const welcomeMessage = `はじめまして！私、皆守こころだよ🌸\nみんながいつでも安心して話せるように、見守りサービスや相談窓口を紹介しているんだ😊\n気軽に話しかけてね💖\n\n見守りサービスについては、下のボタンから確認してね✨`;
 
