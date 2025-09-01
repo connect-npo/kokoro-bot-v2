@@ -61,6 +61,7 @@ const WATCH_SERVICE_FORM_BASE_URL = normalizeFormUrl(process.env.WATCH_SERVICE_F
 const MEMBER_CHANGE_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
 const MEMBER_CANCEL_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || OFFICER_GROUP_ID;
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
@@ -276,23 +277,14 @@ const inappropriateWords = [
 
 // === 判定関数 ===
 function isDangerMessage(text) {
-  return dangerWords.some(r => {
-    // 文字列を正規表現に変換してテスト
-    const regex = new RegExp(r, 'i');
-    return regex.test(text);
-  });
+  return dangerWords.some(w => text.includes(w));
 }
 function isScamMessage(text) {
   return scamWords.some(r => r.test(text));
 }
 function isInappropriateMessage(text) {
-  return inappropriateWords.some(r => {
-    // 文字列を正規表現に変換してテスト
-    const regex = new RegExp(r, 'i');
-    return regex.test(text);
-  });
+  return inappropriateWords.some(w => text.includes(w));
 }
-
 const sensitiveBlockers = [
     /(パンツ|ショーツ|下着|ランジェリー|ブラ|ブラジャー|キャミ|ストッキング)/i,
     /(スリーサイズ|3\s*サイズ|バスト|ウエスト|ヒップ)/i,
@@ -706,7 +698,28 @@ async function handleMessageEvent(event) {
         merge: true
     });
 
-    const isAdmin = BOT_ADMIN_IDS.includes(userId);
+    
+    // --- 固定の好み応答（先に判定して生成AIより優先） ---
+    const animeLike = /(好きな|推しの)?\s*アニメ.*(ある|いる|なに|何|どれ|教えて|好き|すき)[！!。\.、,\s]*[?？]?$/i;
+    if (animeLike.test(text)) {
+        await safeReplyOrPush({
+            replyToken: event.replyToken,
+            userId,
+            messages: { type: 'text', text: '『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心が優しくなるんだ😊' },
+            tag: 'anime_reply'
+        });
+        return;
+    }
+    if (/(好きな|推し|おすすめ)\s*音楽(は|ある)?/i.test(text) || /(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i.test(text)) {
+        await safeReplyOrPush({
+            replyToken: event.replyToken,
+            userId,
+            messages: { type: 'text', text: 'ClariSが好きだよ💖 とくに『コネクト』！' },
+            tag: 'music_reply'
+        });
+        return;
+    }
+const isAdmin = BOT_ADMIN_IDS.includes(userId);
 
     if (text === 'VERSION') {
         await safePushMessage(userId, {
@@ -1893,3 +1906,44 @@ cron.schedule('0 * * * *', checkAndSendEscalation, {
 app.listen(PORT, () => {
     console.log(`サーバーはポート${PORT}で実行されています`);
 });
+
+
+// === Officer Alert Flex (見守り向け) ===
+function maskPhone(num) {
+  const s = String(num||'').replace(/\D/g,'');
+  if (!s) return '';
+  if (s.length <= 4) return '*'.repeat(s.length);
+  return s.slice(0, s.length-4).replace(/\d/g,'＊') + s.slice(-4);
+}
+function createOfficerFlex(userId, userProfile, kind, userText) {
+  const masked = maskPhone(EMERGENCY_CONTACT_PHONE_NUMBER);
+  const telUri = (EMERGENCY_CONTACT_PHONE_NUMBER||'').replace(/\D/g,'');
+  const headerColor = kind === 'danger' ? '#FF4B4B' : '#FF8C00';
+  const footer = [
+    masked && telUri ? {
+      type: "button", style: "primary", color: "#6A5ACD",
+      action: { type: "uri", label: `事務局に発信 (${masked})`, uri: `tel:${telUri}` }
+    } : null,
+    { type: "button", style: "primary", color: "#1E90FF",
+      action: { type: "postback", label: "LINEで安否送信", data: `admin:sendSafety:${userId}` } },
+    { type: "button", style: "secondary", color: "#32CD32",
+      action: { type: "postback", label: "既読・対応済み", data: `admin:check:${userId}` } },
+    { type: "button", style: "secondary", color: "#FF69B4",
+      action: { type: "postback", label: "Pingを今すぐ", data: `admin:ping:${userId}` } },
+    { type: "button", style: "secondary",
+      action: { type: "postback", label: "見守り停止", data: `admin:watchOff:${userId}` } },
+  ].filter(Boolean);
+  return {
+    type: "flex",
+    altText: (kind === 'danger' ? '🚨危険' : '⚠️詐欺') + `検知: ${userProfile?.displayName || 'ユーザー'}`,
+    contents: {
+      type: "bubble",
+      body: { type: "box", layout: "vertical", contents: [
+        { type: "text", text: kind === 'danger' ? "【危険ワード検知】" : "【詐欺ワード検知】", weight: "bold", size: "lg", color: headerColor, align: "center" },
+        { type: "text", text: `ユーザー: ${userProfile?.displayName || '(不明)'}`, wrap: true, margin: "md" },
+        { type: "text", text: `本文: ${String(userText||'').slice(0, 300)}`, wrap: true, margin: "sm" }
+      ]},
+      footer: { type: "box", layout: "vertical", spacing: "sm", contents: footer }
+    }
+  };
+}
