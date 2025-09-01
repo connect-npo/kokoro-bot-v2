@@ -559,8 +559,7 @@ const EMERGENCY_FLEX_MESSAGE = {
                 type: "text",
                 text: "【緊急事態】",
                 weight: "bold",
-                size: "xl",
-                color: "#FF0000"
+                size: "xl"
             },
             {
                 type: "box",
@@ -599,8 +598,7 @@ const EMERGENCY_FLEX_MESSAGE = {
                 type: "uri",
                 label: "厚生労働省（いのちの電話）",
                 uri: "https://www.mhlw.go.jp/kokoro/support.html"
-            },
-            color: "#6A5ACD"
+            }
         }, {
             type: "button",
             style: "primary",
@@ -609,8 +607,7 @@ const EMERGENCY_FLEX_MESSAGE = {
                 type: "uri",
                 label: "こころの健康相談",
                 uri: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/hukushi_kaigo/seikatsuhogo/jisatsu/soudan_info.html"
-            },
-            color: "#6A5ACD"
+            }
         }]
     },
     styles: {
@@ -626,7 +623,6 @@ const makeScamMessageFlex = (userText) => {
         return {
             type: "button",
             style: "primary",
-            color: "#00B900",
             action: {
                 type: "uri",
                 label: label,
@@ -638,7 +634,6 @@ const makeScamMessageFlex = (userText) => {
     const contents = [{
         type: "button",
         style: "primary",
-        color: "#1E90FF",
         action: {
             type: "uri",
             label: "警察",
@@ -647,7 +642,6 @@ const makeScamMessageFlex = (userText) => {
     }, {
         type: "button",
         style: "primary",
-        color: "#FFA500",
         action: {
             type: "uri",
             label: "チャイルドライン",
@@ -656,7 +650,6 @@ const makeScamMessageFlex = (userText) => {
     }, {
         type: "button",
         style: "primary",
-        color: "#32CD32",
         action: {
             type: "uri",
             label: "国民生活センター",
@@ -675,7 +668,6 @@ const makeScamMessageFlex = (userText) => {
                 type: "text",
                 text: "【詐欺注意】",
                 weight: "bold",
-                color: "#FF0000",
                 size: "xl",
                 align: "center"
             }, {
@@ -739,13 +731,11 @@ const buildWatcherFlex = ({
                 }, {
                     type: 'text',
                     text: `本人TEL：${maskPhone(selfPhone)}`,
-                    size: 'sm',
-                    color: '#777777'
+                    size: 'sm'
                 }, {
                     type: 'text',
                     text: `近親者：${kinName || '—'}（${maskPhone(kinPhone)}）`,
                     size: 'sm',
-                    color: '#777777',
                     wrap: true
                 }, ]
             },
@@ -754,9 +744,9 @@ const buildWatcherFlex = ({
 };
 
 // ===== cron の設定 =====
-cron.schedule('0 15 * * *', checkAndSendPing, {
+cron.schedule('*/5 * * * *', checkAndSendPing, {
     scheduled: true,
-    timezone: JST_TZ
+    timezone: 'UTC'
 });
 
 async function checkAndSendPing() {
@@ -1286,3 +1276,5 @@ app.post('/webhook', middleware({
         console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err);
     }
 });
+
+app.listen(PORT, () => console.log(`✅ App listening on port ${PORT}`));
