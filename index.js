@@ -120,7 +120,8 @@ const audit = (event, detail) => {
     console.log(`[AUDIT] ${event}`, JSON.stringify(detail));
 };
 const briefErr = (msg, e) => {
-    console.error(`[ERR] ${msg}:`, e.response?.data || e.message);
+    const detail = e.originalError?.response?.data || e.response?.data || e.message;
+    console.error(`[ERR] ${msg}:`, JSON.stringify(detail, null, 2));
 };
 const debug = (message) => {
     console.log(`[DEBUG] ${message}`);
@@ -232,11 +233,10 @@ async function safePush(to, messages) {
     }
     await client.pushMessage(to, arr);
   } catch (err) {
-    console.error('[ERR] LINE push failed', {
-      to,
-      status: err?.statusCode || err?.response?.status,
-      data: err?.response?.data
-    });
+    const detail = err?.originalError?.response?.data || err?.response?.data || err;
+    console.error('[ERR] LINE push failed', JSON.stringify({
+      to, status: err?.statusCode || err?.response?.status, detail
+    }, null, 2));
   }
 }
 
@@ -326,13 +326,11 @@ const maskPhone = p => {
     if (!v) return '—';
     return v.length <= 4 ? `**${v}` : `${'*'.repeat(Math.max(0, v.length - 4))}${v.slice(-4)}`;
 };
+const telMsgBtn = (label, p) => p ? ({
+  type: 'button', style: 'secondary',
+  action: { type: 'message', label, text: `${label}: ${p}` }
+}) : null;
 const buildWatcherFlex = ({ name='—', address='—', selfPhone='', kinName='', kinPhone='', userId }) => {
-  const telBtn = (label, p) => p ? ({
-    type: 'button',
-    style: 'secondary',
-    action: { type: 'uri', label, uri: `tel:${p}` }
-  }) : null;
-
   return {
     type: 'flex',
     altText: '【見守りアラート】',
@@ -353,8 +351,8 @@ const buildWatcherFlex = ({ name='—', address='—', selfPhone='', kinName='',
         contents: [
           { type: 'button', style: 'primary',
             action: { type: 'postback', label: 'LINEで連絡', data: `action=notify_user&uid=${encodeURIComponent(userId)}` } },
-          telBtn('本人に電話', selfPhone),
-          telBtn('近親者に電話', kinPhone),
+          telMsgBtn('本人に電話', selfPhone),
+          telMsgBtn('近親者に電話', kinPhone),
         ].filter(Boolean)
       }
     }
@@ -515,8 +513,8 @@ async function checkAndSendPing() {
                  
                  if (canNotifyOfficer) {
                     const u = (await ref.get()).data() || {};
-                    const prof = u.profile || {};
-                    const emerg = u.emergency || {};
+                    const prof = u?.profile || {};
+                    const emerg = u?.emergency || {};
                     const name = prof.name || '—';
                     const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
                     const selfPhone = prof.phone || '';
@@ -524,7 +522,7 @@ async function checkAndSendPing() {
                     const kinPhone = emerg.contactPhone || '';
                     await safePush(WATCH_GROUP_ID, buildWatcherFlex({
                       name, address, selfPhone, kinName, kinPhone, userId: doc.id
-                    }));
+                    }), 'danger-alert');
                  }
                  await ref.set({
                      watchService: {
@@ -552,7 +550,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? cur.data() : null;
+        const cur = snap.exists ? snap.data() : null;
         if (cur && cur.until && cur.until.toMillis() > now) {
             return false;
         }
@@ -611,9 +609,9 @@ const EMERGENCY_FLEX_MESSAGE = {
             "style": "primary",
             "height": "sm",
             "action": {
-                "type": "uri",
+                "type": "message",
                 "label": "警察 (電話)",
-                "uri": "tel:110"
+                "text": "110に電話する"
             },
             "color": "#FF4500"
         }, {
@@ -621,9 +619,9 @@ const EMERGENCY_FLEX_MESSAGE = {
             "style": "primary",
             "height": "sm",
             "action": {
-                "type": "uri",
+                "type": "message",
                 "label": "消防・救急 (電話)",
-                "uri": "tel:119"
+                "text": "119に電話する"
             },
             "color": "#FF6347"
         }, {
@@ -641,9 +639,9 @@ const EMERGENCY_FLEX_MESSAGE = {
             "style": "primary",
             "height": "sm",
             "action": {
-                "type": "uri",
+                "type": "message",
                 "label": "いのちの電話 (電話)",
-                "uri": "tel:0570064556"
+                "text": "0570-064-556に電話する"
             },
             "color": "#32CD32"
         }, {
@@ -661,9 +659,9 @@ const EMERGENCY_FLEX_MESSAGE = {
             "style": "primary",
             "height": "sm",
             "action": {
-                "type": "uri",
+                "type": "message",
                 "label": "警視庁(電話)",
-                "uri": "tel:0335814321"
+                "text": "03-3581-4321に電話する"
             },
             "color": "#FF4500"
         }, {
@@ -671,9 +669,9 @@ const EMERGENCY_FLEX_MESSAGE = {
             "style": "primary",
             "height": "sm",
             "action": {
-                "type": "uri",
+                "type": "message",
                 "label": "子供を守る声(電話)",
-                "uri": `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`
+                "text": `${EMERGENCY_CONTACT_PHONE_NUMBER}に電話する`
             },
             "color": "#FFA500"
         }]
@@ -693,7 +691,6 @@ const makeTelButton = (label, phone) => {
         }
     };
 };
-
 const makeScamMessageFlex = (tel = '') => {
     const contents = [
         {
@@ -706,18 +703,23 @@ const makeScamMessageFlex = (tel = '') => {
             type: "button",
             style: "primary",
             color: "#FF4500",
-            action: { type: "uri", label: "警察 (110)", uri: "tel:110" }
+            action: { type: "message", label: "警察 (110)", text: "110に電話する" }
         },
         {
             type: "button",
             style: "primary",
             color: "#FFA500",
-            action: { type: "uri", label: "消費者ホットライン (188)", uri: "tel:188" }
+            action: { type: "message", label: "消費者ホットライン (188)", text: "188に電話する" }
         }
     ];
     const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
-    if (officeBtn) contents.push(officeBtn);
-
+    if (officeBtn) contents.push({
+      type: "button",
+      style: "primary",
+      color: "#000000",
+      action: { type: "message", label: "こころちゃん事務局（電話）", text: `${EMERGENCY_CONTACT_PHONE_NUMBER}に電話する`}
+    });
+    
     return {
         type: "bubble",
         body: {
@@ -745,6 +747,7 @@ const makeScamMessageFlex = (tel = '') => {
         }
     };
 };
+
 
 const makeRegistrationButtonsFlex = (userId) => {
     return {
@@ -1066,10 +1069,11 @@ async function safePushMessage(to, messages, tag) {
         }
         await client.pushMessage(to, arr);
     } catch (err) {
+        const detail = err?.originalError?.response?.data || err?.response?.data || err;
         console.error(`[ERR] LINE push failed: ${tag}`, JSON.stringify({
             to: Array.isArray(to) ? to.join(',') : to,
             status: err?.statusCode || err?.response?.status,
-            data: err?.response?.data || err?.message
+            detail
         }, null, 2));
     }
 }
