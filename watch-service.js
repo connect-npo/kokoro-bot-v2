@@ -12,10 +12,21 @@ const { Client } = require('@line/bot-sdk');
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || '';
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID || '';
+const WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || ''; // 追加
 const FIREBASE_CREDENTIALS_BASE64 = process.env.FIREBASE_CREDENTIALS_BASE64 || '';
+const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '';
 
 if (!LINE_CHANNEL_ACCESS_TOKEN) { console.error('LINE_CHANNEL_ACCESS_TOKEN 未設定'); process.exit(1); }
 if (!FIREBASE_CREDENTIALS_BASE64) { console.error('FIREBASE_CREDENTIALS_BASE64 未設定'); process.exit(1); }
+
+// WATCH_GROUP_ID が "C..." 形式でない場合の警告
+if (WATCH_GROUP_ID && !/^C/.test(WATCH_GROUP_ID)) {
+    console.warn('[WARN] WATCH_GROUP_ID が "C..." 形式ではない可能性');
+}
+// どちらのグループIDも未設定の場合の警告
+if (!WATCH_GROUP_ID && !OFFICER_GROUP_ID) {
+    console.warn('[WARN] WATCH_GROUP_ID / OFFICER_GROUP_ID が未設定。未応答通知はスキップされます。');
+}
 
 let FIREBASE_SERVICE_ACCOUNT;
 try {
@@ -67,7 +78,10 @@ const nextPingAtFrom = (fromDate) =>
 
 async function safePush(to, messages) {
   try { await lineClient.pushMessage(to, Array.isArray(messages) ? messages : [messages]); }
-  catch (err) { console.error(`[ERROR] push to ${to} failed:`, err?.response?.data || err.message); }
+  catch (err) {
+    console.error(`[ERROR] push to ${to} failed${err?.response?.status ? ` (HTTP ${err.response.status})` : ''}:`,
+      err?.response?.data || err.message);
+  }
 }
 
 // インデックス未作成でも動く“フォールバック”付き取得
@@ -136,8 +150,47 @@ async function warmupFill(now) {
   if (cnt) await batch.commit();
 }
 
+// TELマスク＆Flex生成
+const maskPhone = (raw='') => {
+    const s = String(raw).replace(/[^0-9+]/g, '');
+    if (!s) return '';
+    const tail = s.slice(-4);
+    const head = s.slice(0, -4).replace(/[0-9]/g, '＊');
+    return head + tail;
+};
+
+const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
+    const name = u?.profile?.displayName || u?.displayName || '(不明)';
+    const tel  = String(telRaw || '').trim();
+    const masked = tel ? maskPhone(tel) : '未登録';
+    return {
+        type: 'flex',
+        altText: `🚨未応答: ${name} / ${elapsedHours}時間`,
+        contents: {
+            type: 'bubble',
+            body: {
+                type: 'box', layout: 'vertical', spacing: 'md',
+                contents: [
+                    { type: 'text', text: '🚨 見守り未応答', weight: 'bold', size: 'xl' },
+                    { type: 'text', text: `ユーザー名：${name}`, wrap: true },
+                    { type: 'text', text: `UserID：${userId}`, size: 'sm', color: '#888', wrap: true },
+                    { type: 'text', text: `経過：${elapsedHours}時間`, wrap: true },
+                    { type: 'separator', margin: 'md' },
+                    { type: 'text', text: `連絡先（マスク）：${masked}`, wrap: true },
+                ]
+            },
+            footer: {
+                type: 'box', layout: 'vertical', spacing: 'md',
+                contents: tel ? [{
+                    type: 'button', style: 'primary',
+                    action: { type: 'uri', label: '📞 発信する', uri: `tel:${tel}` }
+                }] : [{ type: 'text', text: '※TEL未登録', size: 'sm', color: '#888' }]
+            }
+        }
+    };
+};
+
 async function checkAndSendPing() {
-  // === ここを修正 ===
   const now = dayjs().tz('UTC'); 
   console.log(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 
@@ -157,11 +210,15 @@ async function checkAndSendPing() {
       const ws = u.watchService || {};
       const nowTs = firebaseAdmin.firestore.Timestamp.now();
       const lockUntil = ws.notifyLockExpiresAt?.toDate?.() || new Date(0);
-      if (lockUntil.getTime() > Date.now()) return false;
+      
+      // ロック比較をnowTsのミリ秒に統一
+      if (lockUntil.getTime() > nowTs.toMillis()) return false;
 
       const nextPingAt = ws.nextPingAt?.toDate?.() || null;
       const awaiting = !!ws.awaitingReply;
-      if (!awaiting && (!nextPingAt || nextPingAt > new Date())) return false;
+      
+      // 次回判定もnowTsのミリ秒に統一
+      if (!awaiting && (!nextPingAt || nextPingAt.getTime() > nowTs.toMillis())) return false;
 
       const until = new Date(nowTs.toMillis() + LOCK_SEC * 1000);
       tx.set(ref, { watchService: { notifyLockExpiresAt: firebaseAdmin.firestore.Timestamp.fromDate(until) } }, { merge: true });
@@ -176,8 +233,8 @@ async function checkAndSendPing() {
       const ws = u.watchService || {};
       const awaiting = !!ws.awaitingReply;
       const lastPingAt      = ws.lastPingAt?.toDate?.()      ? dayjs(ws.lastPingAt.toDate())      : null;
-      const lastReminderAt  = ws.lastReminderAt?.toDate?.()  ? dayjs(ws.lastReminderAt.toDate())  : null;
-      const lastNotifiedAt  = ws.lastNotifiedAt?.toDate?.()  ? dayjs(ws.lastNotifiedAt.toDate())  : null;
+      const lastReminderAt  = ws.lastReminderAt?.toDate?.() ? dayjs(ws.lastReminderAt.toDate()) : null;
+      const lastNotifiedAt  = ws.lastNotifiedAt?.toDate?.() ? dayjs(ws.lastNotifiedAt.toDate()) : null;
 
       let mode = awaiting ? 'noop' : 'ping';
       if (awaiting && lastPingAt) {
@@ -248,9 +305,18 @@ async function checkAndSendPing() {
         }, { merge: true });
 
       } else if (mode === 'escalate') {
-        const canNotifyOfficer = OFFICER_GROUP_ID && (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
-        if (canNotifyOfficer) {
-          await safePush(OFFICER_GROUP_ID, { type: 'text', text: `🚨見守り未応答: ユーザー ${doc.id} が ${ESCALATE_AFTER_HOURS}時間未応答` });
+        const targetGroupId = WATCH_GROUP_ID || OFFICER_GROUP_ID;
+        const canNotify =
+          targetGroupId &&
+          (!lastNotifiedAt || now.diff(lastNotifiedAt, 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
+        if (canNotify) {
+          const elapsedH = lastPingAt ? dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour') : ESCALATE_AFTER_HOURS;
+          const tel = u?.profile?.emergencyPhone || u?.emergencyPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
+          const flex = buildWatchFlex(u, doc.id, elapsedH, tel);
+          await safePush(targetGroupId, [
+            { type: 'text', text: '🚨見守り未応答が発生しました。対応可能な方はお願いします。' },
+            flex
+          ]);
         }
         await ref.set({
           watchService: {
@@ -269,7 +335,6 @@ async function checkAndSendPing() {
     }
   }
 
-  // === ここを修正 ===
   console.log(`[watch-service] end ${dayjs().tz('UTC').format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 }
 
