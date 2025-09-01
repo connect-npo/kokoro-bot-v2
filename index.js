@@ -246,13 +246,14 @@ async function fetchTargets() {
     const targets = [];
     try {
         const snap = await usersRef
+            .where('watchService.enabled', '==', true)
             .where('watchService.awaitingReply', '==', false)
             .where('watchService.nextPingAt', '<=', now.toDate())
             .limit(200)
             .get();
         targets.push(...snap.docs);
     } catch (e) {
-        const snap = await usersRef.limit(500).get();
+        const snap = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
         for (const d of snap.docs) {
             const ws = (d.data().watchService) || {};
             if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
@@ -270,7 +271,9 @@ async function fetchTargets() {
         const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
             const ws = (d.data().watchService) || {};
-            if (ws.awaitingReply === true) targets.push(d);
+            if (ws.awaitingReply === true) {
+                targets.push(d);
+            }
         }
     }
     const map = new Map();
@@ -289,7 +292,7 @@ async function warmupFill() {
         if (!ws.awaitingReply && !ws.nextPingAt) {
             batch.set(d.ref, {
                 watchService: {
-                    nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(dayjs(now).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate())
+                    nextPingAt: Timestamp.now()
                 }
             }, {
                 merge: true
@@ -712,7 +715,7 @@ const makeScamMessageFlex = (tel = '') => {
             action: { type: "uri", label: "消費者ホットライン (188)", uri: "tel:188" }
         }
     ];
-    const officeBtn = makeTelButton("こころちゃん事務局（電話）", tel);
+    const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
     if (officeBtn) contents.push(officeBtn);
 
     return {
@@ -1238,7 +1241,20 @@ const handleEvent = async (event) => {
     const userId = event.source.userId;
     const userDoc = await db.collection('users').doc(userId).get();
     const user = userDoc.data() || {};
-    const watchServiceEnabled = user?.watchService?.enabled || false;
+    
+    const watchServiceEnabled = user?.watchService?.enabled === true;
+    if (!watchServiceEnabled && event.type === 'message' && event.message.type === 'text') {
+        await db.collection('users').doc(userId).set({
+            watchService: {
+                enabled: true,
+                awaitingReply: false,
+                nextPingAt: Timestamp.now()
+            }
+        }, {
+            merge: true
+        });
+    }
+
     const watchServiceAwaitingReply = user?.watchService?.awaitingReply || false;
     const notifySettings = user?.watchService?.notify || {};
 
@@ -1286,16 +1302,16 @@ const handleEvent = async (event) => {
         });
         const activeWatchGroupId = await getActiveWatchGroupId();
         if (activeWatchGroupId) {
-            const prof = user?.profile || {};
-            const emerg = user?.emergency || {};
+            const u = (await db.collection('users').doc(userId).get()).data() || {};
+            const prof = u?.profile || {};
+            const emerg = u?.emergency || {};
+            const name = prof.name || '—';
             const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
+            const selfPhone = prof.phone || '';
+            const kinName = emerg.contactName || '';
+            const kinPhone = emerg.contactPhone || '';
             await safePushMessage(activeWatchGroupId, buildWatcherFlex({
-              name: prof.name,
-              address: address,
-              selfPhone: prof.phone,
-              kinName: emerg.contactName,
-              kinPhone: emerg.contactPhone,
-              userId
+              name, address, selfPhone, kinName, kinPhone, userId
             }), 'danger-alert');
         }
         return;
@@ -1320,16 +1336,16 @@ const handleEvent = async (event) => {
         });
         const activeWatchGroupId = await getActiveWatchGroupId();
         if (activeWatchGroupId) {
-            const prof = user?.profile || {};
-            const emerg = user?.emergency || {};
+            const u = (await db.collection('users').doc(userId).get()).data() || {};
+            const prof = u?.profile || {};
+            const emerg = u?.emergency || {};
+            const name = prof.name || '—';
             const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
+            const selfPhone = prof.phone || '';
+            const kinName = emerg.contactName || '';
+            const kinPhone = emerg.contactPhone || '';
             await safePushMessage(activeWatchGroupId, buildWatcherFlex({
-              name: prof.name,
-              address: address,
-              selfPhone: prof.phone,
-              kinName: emerg.contactName,
-              kinPhone: emerg.contactPhone,
-              userId
+              name, address, selfPhone, kinName, kinPhone, userId
             }), 'scam-alert');
         }
         return;
@@ -1370,10 +1386,16 @@ const handleFollowEvent = async (event) => {
       watchService: {
         enabled: true,
         awaitingReply: false,
-        nextPingAt: Timestamp.fromDate(
-          dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()
-        ),
+        nextPingAt: Timestamp.now()
       },
+    }, { merge: true });
+  } else {
+    await userRef.set({
+      watchService: {
+        enabled: true,
+        awaitingReply: false,
+        nextPingAt: Timestamp.now()
+      }
     }, { merge: true });
   }
 
