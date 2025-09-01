@@ -71,9 +71,7 @@ const OWNER_USER_ID = process.env.OWNER_USER_ID || BOT_ADMIN_IDS[0];
 const OWNER_GROUP_ID = process.env.OWNER_GROUP_ID || null;
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const WATCH_LOG_LEVEL = (process.env.WATCH_LOG_LEVEL || 'info').toLowerCase();
-const WATCH_NOTIFY_DANGER = process.env.WATCH_NOTIFY_DANGER === '1';
-const WATCH_NOTIFY_SCAM = process.env.WATCH_NOTIFY_SCAM === '1';
-
+// 強制通知方針：ゲートは使わない
 
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
 const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
@@ -478,12 +476,7 @@ async function checkAndSendPing() {
                     const u = (await ref.get()).data() || {};
                     const prof = u.profile || {};
                     const emerg = u.emergency || {};
-                    const name = prof.name || '—';
                     const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
-                    const selfPhone = prof.phone || '';
-                    const kinName = emerg.contactName || '';
-                    const kinPhone = emerg.contactPhone || '';
-
                     await safePush(WATCH_GROUP_ID, buildWatcherFlex({
                         name,
                         address,
@@ -1252,8 +1245,7 @@ const handleEvent = async (event) => {
                 contents: EMERGENCY_FLEX_MESSAGE
             }, ]
         });
-        const allow = notifySettings?.danger !== false;
-        if (WATCH_NOTIFY_DANGER && WATCH_GROUP_ID && allow) {
+        if (WATCH_GROUP_ID) {
             const prof = user?.profile || {};
             const emerg = user?.emergency || {};
             const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
@@ -1265,8 +1257,6 @@ const handleEvent = async (event) => {
               kinPhone: emerg.contactPhone,
               userId
             }));
-        } else {
-            watchLog(`[watch] danger notify skipped: env=${WATCH_NOTIFY_DANGER}, gid=${!!WATCH_GROUP_ID}, allow=${allow}`, 'info');
         }
         return;
     }
@@ -1288,8 +1278,7 @@ const handleEvent = async (event) => {
                 contents: makeScamMessageFlex(EMERGENCY_CONTACT_PHONE_NUMBER)
             }, ]
         });
-        const allow = notifySettings?.scam !== false;
-        if (WATCH_NOTIFY_SCAM && WATCH_GROUP_ID && allow) {
+        if (WATCH_GROUP_ID) {
             const prof = user?.profile || {};
             const emerg = user?.emergency || {};
             const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
@@ -1301,8 +1290,6 @@ const handleEvent = async (event) => {
               kinPhone: emerg.contactPhone,
               userId
             }));
-        } else {
-            watchLog(`[watch] scam notify skipped: env=${WATCH_NOTIFY_SCAM}, gid=${!!WATCH_GROUP_ID}, allow=${allow}`, 'info');
         }
         return;
     }
@@ -1341,11 +1328,6 @@ const handleFollowEvent = async (event) => {
             membership: 'guest',
             watchService: {
                 enabled: false,
-                notify: {
-                    danger: false,
-                    scam: false,
-                    sharePhone: false,
-                }
             },
         });
     }
