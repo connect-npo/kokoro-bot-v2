@@ -62,31 +62,6 @@ const WATCH_SERVICE_FORM_BASE_URL = normalizeFormUrl(process.env.WATCH_SERVICE_F
 const MEMBER_CHANGE_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
 const MEMBER_CANCEL_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-// WATCH_GROUP_IDは削除。getActiveWatchGroupIdを使用
-// let _WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || '';
-// _WATCH_GROUP_ID = _WATCH_GROUP_ID.trim().replace(/\u200b/g, '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, s =>
-//   String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
-// );
-// if (_WATCH_GROUP_ID && !/^C[0-9a-f]{32}$/i.test(_WATCH_GROUP_ID)) {
-//   console.warn('[WARN] WATCH_GROUP_ID format suspicious:', JSON.stringify(_WATCH_GROUP_ID));
-// }
-// const WATCH_GROUP_ID = _WATCH_GROUP_ID;
-
-const WATCH_GROUP_DOC = db.collection('system').doc('watch_group');
-
-async function getActiveWatchGroupId() {
-  let gid = (process.env.WATCH_GROUP_ID || '').trim().replace(/\u200b/g,'');
-  if (/^C[0-9a-f]{32}$/i.test(gid)) return gid;
-
-  const snap = await WATCH_GROUP_DOC.get();
-  const v = snap.exists ? (snap.data().groupId || '') : '';
-  return /^C[0-9a-f]{32}$/i.test(v) ? v : '';
-}
-
-async function setActiveWatchGroupId(gid) {
-  if (!/^C[0-9a-f]{32}$/i.test(gid)) return;
-  await WATCH_GROUP_DOC.set({ groupId: gid, updatedAt: Timestamp.now() }, { merge: true });
-}
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
@@ -325,6 +300,22 @@ async function warmupFill() {
     if (cnt) await batch.commit();
 }
 
+const getWatchGroupDoc = () => firebaseAdmin.firestore()
+  .collection('system').doc('watch_group');
+
+async function getActiveWatchGroupId() {
+  const envGid = (process.env.WATCH_GROUP_ID || '').trim().replace(/\u200b/g,'');
+  if (/^C[0-9a-f]{32}$/i.test(envGid)) return envGid;
+  const snap = await getWatchGroupDoc().get();
+  const v = snap.exists ? (snap.data().groupId || '') : '';
+  return /^C[0-9a-f]{32}$/i.test(v) ? v : '';
+}
+
+async function setActiveWatchGroupId(gid) {
+  if (!/^C[0-9a-f]{32}$/i.test(gid)) return;
+  await getWatchGroupDoc().set({ groupId: gid, updatedAt: Timestamp.now() }, { merge: true });
+}
+
 const OFFICER_NOTIFICATION_MIN_GAP_HOURS = Number(process.env.OFFICER_NOTIFICATION_MIN_GAP_HOURS || 1);
 
 const maskPhone = p => {
@@ -558,7 +549,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? snap.data() : null;
+        const cur = snap.exists ? cur.data() : null;
         if (cur && cur.until && cur.until.toMillis() > now) {
             return false;
         }
