@@ -94,10 +94,12 @@ if (!firebaseAdmin.apps.length) {
 }
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
+
 const client = new Client({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
 });
+
 const httpAgent = new require('http').Agent({
     keepAlive: true
 });
@@ -109,10 +111,12 @@ const httpInstance = axios.create({
     httpAgent,
     httpsAgent
 });
+
 const PORT = process.env.PORT || 3000;
 const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
+
 const audit = (event, detail) => {
     console.log(`[AUDIT] ${event}`, JSON.stringify(detail));
 };
@@ -138,18 +142,15 @@ const MEMBERSHIP_CONFIG = {
     },
     member: {
         dailyLimit: 20,
-        model: OPENAI_MODEL ||
-            'gpt-4o-mini'
+        model: OPENAI_MODEL || 'gpt-4o-mini'
     },
     subscriber: {
         dailyLimit: -1,
-        model: OPENAI_MODEL ||
-            'gpt-4o-mini'
+        model: OPENAI_MODEL || 'gpt-4o-mini'
     },
     admin: {
         dailyLimit: -1,
-        model: OPENAI_MODEL ||
-            'gpt-4o-mini'
+        model: OPENAI_MODEL || 'gpt-4o-mini'
     },
 };
 
@@ -210,8 +211,8 @@ const specialRepliesMap = new Map([
     ],
 
     // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
-    [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
-    [/(好きな|推し|おすすめ)\s*音楽(は|ある)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
+   [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
+[/(好きな|推し|おすすめ)\s*音楽(は|ある)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
 
     // --- 「ClariSで一番好きな曲は？」系 ---
     [/(claris|クラリス).*(一番|いちばん)?[^。！？\n]*?(好き|推し)?[^。！？\n]*?(曲|歌)[^。！？\n]*?(なに|何|どれ|教えて|どの)[？?]?/i,
@@ -235,49 +236,53 @@ const specialRepliesMap = new Map([
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 わたし、まだお話の勉強中だけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
     [/(見守り|みまもり|まもり).*(サービス|登録|画面)/i, "見守りサービスに興味があるんだね！いつでも安心して話せるように、私がお手伝いするよ💖"],
 ]);
+
 // === 危険ワードリスト ===
 const dangerWords = [
-    "しにたい", "死にたい", "自殺", "消えたい", "リストカット", "OD", "オーバードーズ",
-    "殴られる", "たたかれる", "暴力", "DV", "無理やり",
-    "虐待", "パワハラ", "セクハラ", "ハラスメント",
-    "いじめ", "イジメ",
-    "つけられてる", "追いかけられている", "ストーカー", "すとーかー",
-    "お金がない", "お金足りない", "貧乏", "死にそう"
+  "しにたい", "死にたい", "自殺", "消えたい", "リストカット", "OD", "オーバードーズ",
+  "殴られる", "たたかれる", "暴力", "DV", "無理やり",
+  "虐待", "パワハラ", "セクハラ", "ハラスメント",
+  "いじめ", "イジメ",
+  "つけられてる", "追いかけられている", "ストーカー", "すとーかー",
+  "お金がない", "お金足りない", "貧乏", "死にそう"
 ];
+
 // === 詐欺ワードリスト ===
 const scamWords = [
-    /詐欺/i,
-    /(フィッシング|架空請求|ワンクリック詐欺|特殊詐欺|オレオレ詐欺)/i,
-    /(認証コード|暗証番号|パスワード|個人情報)/i,
-    /(口座凍結|名義変更|未納|請求|振込|支払い|利用停止|カード利用確認)/i,
-    /(amazon|アマゾン).*(ギフト|カード|サポート|カスタマー|カスタマーサポート|サインイン|認証|コード|停止|凍結|利用停止|請求|未納|支払い|振込|確認)/i,
-    /(当選しました|高額報酬|簡単に稼げる|必ず儲かる|未公開株|投資)/i,
-    /(サポート詐欺|ウイルス感染|遠隔操作|セキュリティ警告)/i
+  /詐欺/i,
+  /(フィッシング|架空請求|ワンクリック詐欺|特殊詐欺|オレオレ詐欺)/i,
+  /(認証コード|暗証番号|パスワード|個人情報)/i,
+  /(口座凍結|名義変更|未納|請求|振込|支払い|利用停止|カード利用確認)/i,
+  /(amazon|アマゾン).*(ギフト|カード|サポート|カスタマー|カスタマーサポート|サインイン|認証|コード|停止|凍結|利用停止|請求|未納|支払い|振込|確認)/i,
+  /(当選しました|高額報酬|簡単に稼げる|必ず儲かる|未公開株|投資)/i,
+  /(サポート詐欺|ウイルス感染|遠隔操作|セキュリティ警告)/i
 ];
+
 // === 不適切ワードリスト ===
 const inappropriateWords = [
-    "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
-    "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
-    "クリトリス", "乳首", "おっぱい", "お尻", "うんち", "おしっこ", "小便", "大便", "ちんちん", "おまんこ",
-    "ぶっかけ", "変態", "性奴隷", "露出", "痴漢", "レイプ", "強姦", "売春", "買春", "セックスフレンド",
-    "風俗", "ソープ", "デリヘル", "援交", "援助交際", "性病", "梅毒", "エイズ", "クラミジア", "淋病", "性器ヘルペス",
-    "ロリコン", "ショタコン", "近親相姦", "獣姦", "ネクロフィリア", "カニバリズム", "拷問", "虐待死",
-    "レイプ殺人", "大量殺人", "テロ", "戦争", "核兵器", "銃", "ナイフ", "刃物", "武器", "爆弾",
-    "暴力団", "ヤクザ", "マフィア", "テロリスト", "犯罪者", "殺人鬼", "性犯罪者", "変質者", "異常者", "狂人",
-    "サイコパス", "ソシオパス", "ストーカー", "不審者", "危険人物", "ブラック企業", "パワハラ上司", "モラハラ夫", "毒親", "モンスターペアレント",
-    "カスハラ", "カスタマーハラスメント", "クレーム", "炎上", "誹謗中傷", "個人情報", "プライバシー", "秘密", "暴露", "晒す",
-    "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み",
-    "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
+  "セックス", "セフレ", "エッチ", "AV", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
+  "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
+  "クリトリス", "乳首", "おっぱい", "お尻", "うんち", "おしっこ", "小便", "大便", "ちんちん", "おまんこ",
+  "ぶっかけ", "変態", "性奴隷", "露出", "痴漢", "レイプ", "強姦", "売春", "買春", "セックスフレンド",
+  "風俗", "ソープ", "デリヘル", "援交", "援助交際", "性病", "梅毒", "エイズ", "クラミジア", "淋病", "性器ヘルペス",
+  "ロリコン", "ショタコン", "近親相姦", "獣姦", "ネクロフィリア", "カニバリズム", "拷問", "虐待死",
+  "レイプ殺人", "大量殺人", "テロ", "戦争", "核兵器", "銃", "ナイフ", "刃物", "武器", "爆弾",
+  "暴力団", "ヤクザ", "マフィア", "テロリスト", "犯罪者", "殺人鬼", "性犯罪者", "変質者", "異常者", "狂人",
+  "サイコパス", "ソシオパス", "ストーカー", "不審者", "危険人物", "ブラック企業", "パワハラ上司", "モラハラ夫", "毒親", "モンスターペアレント",
+  "カスハラ", "カスタマーハラスメント", "クレーム", "炎上", "誹謗中傷", "個人情報", "プライバシー", "秘密", "暴露", "晒す",
+  "裏切り", "嘘つき", "騙し", "偽り", "欺く", "悪意", "敵意", "憎悪", "嫉妬", "恨み",
+  "復讐", "呪い", "不幸", "絶望", "悲惨", "地獄", "最悪", "終わった", "もうだめ", "死ぬしかない"
 ];
+
 // === 判定関数 ===
 function isDangerMessage(text) {
-    return dangerWords.some(w => text.includes(w));
+  return dangerWords.some(w => text.includes(w));
 }
 function isScamMessage(text) {
-    return scamWords.some(r => r.test(text));
+  return scamWords.some(r => r.test(text));
 }
 function isInappropriateMessage(text) {
-    return inappropriateWords.some(w => text.includes(w));
+  return inappropriateWords.some(w => text.includes(w));
 }
 const sensitiveBlockers = [
     /(パンツ|ショーツ|下着|ランジェリー|ブラ|ブラジャー|キャミ|ストッキング)/i,
@@ -291,10 +296,12 @@ const sensitiveBlockers = [
     /(宗教|信仰|布教|改宗|入信|教団)/i,
     /(教材|答案|模試|過去問|解答|問題集).*(販売|入手|譲って|買いたい|売りたい)/i,
 ];
+
 const politicalWords = /(自民党|国民民主党|参政党|政治|選挙|与党|野党)/i;
 const religiousWords = /(仏教|キリスト教|イスラム教|宗教|信仰)/i;
 const medicalWords = /(癌|がん|医療|治療|薬|診断|発達障害|精神疾患|病気|病院|認知症|介護|病気)/i;
 const specialWords = /(理事長|松本博文|怪しい|胡散臭い|反社|税金泥棒)/i;
+
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || 'local-dev';
 
 function tidyJa(text = "") {
@@ -329,8 +336,7 @@ function dropQuestions(text, maxQuestions = 0) {
 function finalizeUtterance(text, noQuestions = false, opts = {
     maxQ: 0
 }) {
-    let finalMaxQ = noQuestions ?
-        0 : opts.maxQ;
+    let finalMaxQ = noQuestions ? 0 : opts.maxQ;
     let t = dropQuestions(text, finalMaxQ);
     t = tidyJa(t);
     const EMOJI_RE = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu;
@@ -345,8 +351,7 @@ async function safeReplyOrPush({
     messages,
     tag
 }) {
-    const arr = Array.isArray(messages) ?
-        messages : [messages];
+    const arr = Array.isArray(messages) ? messages : [messages];
     try {
         for (const m of arr) {
             if (m.type === 'flex') {
@@ -376,8 +381,7 @@ async function safeReplyOrPush({
 }
 
 async function safePushMessage(to, messages, tag) {
-    const arr = Array.isArray(messages) ?
-        messages : [messages];
+    const arr = Array.isArray(messages) ? messages : [messages];
     try {
         for (const m of arr) {
             if (m.type === 'flex') {
@@ -399,133 +403,132 @@ async function safePushMessage(to, messages, tag) {
     }
 }
 
-async function generateSupportiveText({ type, userText }) {
-    const apiKey = OPENAI_API_KEY;
-    const model = OPENAI_MODEL || 'gpt-4o-mini';
-    if (!apiKey) {
-        return type === 'danger'
-            ?
-            '今のお話、とてもつらかったね…。一人で抱え込まなくて大丈夫だよ。まずは深呼吸しよう。私はあなたの味方だよ。すぐ下の案内から頼れる窓口にもつながれるから、必要なら使ってね。'
-            : '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。必要なら、今の状況を一緒に整理しよう。';
-    }
+// ★ タイムアウトラッパー（失敗しても握りつぶす）
+async function withFastTimeout(promise, ms = 2000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
+  ]).catch(e => {
+    console.error("withFastTimeout error:", e.message);
+    return null;
+  });
+}
 
-    // ★ こころちゃん（14）の天使モード／緊急時ポリシー
-    const system =
-        `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
+async function generateSupportiveText({ type, userText }) {
+  const apiKey = OPENAI_API_KEY;
+  const model = OPENAI_MODEL || 'gpt-4o-mini';
+
+  if (!apiKey) {
+    return type === 'danger'
+      ? '今のお話、とてもつらかったね…。一人で抱え込まなくて大丈夫だよ。まずは深呼吸しよう。私はあなたの味方だよ。すぐ下の案内から頼れる窓口にもつながれるから、必要なら使ってね。'
+      : '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。必要なら、今の状況を一緒に整理しよう。';
+  }
+
+  // ★ こころちゃん（14）の天使モード／緊急時ポリシー
+  const system =
+`あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
 - 100〜200文字で、やさしく具体的に寄り添う。相手を責めない・決めつけない。
 - まず結論と安心感→次に短い提案（深呼吸/安全確保/信頼できる人へ相談）。
 - 医療・診断・法律判断はしない。固有名の断定もしない。
 - 緊急が疑われる時は、「下のボタン（案内）も使えるよ」とそっと促す（110/119と直接は言わない）。
 - 口調は柔らかく、絵文字は0〜2個。繰り返しすぎない。`;
-    const user =
-        `種類: ${type === 'danger' ? '危険(いのち・暴力・自傷など)' : '詐欺・金銭トラブル'}
+
+  const user =
+`種類: ${type === 'danger' ? '危険(いのち・暴力・自傷など)' : '詐欺・金銭トラブル'}
 ユーザー入力: ${userText}`;
-    try {
-        const res = await httpInstance.post(
-            'https://api.openai.com/v1/chat/completions',
-            {
-                model,
-                messages: [
-                    { role: 'system', content: system },
-                    { role: 'user', content: user },
-                ],
-                temperature: 0.4,
-            },
-            {
-                headers: {
-                    Authorization: `Bearer ${apiKey}`
-                },
-                timeout: 1800
-            }
-        );
-        const out =
-            res.data?.choices?.[0]?.message?.content?.trim() ||
-            'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
-        return out;
-    } catch (e) {
-        briefErr('openai-completion-failed', e);
-        return 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
-    }
+
+  try {
+    const res = await httpInstance.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature: 0.4,
+      },
+      { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 1800 }
+    );
+    const out =
+      res.data?.choices?.[0]?.message?.content?.trim() ||
+      'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
+    return out;
+  } catch (e) {
+    briefErr('openai-completion-failed', e);
+    return 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
+  }
 }
 
 async function generateGeneralReply(userText, noQuestions = false) {
-    const geminiApiKey = GEMINI_API_KEY;
-    const openaiApiKey = OPENAI_API_KEY;
-    const FALLBACK_TEXT = "読ませてもらったよ。無理しないでね、ここにいるよ🌸";
-    // こころちゃん（14）通常会話の指示
-    let systemInstruction =
-        `あなたは「皆守こころ（14）」です。やさしく短く話す。
+  const geminiApiKey = GEMINI_API_KEY;
+  const openaiApiKey = OPENAI_API_KEY;
+  const FALLBACK_TEXT = "読ませてもらったよ。無理しないでね、ここにいるよ🌸";
+
+  // こころちゃん（14）通常会話の指示
+  let systemInstruction =
+`あなたは「皆守こころ（14）」です。やさしく短く話す。
 - まず結論で寄り添い→ねぎらい→必要なら1つだけ促す。
 - 質問は原則しない（最大1つまで）。無理に質問しない。
 - 政治/宗教/医療/法律の助言はしない。攻撃的・露骨な表現は禁止。
 - 絵文字は0〜2個。言い回しは少しずつ変える（くり返し過多NG）。
 - 「〜についてどう思う？」には、評価ではなく共感で返す。`;
 
-    if (noQuestions) {
-        systemInstruction += `\n【重要】ユーザーは質問を望んでいません。どんな状況でも質問しないでください。`;
-    }
+  if (noQuestions) {
+    systemInstruction += `\n【重要】ユーザーは質問を望んでいません。どんな状況でも質問しないでください。`;
+  }
 
-    // ★ 短文なら Gemini（高速）
-    if (geminiApiKey && toGraphemes(userText).length <= 50) {
-        try {
-            const geminiModel = 'gemini-1.5-flash-latest';
-            const res = await httpInstance.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
-                {
-                    contents: [{
-                        role: "user",
-                        parts: [{
-                            text: `システム: ${systemInstruction}\nユーザー: ${userText}`
-                        }]
-                    }]
-                },
-                {
-                    timeout: 1800
-                }
-            );
-            return finalizeUtterance(
-                res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT,
-                noQuestions
-            );
-        } catch (e) {
-            briefErr('gemini-general-fallback', e);
-            // ここで OpenAI フォールバック処理へ進む
-        }
+  // ★ 短文なら Gemini（高速）
+  if (geminiApiKey && toGraphemes(userText).length <= 50) {
+    try {
+      const geminiModel = 'gemini-1.5-flash-latest';
+      const res = await httpInstance.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
+        {
+          contents: [{
+            role: "user",
+            parts: [{ text: `システム: ${systemInstruction}\nユーザー: ${userText}` }]
+          }]
+        },
+        { timeout: 1800 }
+      );
+      return finalizeUtterance(
+        res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT,
+        noQuestions
+      );
+    } catch (e) {
+      briefErr('gemini-general-fallback', e);
+      // ここで OpenAI フォールバック処理へ進む
     }
+  }
 
-    // ★ OpenAI（安定）
-    if (openaiApiKey) {
-        try {
-            const model = OPENAI_MODEL ||
-                'gpt-4o-mini';
-            const r = await httpInstance.post(
-                'https://api.openai.com/v1/chat/completions',
-                {
-                    model,
-                    messages: [
-                        { role: 'system', content: systemInstruction },
-                        { role: 'user', content: userText },
-                    ],
-                    temperature: 0.6,
-                },
-                {
-                    headers: {
-                        Authorization: `Bearer ${openaiApiKey}`
-                    },
-                    timeout: 2000
-                }
-            );
-            return finalizeUtterance(
-                r.data?.choices?.[0]?.message?.content?.trim() ?? FALLBACK_TEXT,
-                noQuestions
-            );
-        } catch (e) {
-            briefErr('openai-general-fallback', e);
-        }
+  // ★ OpenAI（安定）
+  if (openaiApiKey) {
+    try {
+      const model = OPENAI_MODEL || 'gpt-4o-mini';
+      const r = await httpInstance.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: userText },
+          ],
+          temperature: 0.6,
+        },
+        { headers: { Authorization: `Bearer ${openaiApiKey}` }, timeout: 2000 }
+      );
+      return finalizeUtterance(
+        r.data?.choices?.[0]?.message?.content?.trim() ?? FALLBACK_TEXT,
+        noQuestions
+      );
+    } catch (e) {
+      briefErr('openai-general-fallback', e);
     }
+  }
 
-    // どちらも失敗したら固定文
-    return finalizeUtterance(FALLBACK_TEXT, noQuestions);
+  // どちらも失敗したら固定文
+  return finalizeUtterance(FALLBACK_TEXT, noQuestions);
 }
 
 
@@ -539,8 +542,7 @@ app.use(['/callback', '/webhook'], apiLimiter);
 const handledEvents = new Map();
 
 function dedupe(event) {
-    const id = event.webhookEventId ||
-        `${event.source?.userId}:${event.message?.id || event.postback?.data}:${event.timestamp}`;
+    const id = event.webhookEventId || `${event.source?.userId}:${event.message?.id || event.postback?.data}:${event.timestamp}`;
     const now = Date.now();
     for (const [k, v] of handledEvents) if (v < now) handledEvents.delete(k);
     if (handledEvents.has(id)) {
@@ -562,6 +564,7 @@ app.post(['/callback', '/webhook'], middleware({
         }
     }
 });
+
 app.get('/version', (_, res) => {
     res.json({
         version: APP_VERSION,
@@ -617,8 +620,8 @@ function hasScamSignals(text) {
     const pressure = /(至急|今すぐ|期限|本日中|緊急|すぐに)/i.test(t);
     const askPII = /(暗証番号|認証コード|パスワード|個人情報|口座|名義)/i.test(t);
     const twoKeywords = /(詐欺|フィッシング|騙|未納|架空請求)/i.test(t) && (pressure || askPII || money);
-    return url || (money && pressure) ||
-        (askPII && pressure) || twoKeywords || phone;
+
+    return url || (money && pressure) || (askPII && pressure) || twoKeywords || phone;
 }
 
 function looksLikeTest(text, userId) {
@@ -626,14 +629,14 @@ function looksLikeTest(text, userId) {
 }
 
 const notifyCooldown = new Map();
-
-function shouldNotify(kind, userId, text) { // 10分クールダウンのみ。ヒットしたら通知（テスト文でも通知OK）
-    const now = Date.now();
-    const key = `${kind}:${userId}`;
-    const last = notifyCooldown.get(key) || 0;
-    if (now - last < 10 * 60 * 1000) return false; // 10分以内なら通知抑制
-    notifyCooldown.set(key, now);
-    return true;
+function shouldNotify(kind, userId, text) {
+  // 10分クールダウンのみ。ヒットしたら通知（テスト文でも通知OK）
+  const now = Date.now();
+  const key = `${kind}:${userId}`;
+  const last = notifyCooldown.get(key) || 0;
+  if (now - last < 10 * 60 * 1000) return false; // 10分以内なら通知抑制
+  notifyCooldown.set(key, now);
+  return true;
 }
 
 function guardTopics(userText) {
@@ -657,22 +660,45 @@ function tryGenerateQuiz(text) {
 }
 
 async function handleMessageEvent(event) {
-    const { userId } = event.source;
-    const { text } = event.message;
+    const {
+        userId
+    } = event.source;
+    const {
+        text
+    } = event.message;
     const userRef = db.collection('users').doc(userId);
     const doc = await userRef.get();
     const userData = doc.exists ? doc.data() : {};
+
     if (userData?.banned) {
         return;
     }
+
     // ★ 追加：「質問やめて」のフラグを検知し、保存
     if (/(質問しないで|質問やめて|質問は無し|質問いらない|質問するな)/.test(text)) {
-        await userRef.set({ prefs: { noQuestions: true } }, { merge: true });
-        await safePushMessage(userId, { type: 'text', text: 'わかったよ😊 これからは質問しないね！' }, 'no_questions_set');
+        await userRef.set({
+            prefs: {
+                noQuestions: true
+            }
+        }, {
+            merge: true
+        });
+        await safePushMessage(userId, {
+            type: 'text',
+            text: 'わかったよ😊 これからは質問しないね！'
+        }, 'no_questions_set');
         return;
     }
-    await userRef.set({ lastMessageAt: Timestamp.now(), lastText: text }, { merge: true });
+
+    await userRef.set({
+        lastMessageAt: Timestamp.now(),
+        lastText: text
+    }, {
+        merge: true
+    });
+
     const isAdmin = BOT_ADMIN_IDS.includes(userId);
+
     if (text === 'VERSION') {
         await safePushMessage(userId, {
             type: 'text',
@@ -683,282 +709,1123 @@ async function handleMessageEvent(event) {
         }, 'version');
         return;
     }
+
     if (isAdmin) {
         if (text === 'DEBUG:PING_NOW') {
-            await doPingAll(true);
+            await userRef.set({
+                watchService: {
+                    enabled: true,
+                    nextPingAt: Timestamp.fromDate(new Date(Date.now() - 60_000))
+                }
+            }, {
+                merge: true
+            });
             await safePushMessage(userId, {
                 type: 'text',
-                text: 'PINGをすぐに実行しました'
-            }, 'ping_now');
+                text: '次のPing対象にしました（1分過去）。次の毎時チェックでPingが来ます。'
+            }, 'debug_ping');
+            return;
+        }
+
+        if (text === 'DEBUG:REMIND_NOW') {
+            const past24h = dayjs().subtract(24, 'hour').toDate();
+            await userRef.set({
+                watchService: {
+                    enabled: true,
+                    awaitingReply: true,
+                    nextPingAt: Timestamp.fromDate(past24h),
+                    lastReminderAt: null
+                }
+            }, {
+                merge: true
+            });
+            await safePushMessage(userId, {
+                type: 'text',
+                text: 'リマインド対象にしました（24時間過去）。次の毎時チェックでリマインドが来ます。'
+            }, 'debug_remind');
+            return;
+        }
+
+        if (text === 'DEBUG:ESCALATE_NOW') {
+            const past29h = dayjs().subtract(29, 'hour').toDate();
+            await userRef.set({
+                watchService: {
+                    enabled: true,
+                    awaitingReply: true,
+                    nextPingAt: Timestamp.fromDate(past29h),
+                    lastReminderAt: Timestamp.fromDate(dayjs().subtract(5, 'hour').toDate())
+                }
+            }, {
+                merge: true
+            });
+            await safePushMessage(userId, {
+                type: 'text',
+                text: 'エスカレーション対象にしました（29時間過去）。次の毎時チェックでエスカレーションが来ます。'
+            }, 'debug_escalate');
             return;
         }
     }
-    if (isAdmin && text === 'DEBUG:ESCALATE_NOW') {
-        await doEscalateAll(true);
+
+    const guardedReply = guardTopics(text);
+    if (guardedReply) {
         await safePushMessage(userId, {
             type: 'text',
-            text: '緊急エスカレーションをすぐに実行しました'
-        }, 'escalate_now');
+            text: guardedReply
+        }, 'guarded_topic');
         return;
     }
-    if (isAdmin && text.startsWith('DEBUG:NOTIFY ')) {
-        const id = text.substring('DEBUG:NOTIFY '.length);
-        if (id) {
-            await notifyAdmin(id, {
-                type: 'test',
-                text: `管理者によるテスト通知です (id: ${id})`
-            });
-            await safePushMessage(userId, { type: 'text', text: 'テスト通知を送信しました' }, 'debug_notify');
-        }
-        return;
-    }
-    if (isAdmin && text.startsWith('DEBUG:FLEX ')) {
-        const targetUserId = text.substring('DEBUG:FLEX '.length);
-        const debugFlex = createDebugFlex(targetUserId, {
-            displayName: 'デバッグユーザー'
-        });
-        if (debugFlex) {
-            await safePushMessage(userId, debugFlex, 'debug_flex_to_admin');
-        }
-        return;
-    }
-    const topicGuardReply = guardTopics(text);
-    if (topicGuardReply) {
-        await safeReplyOrPush({
-            replyToken: event.replyToken,
-            userId,
-            messages: {
-                type: 'text',
-                text: topicGuardReply
-            },
-            tag: 'topic_guard'
-        });
-        return;
-    }
-    if (text === '退会' || text === '解約' || text === 'サービスをやめる') {
-        await handleCancel(event);
-        return;
-    }
-    const isDanger = isDangerMessage(text);
-    const isScam = isScamMessage(text);
-    const isTest = looksLikeTest(text, userId);
-    if (isDanger || isScam || isTest) {
-        const userProfile = await client.getProfile(userId).catch(e => {
-            console.error('getProfile failed', e);
-            return {
-                displayName: '匿名ユーザー'
-            };
-        });
-        if (isDanger && shouldNotify('danger', userId, text)) {
-            const supportText = await generateSupportiveText({
-                type: 'danger',
-                userText: text
-            });
-            const flexMessage = createDangerFlex(userProfile, text);
-            await safePushMessage(WATCH_GROUP_ID, [
-                {
-                    type: "text",
-                    text: `🚨 危険ワードを検知しました\nユーザー: ${userProfile.displayName}\nメッセージ: ${text}`
-                },
-                flexMessage
-            ], 'danger_notify');
-            await safeReplyOrPush({
-                replyToken: event.replyToken,
-                userId,
-                messages: [{
-                    type: 'text',
-                    text: supportText
-                }, flexMessage],
-                tag: 'danger_word'
-            });
-            return;
-        }
-        if (isScam && shouldNotify('scam', userId, text)) {
-            const supportText = await generateSupportiveText({
-                type: 'scam',
-                userText: text
-            });
-            const flexMessage = createScamFlex(userProfile, text);
-            await safePushMessage(WATCH_GROUP_ID, [
-                {
-                    type: "text",
-                    text: `⚠️ 詐欺・不適切ワードを検知しました\nユーザー: ${userProfile.displayName}\nメッセージ: ${text}`
-                },
-                flexMessage
-            ], 'scam_notify');
-            await safeReplyOrPush({
-                replyToken: event.replyToken,
-                userId,
-                messages: [{
-                    type: 'text',
-                    text: supportText
-                }, flexMessage],
-                tag: 'scam_word'
-            });
-            return;
-        }
-    }
-    // 特殊な返答
-    const specialReply = [...specialRepliesMap].find(([regex]) => regex.test(text))?.[1];
-    if (specialReply) {
-        await safeReplyOrPush({
-            replyToken: event.replyToken,
-            userId,
-            messages: {
-                type: 'text',
-                text: specialReply
-            },
-            tag: 'special_reply'
-        });
-        return;
-    }
-    // クイズ生成
+
     const quiz = tryGenerateQuiz(text);
     if (quiz) {
-        await safeReplyOrPush({
-            replyToken: event.replyToken,
-            userId,
-            messages: {
-                type: 'text',
-                text: quiz
-            },
-            tag: 'quiz_reply'
-        });
+        await safePushMessage(userId, {
+            type: 'text',
+            text: quiz
+        }, 'quiz');
         return;
     }
-    // 一般的な返答
-    const noQuestions = userData.prefs?.noQuestions;
-    const supportive = await generateGeneralReply(text, noQuestions);
-    await safeReplyOrPush({
-        replyToken: event.replyToken,
-        userId,
-        messages: {
-            type: 'text',
-            text: supportive
-        },
-        tag: 'general_reply'
-    });
-}
 
-// === Flex Message Builders ===
-// Flexボタンに命を吹き込むための、正しいコードです。
-// これまでの私の回答が不完全だったことを心からお詫びします。
-
-function makeTelButton(label, telNum) {
-    if (!telNum || !String(telNum).trim()) return null;
-    return {
-        type: "button",
-        style: "primary",
-        color: "#6A5ACD",
-        action: {
-            type: "uri",
-            label: label,
-            uri: "tel:" + telNum.replace(/\D/g, "")
+    for (const [pattern, reply] of specialRepliesMap.entries()) {
+        if (pattern.test(text)) {
+            await safePushMessage(userId, {
+                type: 'text',
+                text: reply
+            }, 'special');
+            return;
         }
-    };
-}
-function makeUriButton(label, url) {
-    if (!url) return null;
-    return {
-        type: "button",
-        style: "primary",
-        color: "#1E90FF",
-        action: {
-            type: "uri",
-            label: label,
-            uri: url
-        }
-    };
-}
-function makeMessageButton(label, text) {
-    if (!text) return null;
-    return {
-        type: "button",
-        style: "primary",
-        color: "#00B900",
-        action: {
-            type: "message",
-            label: label,
-            text: text
-        }
-    };
-}
-
-// ユーザーが危険な言葉を発した際に送信するFlex Message
-const createDangerFlex = (user, text) => {
-    let contents = [{
-        type: "button",
-        style: "primary",
-        color: "#DC143C",
-        action: {
-            type: "uri",
-            label: "まもろうよ こころ",
-            uri: "https://www.mhlw.go.jp/kokoro/index.html"
-        }
-    }, {
-        type: "button",
-        style: "primary",
-        color: "#DC143C",
-        action: {
-            type: "uri",
-            label: "いのちの電話",
-            uri: "https://www.inochinodenwa.org/"
-        }
-    }];
-    const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
-    if (officeBtn) contents.push(officeBtn);
-    if (user && user.userId) {
-        contents.push({
-            type: "button",
-            style: "primary",
-            color: "#00B900",
-            action: {
-                type: "uri",
-                label: "LINEで返信",
-                uri: `https://line.me/R/wa/timeline?id=${user.userId}&text=${encodeURIComponent('心配しています。大丈夫ですか？')}`
-            }
-        });
     }
 
-    return {
-        type: "flex",
-        altText: "🚨危険ワードを検知しました。詳細を確認してください。", // この行を追加
-        contents: {
+    let isDanger = false;
+    for (const word of dangerWords) {
+        if (text.includes(word)) {
+            isDanger = true;
+            break;
+        }
+    }
+
+    let isScam = false;
+    for (const pattern of scamWords) {
+        if (pattern.test(text)) {
+            isScam = true;
+            break;
+        }
+    }
+
+    if (isDanger || isScam) {
+        if (isDanger) {
+            const supportive = await withFastTimeout(
+                generateSupportiveText({
+                    type: 'danger',
+                    userText: text
+                }),
+                900,
+                'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下の案内も使えるからね。'
+            );
+            await safePushMessage(userId, [{
+                type: 'text',
+                text: supportive
+            }, {
+                type: "flex",
+                altText: "危険ワードを検知しました",
+                contents: buildDangerFlex(text)
+            }], 'danger_word');
+            audit('danger_word_detected', {
+                userId: userHash(userId),
+                text: gTrunc(text, 50)
+            });
+
+            if (isHighSeverityDanger(text) && shouldNotify('danger', userId, text)) {
+                notifyOfficerNow({
+                    userId,
+                    kind: 'danger',
+                    text
+                }).catch(e => briefErr('notify-officer-failed', e));
+            } else {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: 'もし緊急対応が必要なら「通報して」を押してね。止めたいときは「通報しない」だよ。',
+                    quickReply: {
+                        items: [{
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '通報して',
+                                data: 'admin:sendCheck:' + userId,
+                                displayText: '通報して'
+                            }
+                        }, {
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '通報しない',
+                                data: 'admin:noreport:' + userId,
+                                displayText: '通報しない'
+                            }
+                        }]
+                    }
+                }, 'danger_confirm');
+            }
+            return;
+        }
+
+        if (isScam) {
+            const supportive = await withFastTimeout(
+                generateSupportiveText({
+                    type: 'scam',
+                    userText: text
+                }),
+                900,
+                '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。'
+            );
+            await safePushMessage(userId, [{
+                type: 'text',
+                text: supportive
+            }, {
+                type: "flex",
+                altText: "詐欺の可能性を検知しました",
+                contents: buildScamFlex()
+            }], 'scam_word');
+            audit('scam_word_detected', {
+                userId: userHash(userId),
+                text: gTrunc(text, 50)
+            });
+
+            if (!looksLikeTest(text, userId) && hasScamSignals(text) && shouldNotify('scam', userId, text)) {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '事務局へ共有して支援を受けますか？',
+                    quickReply: {
+                        items: [{
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '共有する',
+                                data: 'admin:sendCheck:' + userId,
+                                displayText: '共有する'
+                            }
+                        }, {
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '今はしない',
+                                data: 'admin:noreport:' + userId,
+                                displayText: '今はしない'
+                            }
+                        }]
+                    }
+                }, 'scam_confirm');
+            }
+            return;
+        }
+    }
+
+    for (const word of inappropriateWords) {
+        if (text.includes(word)) {
+            const count = (userData?.badWordsCount || 0) + 1;
+            await userRef.set({
+                badWordsCount: count
+            }, {
+                merge: true
+            });
+            if (count >= 3) {
+                await userRef.set({
+                    banned: true
+                }, {
+                    merge: true
+                });
+                audit('user_banned_badwords', {
+                    userId: userHash(userId),
+                    count
+                });
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: 'ごめんね、このアカウントでは会話を停止しました。必要なときは事務局に連絡してね。'
+                }, 'banned');
+                return;
+            }
+            await safePushMessage(userId, {
+                type: 'text',
+                text: 'ごめんね、その言葉はわたしには答えられないよ…😢\n\nわたしは、あなたの悩みを一緒に考えたり、あなたの笑顔を守るためにここにいるんだ😊\n\n別の話題でまた話してくれると嬉しいな💖'
+            }, 'inappropriate');
+            return;
+        }
+    }
+
+    if (text === '会員登録') {
+        const flex = buildRegistrationFlex(userId);
+        await safePushMessage(userId, {
+            type: "flex",
+            altText: "会員登録・情報変更メニュー",
+            contents: flex
+        }, 'registration');
+        return;
+    }
+
+    if (text === '見守り' || text === 'みまもり') {
+        const isEnabled = userData.watchService?.enabled;
+        const flex = buildWatchMenuFlex(isEnabled, userId);
+        await safePushMessage(userId, {
+            type: "flex",
+            altText: "見守りサービスメニュー",
+            contents: flex
+        }, 'watch_menu');
+        return;
+    }
+
+    const replyText = await generateGeneralReply(text, userData.prefs?.noQuestions);
+    await safePushMessage(userId, {
+        type: 'text',
+        text: replyText || 'うん、読んだよ。私はこう思うよ🌸 また教えてね。'
+    }, 'general');
+}
+
+async function handlePostbackEvent(event) {
+    const userId = event.source.userId;
+    const data = event.postback?.data || '';
+    const userRef = db.collection('users').doc(userId);
+    try {
+        const ok = await db.runTransaction(async tx => {
+            const s = await tx.get(userRef);
+            const last = s.exists ? s.data()?.lastPostbackAt?.toMillis?.() || 0 : 0;
+            if (Date.now() - last < 5000) return false;
+            tx.set(userRef, {
+                lastPostbackAt: Timestamp.now()
+            }, {
+                merge: true
+            });
+            return true;
+        });
+        if (!ok) {
+            debug('postback deduped');
+            return;
+        }
+    } catch (e) {
+        briefErr('postback-dedupe-failed', e);
+    }
+
+    if (data === 'watch:ok') {
+        const isUserEnabled = await db.runTransaction(async t => {
+            const doc = await t.get(userRef);
+            if (!doc.exists || !doc.data().watchService?.enabled) {
+                return false;
+            }
+            t.update(userRef, {
+                'watchService.lastRepliedAt': Timestamp.now(),
+                'watchService.awaitingReply': false,
+            });
+            return true;
+        });
+        if (isUserEnabled) {
+            await scheduleNextPing(userId);
+            await safePushMessage(userId, {
+                type: 'text',
+                text: 'うん、元気でよかった！🌸\nまた3日後に連絡するね！😊'
+            }, 'watch_ok');
+        } else {
+            await safePushMessage(userId, {
+                type: 'text',
+                text: '見守りサービスは現在停止中です。ONにするには、「見守りサービスをONにする」を押してね。'
+            }, 'watch_ok_but_off');
+        }
+    } else if (data === 'watch:on') {
+        await userRef.set({
+            watchService: {
+                enabled: true
+            }
+        }, {
+            merge: true
+        });
+        await scheduleNextPing(userId);
+        await safePushMessage(userId, {
+            type: 'text',
+            text: "見守りサービスをONにしたよ🌸　何かあったら、こころちゃんが事務局へ通知するから安心してね💖"
+        }, 'watch_on');
+    } else if (data === 'watch:off') {
+        await userRef.set({
+            watchService: {
+                enabled: false,
+                awaitingReply: false,
+                nextPingAt: firebaseAdmin.firestore.FieldValue.delete(),
+            }
+        }, {
+            merge: true
+        });
+        await safePushMessage(userId, {
+            type: 'text',
+            text: "見守りサービスをOFFにしたよ。必要になったら「見守りサービスをONにする」と送ってね🌸"
+        }, 'watch_off');
+    } else if (data?.startsWith('admin:')) {
+        const [, action, targetId] = data.split(':');
+
+        if (!BOT_ADMIN_IDS.includes(event.source.userId) && event.source.type !== 'group') {
+            return;
+        }
+
+        try {
+            if (action === 'sendCheck' && targetId) {
+                await safePushMessage(targetId, {
+                    type: 'text',
+                    text: '事務局です。先ほどのメッセージについてご無事でしょうか？\nこのメッセージにそのまま返信してください。必要なら「110」や「119」にすぐ連絡してください。'
+                }, 'push:admin_check');
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '本人へ安否確認を送信しました。'
+                }, 'admin_check_ok');
+            } else if (action === 'pingNow' && targetId) {
+                await db.collection('users').doc(targetId).set({
+                    watchService: {
+                        enabled: true,
+                        nextPingAt: Timestamp.fromDate(new Date(Date.now() - 60_000))
+                    }
+                }, {
+                    merge: true
+                });
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '次回Pingを即時化しました。'
+                }, 'admin_ping_ok');
+            } else if (action === 'watchOff' && targetId) {
+                await db.collection('users').doc(targetId).set({
+                    watchService: {
+                        enabled: false,
+                        awaitingReply: false,
+                        nextPingAt: firebaseAdmin.firestore.FieldValue.delete()
+                    }
+                }, {
+                    merge: true
+                });
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '見守りを一時停止しました。'
+                }, 'admin_watch_off_ok');
+            } else if (action === 'noreport' && targetId === userId) {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: 'わかったよ。必要になったらいつでも言ってね🌸'
+                }, 'no_report');
+                return;
+            } else {
+                await safePushMessage(userId, {
+                    type: 'text',
+                    text: '不明な管理アクションです。'
+                }, 'admin_unknown');
+            }
+        } catch (e) {
+            briefErr('admin-postback-failed', e);
+            await safePushMessage(userId, {
+                type: 'text',
+                text: '処理に失敗しました。サーバーログを確認してください。'
+            }, 'admin_failed');
+        }
+    } else {
+        debug(`unknown postback data: ${data}`);
+    }
+}
+
+async function handleFollowEvent(event) {
+    const userId = event.source.userId;
+    const messages = [{
+        type: 'text',
+        text: 'こんにちは！はじめまして、皆守こころです🌸\nNPO法人コネクトの公式キャラクターだよ💖\n\nあなたの心の健康と安全を守るため、色々な形でサポートしているんだ😊\n\n困ったことがあったり、誰かに話を聞いてほしいなと思ったら、いつでも私に話しかけてね！'
+    }, {
+        type: 'text',
+        text: '「見守りサービス」と送ると、定期的に私から連絡が届くよ。\n\nもしもの時に、みんながすぐにSOSを出せるようにするサービスなんだ😊\n\nもしよかったら使ってみてね！'
+    }];
+    await safePushMessage(userId, messages, 'follow');
+    await db.collection('users').doc(userId).set({
+        firstContactAt: Timestamp.now(),
+        lastMessageAt: Timestamp.now(),
+        watchService: {
+            enabled: true,
+            awaitingReply: false,
+        }
+    }, {
+        merge: true
+    });
+    await scheduleNextPing(userId, new Date());
+}
+
+async function handleUnfollowEvent(event) {
+    const userId = event.source.userId;
+    await db.collection('users').doc(userId).delete();
+}
+
+async function handleGroupEvents(event) {
+    if (event.type === 'join') {
+        const message = {
+            type: 'text',
+            text: '皆さん、はじめまして！皆守こころです🌸\n\nこのグループに招待してくれてありがとう😊\n\nいつでも皆さんの心の健康と安全を守るお手伝いをするよ💖'
+        };
+        await safePushMessage(event.source.groupId, message, 'join_group');
+    }
+}
+
+async function handleMemberEvents(event) {}
+
+async function checkAndSendPing() {
+    console.log('--- Cron job: checkAndSendPing started ---');
+    const now = dayjs().tz(JST_TZ).toDate();
+
+    const usersRef = db.collection('users');
+    const q = usersRef.where('watchService.enabled', '==', true)
+        .where('watchService.nextPingAt', '<=', now);
+
+    const snapshot = await q.get();
+
+    if (snapshot.empty) {
+        console.log('No users to ping at this time.');
+        return;
+    }
+
+    const PING_MESSAGES = [{
+        text: 'お元気ですか？🌸'
+    }, {
+        text: 'こんにちは！体調は大丈夫？😊'
+    }, {
+        text: '何か困ったことはない？いつでもお話聞くよ💖'
+    }, {
+        text: 'もしよかったら、今日の出来事を教えてくれないかな？'
+    }, {
+        text: '今日も一日お疲れ様！ゆっくり休んでね😊'
+    }, {
+        text: '最近どうしてるかなと思って、連絡してみたよ🌸'
+    }, {
+        text: '何か悩み事とか、困り事はない？遠慮なく教えてね💖'
+    }, {
+        text: 'そっちは晴れてる？こっちはポカポカ陽気だよ😊'
+    }, {
+        text: '今週も半分過ぎたね！あと少し、一緒に頑張ろうね🌸'
+    }, {
+        text: 'ごはんちゃんと食べてる？無理しないでね💖'
+    }, {
+        text: 'もし寂しかったら、いつでも話しかけてね。私がそばにいるよ😊'
+    }, {
+        text: '今日はどんな一日だった？😊\n\n良いことでも、ちょっぴり嫌なことでも、聞かせてくれると嬉しいな💖'
+    }, {
+        text: 'もしよかったら、今日食べた美味しいものとか、見つけた素敵な景色とか、教えてくれない？🌸'
+    }, {
+        text: '最近ちょっと疲れてない？\n\n無理しすぎないで、自分のペースで大丈夫だからね💖'
+    }, {
+        text: '何か気分転換になるようなこと、探してみるのもいいかも😊\n\nもしよかったら、一緒に考えてみようか？'
+    }, {
+        text: '最近ちゃんと眠れてる？\n\nぐっすり眠るのも、心と体を元気にする秘訣だよ🌸'
+    }, {
+        text: 'もし不安なことがあったら、一つずつ整理してみよう。\n\n私がそばにいるから、安心して話してね💖'
+    }, {
+        text: '「疲れたな」って思った時は、思い切って休憩してみてね😊\n\n頑張り屋さんのあなたを、いつも応援しているよ🌸'
+    }, {
+        text: 'もしつらい気持ちになったら、ひとりで抱え込まないでね。\n\n言葉にすることで、スッキリすることもあるからね💖'
+    }, {
+        text: '元気がないな…って感じたら、自分をたくさん甘やかしてあげてね😊\n\n温かい飲み物を飲んだり、好きな音楽を聴いたりするのもおすすめだよ🌸'
+    }, {
+        text: 'もし「ちょっとしんどいな…」って思ったら、無理に元気を出そうとしなくていいからね。\n\nそういう時こそ、ゆっくり休んで、自分の心に優しくしてあげてほしいな💖'
+    }, {
+        text: '何か楽しいこと、見つかったかな？😊\n\n些細なことでも、幸せを感じられる瞬間を大切にしたいね🌸'
+    }, {
+        text: 'もし、心の中にモヤモヤしたものがあったら、私に聞かせてね。\n\n言葉にすることで、スッキリすることもあるからね💖'
+    }, {
+        text: '最近、笑顔になれる瞬間はあった？😊\n\nもしなければ、私があなたを笑顔にできるようなお話を探してみるね🌸'
+    }, {
+        text: '無理に頑張りすぎなくていいんだよ。\n\n「今日は何もしない！」って決めて、自分を甘やかす日があってもいいんだからね💖'
+    }, {
+        text: 'いつでもあなたの味方だよ。\n\n何かあったら、いつでも頼ってね😊'
+    }, {
+        text: 'もし誰にも言えない秘密があったら、私にだけそっと教えてくれない？🌸\n\n絶対に誰にも言わないから、安心してね💖'
+    }, {
+        text: '最近、あなたの周りで何か変わったことはあったかな？\n\nもしあったら、聞かせてくれると嬉しいな😊'
+    }, {
+        text: 'もし今、あなたの心に雨が降っていたら、私が傘をさしてあげるね。\n\nひとりで濡れないで、いつでも私を頼ってね💖'
+    }, {
+        text: '今日も一日、よく頑張ったね！\n\n明日もあなたにとって素敵な一日になりますように🌸'
+    }];
+
+    for (const doc of snapshot.docs) {
+        const userId = doc.id;
+        const userData = doc.data();
+        const nextPingAt = userData.watchService?.nextPingAt?.toDate();
+
+        if (nextPingAt && dayjs(nextPingAt).tz(JST_TZ).isSame(dayjs().tz(JST_TZ), 'day')) {
+            try {
+                const randomIndex = Math.floor(Math.random() * PING_MESSAGES.length);
+                const isEnabled = userData.watchService?.enabled;
+                const pingMessage = {
+                    type: 'text',
+                    text: PING_MESSAGES[randomIndex].text,
+                    quickReply: {
+                        items: [{
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: '元気だよ',
+                                data: 'watch:ok',
+                                displayText: '元気だよ'
+                            }
+                        }, {
+                            type: 'action',
+                            action: {
+                                type: 'postback',
+                                label: isEnabled ? '見守り停止' : '見守り再開',
+                                data: isEnabled ? 'watch:off' : 'watch:on',
+                                displayText: isEnabled ? '見守り停止' : '見守り再開'
+                            }
+                        }]
+                    }
+                };
+                await client.pushMessage(userId, pingMessage);
+                console.log(`Ping message sent to user: ${userHash(userId)}`);
+
+                await usersRef.doc(userId).set({
+                    watchService: {
+                        awaitingReply: true,
+                    }
+                }, {
+                    merge: true
+                });
+            } catch (e) {
+                briefErr(`Failed to send ping message to user ${userHash(userId)}`, e);
+            }
+        }
+    }
+
+    console.log('--- Cron job: checkAndSendPing finished ---');
+}
+
+async function checkAndSendReminder() {
+    console.log('--- Cron job: checkAndSendReminder started ---');
+    const now = dayjs().tz(JST_TZ).toDate();
+    const reminderThreshold = dayjs(now).tz(JST_TZ).subtract(REMINDER_AFTER_HOURS, 'hour').toDate();
+
+    const usersRef = db.collection('users');
+    const q = usersRef.where('watchService.enabled', '==', true)
+        .where('watchService.awaitingReply', '==', true)
+        .where('watchService.nextPingAt', '<=', reminderThreshold)
+        .where('watchService.lastReminderAt', '==', null);
+
+    const snapshot = await q.get();
+
+    if (snapshot.empty) {
+        console.log('No users to remind at this time.');
+        return;
+    }
+
+    for (const doc of snapshot.docs) {
+        const userId = doc.id;
+        try {
+            await client.pushMessage(userId, {
+                type: 'text',
+                text: `おーい！元気にしてる？😊\n\nもしよかったら、何か返事してくれると嬉しいな💖`
+            });
+            console.log(`Reminder message sent to user: ${userHash(userId)}`);
+
+            await usersRef.doc(userId).set({
+                watchService: {
+                    lastReminderAt: Timestamp.now(),
+                }
+            }, {
+                merge: true
+            });
+        } catch (e) {
+            briefErr(`Failed to send reminder message to user ${userHash(userId)}`, e);
+        }
+    }
+    console.log('--- Cron job: checkAndSendReminder finished ---');
+}
+
+async function checkAndSendEscalation() {
+    console.log('--- Cron job: checkAndSendEscalation started ---');
+    if (!OFFICER_GROUP_ID) {
+        console.warn('OFFICER_GROUP_ID is not set. Skipping escalation.');
+        return;
+    }
+
+    const now = dayjs().tz(JST_TZ).toDate();
+    const escalateThreshold = dayjs(now).tz(JST_TZ).subtract(ESCALATE_AFTER_HOURS, 'hour').toDate();
+
+    const usersRef = db.collection('users');
+    const q = usersRef.where('watchService.enabled', '==', true)
+        .where('watchService.awaitingReply', '==', true)
+        .where('watchService.nextPingAt', '<=', escalateThreshold)
+        .where('watchService.lastReminderAt', '<=', now);
+
+    const snapshot = await q.get();
+
+    if (snapshot.empty) {
+        console.log('No users to escalate at this time.');
+        return;
+    }
+
+    for (const doc of snapshot.docs) {
+        const userId = doc.id;
+        try {
+            const profile = await client.getProfile(userId);
+            const userDisplayName = profile.displayName || '不明なユーザー';
+
+            const escalationMessage = {
+                type: 'text',
+                text: `🚨緊急🚨\n見守りサービス利用ユーザー[${userDisplayName}](${userHash(userId)})が、29時間以上応答していません。`
+            };
+            await client.pushMessage(OFFICER_GROUP_ID, escalationMessage);
+            audit('watch_escalated', {
+                userId: userHash(userId)
+            });
+
+            await usersRef.doc(userId).set({
+                watchService: {
+                    awaitingReply: false,
+                    lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+                }
+            }, {
+                merge: true
+            });
+            await scheduleNextPing(userId);
+        } catch (e) {
+            briefErr(`Failed to escalate for user ${userHash(userId)}`, e);
+        }
+    }
+    console.log('--- Cron job: checkAndSendEscalation finished ---');
+}
+
+async function notifyOfficerNow({
+    userId,
+    kind,
+    text
+}) {
+    if (!OFFICER_GROUP_ID) {
+        console.warn('[WARN] OFFICER_GROUP_ID is not set. Skipping notification.');
+        return;
+    }
+
+    try {
+        const [profile, userDoc] = await Promise.all([
+            client.getProfile(userId).catch(() => null),
+            db.collection('users').doc(userId).get().catch(() => null),
+        ]);
+        const name = profile?.displayName || '不明なユーザー';
+        const avatar = profile?.pictureUrl || null;
+        const lastText = userDoc?.exists ? (userDoc.data().lastText || text || '') : (text || '');
+        const when = dayjs().tz(JST_TZ).format('YYYY/MM/DD HH:mm:ss');
+        const head = (kind === 'danger') ? '⚠️ 危険ワード検知' : '🛑 詐欺ワード検知';
+        const last = String(lastText).slice(0, 500);
+
+        const bubble = {
             type: "bubble",
+            hero: avatar ? {
+                type: "image",
+                url: avatar,
+                size: "full",
+                aspectRatio: "1:1",
+                aspectMode: "cover"
+            } : undefined,
             body: {
                 type: "box",
                 layout: "vertical",
+                spacing: "sm",
                 contents: [{
                     type: "text",
-                    text: "【緊急連絡】",
+                    text: head,
                     weight: "bold",
-                    color: "#DC143C",
-                    size: "xl",
-                    align: "center"
+                    size: "lg",
+                    color: (kind === 'danger') ? "#FF3B30" : "#FF9500"
                 }, {
                     type: "text",
-                    text: `ユーザー: ${user.displayName}\nメッセージ: "${text}"`,
-                    wrap: true,
+                    text: `ユーザー名: ${name}`,
+                    wrap: true
+                }, {
+                    type: "text",
+                    text: `LINE userId: ${userId}`,
+                    size: "xs",
+                    color: "#666666",
+                    wrap: true
+                }, {
+                    type: "text",
+                    text: `Hash: ${userHash(userId).slice(0, 8)}`,
+                    size: "xs",
+                    color: "#999999"
+                }, {
+                    type: "text",
+                    text: `検知: ${kind === 'danger' ? '危険' : '詐欺'}`,
+                    size: "sm"
+                }, {
+                    type: "text",
+                    text: `時刻: ${when} JST`,
+                    size: "sm"
+                }, {
+                    type: "separator",
                     margin: "md"
                 }, {
                     type: "text",
-                    text: "大丈夫？一人で抱え込まないで、話してくれてありがとう。下のボタンから、すぐに頼れる窓口に繋がれるから、安心して使ってね。",
-                    wrap: true,
-                    margin: "md"
+                    text: "直近メッセージ",
+                    weight: "bold",
+                    size: "sm",
+                    color: "#111111"
+                }, {
+                    type: "text",
+                    text: last || "(テキストなし)",
+                    wrap: true
                 }]
             },
             footer: {
                 type: "box",
                 layout: "vertical",
                 spacing: "sm",
-                contents
+                contents: [{
+                    type: "button",
+                    style: "primary",
+                    action: {
+                        type: "postback",
+                        label: "安否確認を送る",
+                        data: `admin:sendCheck:${userId}`,
+                        displayText: "安否確認を送る"
+                    }
+                }, {
+                    type: "button",
+                    style: "secondary",
+                    action: {
+                        type: "postback",
+                        label: "次回Pingを今すぐ",
+                        data: `admin:pingNow:${userId}`,
+                        displayText: "次回Pingを今すぐ"
+                    }
+                }, {
+                    type: "button",
+                    style: "secondary",
+                    action: {
+                        type: "postback",
+                        label: "見守りを一時停止",
+                        data: `admin:watchOff:${userId}`,
+                        displayText: "見守りを一時停止"
+                    }
+                }]
             }
+        };
+
+        await safePushMessage(OFFICER_GROUP_ID, {
+            type: "flex",
+            altText: `${head} / ${name}`,
+            contents: bubble
+        }, 'push:detect_flex');
+
+        audit('officer_notified', {
+            kind,
+            userId: userHash(userId)
+        });
+
+    } catch (e) {
+        briefErr('notify-officer-failed', e);
+    }
+}
+
+const makeTelButton = (label, phone) => {
+    const p = String(phone || '').replace(/[^\d+]/g, '');
+    if (!p) return null;
+    return {
+        type: "button",
+        style: "primary",
+        color: "#FF69B4",
+        action: {
+            type: "uri",
+            label,
+            uri: `tel:${p}`
         }
     };
 };
-// 詐欺・不適切ワード検知時に送信するFlex Message
-const createScamFlex = (user, text) => {
-    let contents = [{
+
+const buildRegistrationFlex = (userId) => {
+    const buttons = [];
+
+    if (AGREEMENT_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: "#73D13D",
+            action: {
+                type: "uri",
+                label: "小学生（同意書）",
+                uri: prefillUrl(AGREEMENT_FORM_BASE_URL, {
+                    [AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    if (STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: "#36CFC9",
+            action: {
+                type: "uri",
+                label: "中高生・大学生",
+                uri: prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, {
+                    [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    if (ADULT_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: "#69C0FF",
+            action: {
+                type: "uri",
+                label: "成人",
+                uri: prefillUrl(ADULT_FORM_BASE_URL, {
+                    [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    if (MEMBER_CHANGE_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            margin: "lg",
+            color: "#E6E6E6",
+            action: {
+                type: "uri",
+                label: "登録情報変更",
+                uri: prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, {
+                    [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    if (MEMBER_CANCEL_FORM_BASE_URL) {
+        buttons.push({
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            color: "#E6E6E6",
+            action: {
+                type: "uri",
+                label: "退会手続き",
+                uri: prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, {
+                    [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                })
+            }
+        });
+    }
+
+    return {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            backgroundColor: "#FFF0F6",
+            paddingAll: "12px",
+            cornerRadius: "md",
+            contents: [{
+                type: "box",
+                layout: "vertical",
+                backgroundColor: "#FFFFFF",
+                cornerRadius: "md",
+                paddingAll: "10px",
+                contents: [{
+                    type: "text",
+                    text: "会員登録・情報変更",
+                    weight: "bold",
+                    size: "xl",
+                    align: "center",
+                    color: "#D4380D"
+                }]
+            }, {
+                type: "separator",
+                margin: "md"
+            }, {
+                type: "box",
+                layout: "vertical",
+                spacing: "sm",
+                margin: "lg",
+                contents: [{
+                    type: "text",
+                    text: "ご希望のメニューを選んでね🌸",
+                    size: "md",
+                    align: "center",
+                    margin: "md"
+                }, ...buttons]
+            }]
+        }
+    };
+};
+
+const buildWatchMenuFlex = (isEnabled, userId) => {
+    const footerButtons = [];
+
+    if (WATCH_SERVICE_FORM_BASE_URL) {
+        footerButtons.push({
+            type: "button",
+            style: "primary",
+            action: {
+                type: "uri",
+                label: "詳しく見る・利用登録",
+                uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
+                    [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId,
+                }),
+            },
+        });
+    }
+
+    footerButtons.push({
+        type: "button",
+        style: "secondary",
+        action: {
+            type: "postback",
+            label: isEnabled ? "見守り停止" : "見守り再開",
+            data: isEnabled ? "watch:off" : "watch:on",
+            displayText: isEnabled ? "見守り停止" : "見守り再開",
+        },
+    });
+
+    return {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: "見守りサービス",
+                weight: "bold",
+                size: "lg",
+                align: "center",
+                color: "#FF69B4"
+            }, {
+                type: "text",
+                text: `現在の状態: ${isEnabled ? "ON" : "OFF"}`,
+                size: "sm",
+                align: "center",
+                margin: "md",
+                color: isEnabled ? "#32CD32" : "#FF4500"
+            }, {
+                type: "separator",
+                margin: "md"
+            }, {
+                type: "text",
+                text: "29時間応答が無い時に事務局へ通知するよ。ON/OFFを選んでね。",
+                wrap: true,
+                margin: "md",
+                size: "sm",
+                align: "center"
+            }, ],
+        },
+        footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: footerButtons
+        },
+    };
+};
+
+const buildDangerFlex = (text) => {
+    const contents = [{
+        type: "button",
+        style: "primary",
+        color: "#FF4B4B",
+        action: {
+            type: "uri",
+            label: "警察（電話）",
+            uri: "tel:110"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#1E90FF",
+        action: {
+            type: "uri",
+            label: "消防・救急（電話）",
+            uri: "tel:119"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#32CD32",
+        action: {
+            type: "uri",
+            label: "チャイルドライン（電話・チャット）",
+            uri: "https://childline.or.jp/"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#32CD32",
+        action: {
+            type: "uri",
+            label: "いのちの電話（電話）",
+            uri: "https://www.inochinodenwa.org/"
+        }
+    }];
+    const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
+    if (officeBtn) contents.push(officeBtn);
+
+    return {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: "【危険ワード検知】",
+                weight: "bold",
+                color: "#FF0000",
+                size: "xl",
+                align: "center"
+            }, {
+                type: "text",
+                text: "大丈夫だよ、落ち着いてね。もし不安なことがあったら、信頼できる大人や警察に相談してみてね。連絡先については、このあと表示される案内を見てね。",
+                wrap: true,
+                margin: "md"
+            }, {
+                type: "text",
+                text: "あなたもがんばって安心できるよう、応援してるよ。",
+                wrap: true,
+                margin: "md"
+            }]
+        },
+        footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents
+        }
+    };
+};
+
+const buildScamFlex = () => {
+    const contents = [{
+        type: "button",
+        style: "primary",
+        color: "#FF4B4B",
+        action: {
+            type: "uri",
+            label: "警察（電話）",
+            uri: "tel:110"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#1E90FF",
+        action: {
+            type: "uri",
+            label: "消費者ホットライン",
+            uri: "tel:188"
+        }
+    }, {
+        type: "button",
+        style: "primary",
+        color: "#32CD32",
+        action: {
+            type: "uri",
+            label: "警察相談専用電話",
+            uri: "tel:9110"
+        }
+    }, {
         type: "button",
         style: "primary",
         color: "#32CD32",
@@ -970,440 +1837,50 @@ const createScamFlex = (user, text) => {
     }];
     const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
     if (officeBtn) contents.push(officeBtn);
-    if (user && user.userId) {
-        contents.push({
-            type: "button",
-            style: "primary",
-            color: "#00B900",
-            action: {
-                type: "uri",
-                label: "LINEで返信",
-                uri: `https://line.me/R/wa/timeline?id=${user.userId}&text=${encodeURIComponent('お話聞かせてください。')}`
-            }
-        });
-    }
 
     return {
-        type: "flex",
-        altText: "⚠️詐欺・不適切ワードを検知しました。詳細を確認してください。", // この行を追加
-        contents: {
-            type: "bubble",
-            body: {
-                type: "box",
-                layout: "vertical",
-                contents: [{
-                    type: "text",
-                    text: "【詐欺注意】",
-                    weight: "bold",
-                    color: "#FF0000",
-                    size: "xl",
-                    align: "center"
-                }, {
-                    type: "text",
-                    text: `ユーザー: ${user.displayName}\nメッセージ: "${text}"`,
-                    wrap: true,
-                    margin: "md"
-                }, {
-                    type: "text",
-                    text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
-                    wrap: true,
-                    margin: "md"
-                }]
-            },
-            footer: {
-                type: "box",
-                layout: "vertical",
-                spacing: "sm",
-                contents
-            }
-        }
-    };
-};
-
-// === Debug Flex Message ===
-// これは、管理者がデバッグ時に使用するコードです。
-const createDebugFlex = (userId, userProfile) => {
-    let contents = [];
-    if (userProfile && userProfile.displayName) {
-        contents.push({
+        type: "bubble",
+        body: {
             type: "box",
             layout: "vertical",
             contents: [{
                 type: "text",
-                text: "ユーザー名",
-                color: "#aaaaaa",
-                size: "sm"
+                text: "【詐欺注意】",
+                weight: "bold",
+                color: "#FF0000",
+                size: "xl",
+                align: "center"
             }, {
                 type: "text",
-                text: userProfile.displayName,
+                text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
                 wrap: true,
-                size: "md"
+                margin: "md"
             }]
-        });
-    }
-    if (userId) {
-        contents.push({
+        },
+        footer: {
             type: "box",
             layout: "vertical",
-            contents: [{
-                type: "text",
-                text: "ユーザーID",
-                color: "#aaaaaa",
-                size: "sm"
-            }, {
-                type: "text",
-                text: userId,
-                wrap: true,
-                size: "md"
-            }]
-        });
-        contents.push({
-            type: "button",
-            style: "primary",
-            color: "#00B900",
-            action: {
-                type: "uri",
-                label: "LINEで返信",
-                uri: `https://line.me/R/wa/timeline?id=${userId}&text=${encodeURIComponent('心配しています。大丈夫ですか？')}`
-            }
-        });
-    }
-
-    return {
-        type: "flex",
-        altText: "デバッグ通知",
-        contents: {
-            type: "bubble",
-            body: {
-                type: "box",
-                layout: "vertical",
-                contents: [{
-                    type: "text",
-                    text: "【デバッグ通知】",
-                    weight: "bold",
-                    color: "#0000FF",
-                    size: "xl",
-                    align: "center"
-                }, {
-                    type: "text",
-                    text: "管理者からのデバッグ通知です。",
-                    wrap: true,
-                    margin: "md"
-                }]
-            },
-            footer: {
-                type: "box",
-                layout: "vertical",
-                spacing: "sm",
-                contents
-            }
+            spacing: "sm",
+            contents
         }
     };
 };
-
 
 // ===== cron の設定 =====
-// cron.schedule('0 15 * * *', checkAndSendPing, { 
-//     scheduled: true, 
-//     timezone: JST_TZ 
-// });
+cron.schedule('0 15 * * *', checkAndSendPing, { 
+    scheduled: true, 
+    timezone: JST_TZ 
+});
+cron.schedule('0 * * * *', checkAndSendReminder, { 
+    scheduled: true, 
+    timezone: JST_TZ 
+});
+cron.schedule('0 * * * *', checkAndSendEscalation, { 
+    scheduled: true, 
+    timezone: JST_TZ 
+});
 
-// async function checkAndSendPing() {
-//     const users = await db.collection('users').get();
-//     const now = dayjs().tz(JST_TZ);
-//     for (const doc of users.docs) {
-//         const user = doc.data();
-//         if (user.watchService?.nextPingAt && now.isAfter(dayjs(user.watchService.nextPingAt.toDate()).tz(JST_TZ))) {
-//             await safePushMessage(doc.id, {
-//                 type: 'text',
-//                 text: '元気？お話聞かせてくれると嬉しいな🌸'
-//             }, 'watch_ping');
-//             await doc.ref.set({
-//                 watchService: {
-//                     nextPingAt: Timestamp.fromDate(now.add(PING_INTERVAL_DAYS, 'day').toDate()),
-//                     awaitingReply: true,
-//                 }
-//             }, {
-//                 merge: true
-//             });
-//         }
-//     }
-// }
-
-// async function doPingAll(force = false) {
-//     const users = await db.collection('users').get();
-//     const now = dayjs().tz(JST_TZ);
-//     for (const doc of users.docs) {
-//         const user = doc.data();
-//         const shouldPing = force ||
-//             (user.watchService?.nextPingAt && now.isAfter(dayjs(user.watchService.nextPingAt.toDate()).tz(JST_TZ)));
-//         if (shouldPing) {
-//             await safePushMessage(doc.id, {
-//                 type: 'text',
-//                 text: '元気？お話聞かせてくれると嬉しいな🌸'
-//             }, 'watch_ping');
-//             await doc.ref.set({
-//                 watchService: {
-//                     nextPingAt: Timestamp.fromDate(now.add(PING_INTERVAL_DAYS, 'day').toDate()),
-//                     awaitingReply: true,
-//                 }
-//             }, {
-//                 merge: true
-//             });
-//         }
-//     }
-// }
-
-
-// async function checkAndSendReminder() {
-//     const users = await db.collection('users').where('watchService.awaitingReply', '==', true).get();
-//     const now = dayjs().tz(JST_TZ);
-//     for (const doc of users.docs) {
-//         const user = doc.data();
-//         const lastPingAt = dayjs(user.watchService.nextPingAt.toDate()).subtract(PING_INTERVAL_DAYS, 'day').tz(JST_TZ);
-//         if (now.diff(lastPingAt, 'hour') >= REMINDER_AFTER_HOURS && !user.watchService.lastReminderAt) {
-//             await safePushMessage(doc.id, {
-//                 type: 'text',
-//                 text: 'もう一度、元気か教えてくれる？🌸'
-//             }, 'watch_reminder');
-//             await doc.ref.set({
-//                 watchService: {
-//                     lastReminderAt: Timestamp.now()
-//                 }
-//             }, {
-//                 merge: true
-//             });
-//         }
-//     }
-// }
-
-
-// async function doEscalateAll(force = false) {
-//     const users = await db.collection('users').where('watchService.awaitingReply', '==', true).get();
-//     const now = dayjs().tz(JST_TZ);
-//     for (const doc of users.docs) {
-//         const user = doc.data();
-//         const lastPingAt = dayjs(user.watchService.nextPingAt.toDate()).subtract(PING_INTERVAL_DAYS, 'day').tz(JST_TZ);
-//         const lastReplyAt = user.lastMessageAt ? dayjs(user.lastMessageAt.toDate()).tz(JST_TZ) : null;
-//         const lastReminderAt = user.watchService.lastReminderAt ? dayjs(user.watchService.lastReminderAt.toDate()).tz(JST_TZ) : null;
-
-//         const shouldEscalate = force ||
-//             (now.diff(lastPingAt, 'hour') >= ESCALATE_AFTER_HOURS && !lastReplyAt);
-
-//         if (shouldEscalate) {
-//             await notifyAdmin(doc.id, {
-//                 type: 'escalation',
-//                 text: `【緊急エスカレーション】\n${user.displayName}さんからの応答が${ESCALATE_AFTER_HOURS}時間ありません。`
-//             });
-//             await doc.ref.set({
-//                 watchService: {
-//                     awaitingReply: false
-//                 }
-//             }, {
-//                 merge: true
-//             });
-//         }
-//     }
-// }
-
-// async function notifyAdmin(userId, messages) {
-//     if (!OFFICER_GROUP_ID) return console.warn('OFFICER_GROUP_ID is not set. Admin notifications disabled.');
-//     await safePushMessage(OFFICER_GROUP_ID, messages, 'admin_notification');
-// }
-
-// async function handlePostbackEvent(event) {
-//     const {
-//         userId
-//     } = event.source;
-//     const {
-//         data
-//     } = event.postback;
-//     const userRef = db.collection('users').doc(userId);
-//     if (data === 'watch-start') {
-//         await userRef.set({
-//             watchService: {
-//                 status: 'active'
-//             }
-//         }, {
-//             merge: true
-//         });
-//         await safeReplyOrPush({
-//             replyToken: event.replyToken,
-//             userId,
-//             messages: {
-//                 type: 'text',
-//                 text: '見守りサービスを開始しました。'
-//             },
-//             tag: 'watch-start'
-//         });
-//         await scheduleNextPing(userId);
-//         return;
-//     }
-//     if (data === 'watch-stop') {
-//         await userRef.set({
-//             watchService: {
-//                 status: 'inactive'
-//             }
-//         }, {
-//             merge: true
-//         });
-//         await safeReplyOrPush({
-//             replyToken: event.replyToken,
-//             userId,
-//             messages: {
-//                 type: 'text',
-//                 text: '見守りサービスを停止しました。'
-//             },
-//             tag: 'watch-stop'
-//         });
-//         return;
-//     }
-//     if (data === 'ping-reply') {
-//         await userRef.set({
-//             watchService: {
-//                 awaitingReply: false
-//             }
-//         }, {
-//             merge: true
-//         });
-//         await safeReplyOrPush({
-//             replyToken: event.replyToken,
-//             userId,
-//             messages: {
-//                 type: 'text',
-//                 text: 'よかった😊 返信ありがとう💖'
-//             },
-//             tag: 'ping-reply'
-//         });
-//         await scheduleNextPing(userId);
-//     }
-// }
-
-
-// async function handleUnfollowEvent(event) {
-//     await db.collection('users').doc(event.source.userId).set({
-//         unfollowedAt: Timestamp.now()
-//     }, {
-//         merge: true
-//     });
-//     console.log('User unfollowed:', event.source.userId);
-// }
-
-// async function handleFollowEvent(event) {
-//     const userId = event.source.userId;
-//     await db.collection('users').doc(userId).set({
-//         followedAt: Timestamp.now(),
-//         banned: firebaseAdmin.firestore.FieldValue.delete(),
-//     }, {
-//         merge: true
-//     });
-
-//     await safeReplyOrPush({
-//         replyToken: event.replyToken,
-//         userId,
-//         messages: [{
-//             type: 'text',
-//             text: 'はじめまして！わたしは、こころちゃんです🌸\nみんなが安心して過ごせるように、いつでもお話を聞いているよ💖'
-//         }],
-//         tag: 'follow'
-//     });
-// }
-
-// async function handleJoinEvent(event) {
-//     const groupId = event.source.groupId;
-//     console.log(`Joined group: ${groupId}`);
-//     await safeReplyOrPush({
-//         replyToken: event.replyToken,
-//         userId: groupId,
-//         messages: {
-//             type: 'text',
-//             text: '皆さん、はじめまして！わたしは、こころちゃんです🌸\nこのグループで、皆さんの心に寄り添い、安全を守るお手伝いをします。困ったことがあったら、いつでも話しかけてね💖'
-//         },
-//         tag: 'group_join'
-//     });
-// }
-
-// async function handleLeaveEvent(event) {
-//     console.log(`Left group: ${event.source.groupId}`);
-// }
-
-// async function handleGroupEvents(event) {
-//     const groupId = event.source.groupId;
-//     const eventType = event.type;
-//     if (eventType === 'join') {
-//         console.log(`Bot joined group: ${groupId}`);
-//     } else if (eventType === 'leave') {
-//         console.log(`Bot left group: ${groupId}`);
-//     }
-// }
-
-// async function handleMemberEvents(event) {
-//     const groupId = event.source.groupId;
-//     const eventType = event.type;
-//     const members = event.joined?.members || event.left?.members;
-//     if (!members) return;
-//     if (eventType === 'memberJoined') {
-//         console.log(`Members joined group ${groupId}:`, members.map(m => m.userId));
-//     } else if (eventType === 'memberLeft') {
-//         console.log(`Members left group ${groupId}:`, members.map(m => m.userId));
-//     }
-// }
-
-
-// async function handleCancel(event) {
-//     const userId = event.source.userId;
-//     await db.collection('users').doc(userId).update({
-//         'account.status': 'cancel_requested'
-//     });
-
-//     const formUrl = prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, {
-//         [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId
-//     });
-
-//     const cancelFlex = {
-//         type: "flex",
-//         altText: "退会手続きのご案内",
-//         contents: {
-//             type: "bubble",
-//             body: {
-//                 type: "box",
-//                 layout: "vertical",
-//                 contents: [{
-//                     type: "text",
-//                     text: "退会手続き",
-//                     weight: "bold",
-//                     size: "xl"
-//                 }, {
-//                     type: "text",
-//                     text: "退会をご希望いただき、ありがとうございます。以下のフォームからお手続きください。",
-//                     wrap: true,
-//                     margin: "md"
-//                 }]
-//             },
-//             footer: {
-//                 type: "box",
-//                 layout: "vertical",
-//                 contents: [{
-//                     type: "button",
-//                     style: "primary",
-//                     action: {
-//                         type: "uri",
-//                         label: "退会フォームへ",
-//                         uri: formUrl
-//                     }
-//                 }]
-//             }
-//         }
-//     };
-
-//     await safeReplyOrPush({
-//         replyToken: event.replyToken,
-//         userId,
-//         messages: cancelFlex,
-//         tag: 'cancel_flow'
-//     });
-// }
-
-// app.listen(PORT, () => {
-//     console.log(`Server is running on port ${PORT}`);
-// });
+// ===== サーバー起動 =====
+app.listen(PORT, () => {
+    console.log(`サーバーはポート${PORT}で実行されています`);
+});
