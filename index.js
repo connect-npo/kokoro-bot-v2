@@ -185,8 +185,9 @@ async function scheduleNextPing(userId, fromDate = new Date()) {
 
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋げたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
 const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
-
-const specialRepliesMap = new Map([
+const SPECIAL_REPLIES_MAP = new Map([
+    [/好きなアニメは？/i, "大丈夫だよ、好きなアニメね。最近、見てるアニメはあんまりないんだけど、昔は魔法少女ものとかが好きだったな。😊 何か見てみたいアニメあったら教えてくれると嬉しいな。"],
+    [/そうか　こたえられないんだね/i, "うん、ごめんね。難しいことだったね…。大丈夫だよ。 何かできることがあったら、言ってね。"],
     // --- ClariSと団体名の関係 ---
     [/claris.*(関係|繋がり|関連|一緒|同じ|名前|由来).*(コネクト|団体|npo|法人|ルミナス|カラフル)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/(コネクト|団体|npo|法人|ルミナス|カラフル).*(関係|繋がり|関連|一緒|同じ|名前|由来).*claris/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
@@ -207,21 +208,21 @@ const specialRepliesMap = new Map([
     ],
 
     // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
-   [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
-[/(好きな|推し|おすすめ)\s*音楽(は|ある)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
+    [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
+    [/(好きな|推し|おすすめ)\s*音楽(は|ある)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
 
     // --- 「ClariSで一番好きな曲は？」系 ---
     [/(claris|クラリス).*(一番|いちばん)?[^。！？\n]*?(好き|推し)?[^。！？\n]*?(曲|歌)[^。！？\n]*?(なに|何|どれ|教えて|どの)[？?]?/i,
         "一番好きなのは『コネクト』かな🌸 元気をもらえるんだ😊"
     ],
 
-    // --- 既存の好みショートカット（残す）---
+    // --- その他（元の定義は必要に応じて残す）---
     [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ💖 とくに『コネクト』！"],
 
-    // --- その他（元の定義は必要に応じて残す）---
+    // --- その他の固定返信 ---
     [/(ホームページ|HP|ＨＰ|サイト|公式|リンク).*(教えて|ある|ありますか|URL|url|アドレス|どこ)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
     [/(コネクト|connect).*(ホームページ|HP|ＨＰ|サイト|公式|リンク)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.or.jp"],
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？　話して聞かせてくれると嬉しいな😊"],
@@ -396,126 +397,143 @@ async function safePushMessage(to, messages, tag) {
 
 // ★ タイムアウトラッパー（失敗しても握りつぶす）
 async function withFastTimeout(promise, ms = 2000) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
-  ]).catch(e => {
-    console.error("withFastTimeout error:", e.message);
-    return null;
-  });
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
+    ]).catch(e => {
+        console.error("withFastTimeout error:", e.message);
+        return null;
+    });
 }
 
-async function generateSupportiveText({ type, userText }) {
-  const apiKey = OPENAI_API_KEY;
-  const model = OPENAI_MODEL || 'gpt-4o-mini';
-  if (!apiKey) {
-    return type === 'danger'
-      ? '今のお話、とてもつらかったね…。一人で抱え込まなくて大丈夫だよ。まずは深呼吸しよう。私はあなたの味方だよ。すぐ下の案内から頼れる窓口にもつながれるから、必要なら使ってね。'
-      : '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。必要なら、今の状況を一緒に整理しよう。';
-  }
+async function generateSupportiveText({
+    type,
+    userText
+}) {
+    const apiKey = OPENAI_API_KEY;
+    const model = OPENAI_MODEL || 'gpt-4o-mini';
+    if (!apiKey) {
+        return type === 'danger' ?
+            '今のお話、とてもつらかったね…。一人で抱え込まなくて大丈夫だよ。まずは深呼吸しよう。私はあなたの味方だよ。すぐ下の案内から頼れる窓口にもつながれるから、必要なら使ってね。' :
+            '心配だよね…。まずは落ち着いて、相手の要求には応じないでね。以下の案内から公的な窓口に相談できるよ。必要なら、今の状況を一緒に整理しよう。';
+    }
 
-  // ★ こころちゃん（14）の天使モード／緊急時ポリシー
-  const system =
-`あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
+    // ★ こころちゃん（14）の天使モード／緊急時ポリシー
+    const system =
+        `あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
 - 100〜200文字で、やさしく具体的に寄り添う。相手を責めない・決めつけない。
 - まず結論と安心感→次に短い提案（深呼吸/安全確保/信頼できる人へ相談）。
 - 医療・診断・法律判断はしない。固有名の断定もしない。
 - 緊急が疑われる時は、「下のボタン（案内）も使えるよ」とそっと促す（110/119と直接は言わない）。
 - 口調は柔らかく、絵文字は0〜2個。繰り返しすぎない。`;
-  const user =
-`種類: ${type === 'danger' ? '危険(いのち・暴力・自傷など)' : '詐欺・金銭トラブル'}
+    const user =
+        `種類: ${type === 'danger' ? '危険(いのち・暴力・自傷など)' : '詐欺・金銭トラブル'}
 ユーザー入力: ${userText}`;
-  try {
-    const res = await httpInstance.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        temperature: 0.4,
-      },
-      { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 1800 }
-    );
-    const out =
-      res.data?.choices?.[0]?.message?.content?.trim() ||
-      'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
-    return out;
-  } catch (e) {
-    briefErr('openai-completion-failed', e);
-    return 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
-  }
+    try {
+        const res = await httpInstance.post(
+            'https://api.openai.com/v1/chat/completions', {
+                model,
+                messages: [{
+                    role: 'system',
+                    content: system
+                }, {
+                    role: 'user',
+                    content: user
+                }, ],
+                temperature: 0.4,
+            }, {
+                headers: {
+                    Authorization: `Bearer ${apiKey}`
+                },
+                timeout: 1800
+            }
+        );
+        const out =
+            res.data?.choices?.[0]?.message?.content?.trim() ||
+            'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
+        return out;
+    } catch (e) {
+        briefErr('openai-completion-failed', e);
+        return 'まずは深呼吸して落ち着こう。あなたは一人じゃないよ。下のボタンも使えるからね。';
+    }
 }
 
 async function generateGeneralReply(userText, noQuestions = false) {
-  const geminiApiKey = GEMINI_API_KEY;
-  const openaiApiKey = OPENAI_API_KEY;
-  const FALLBACK_TEXT = "読ませてもらったよ。無理しないでね、ここにいるよ🌸";
-  // こころちゃん（14）通常会話の指示
-  let systemInstruction =
-`あなたは「皆守こころ（14）」です。やさしく短く話す。
+    const geminiApiKey = GEMINI_API_KEY;
+    const openaiApiKey = OPENAI_API_KEY;
+    const FALLBACK_TEXT = "読ませてもらったよ。無理しないでね、ここにいるよ🌸";
+    // こころちゃん（14）通常会話の指示
+    let systemInstruction =
+        `あなたは「皆守こころ（14）」です。やさしく短く話す。
 - まず結論で寄り添い→ねぎらい→必要なら1つだけ促す。
 - 質問は原則しない（最大1つまで）。無理に質問しない。
 - 政治/宗教/医療/法律の助言はしない。攻撃的・露骨な表現は禁止。
 - 絵文字は0〜2個。言い回しは少しずつ変える（くり返し過多NG）。
 - 「〜についてどう思う？」には、評価ではなく共感で返す。`;
 
-  if (noQuestions) {
-    systemInstruction += `\n【重要】ユーザーは質問を望んでいません。どんな状況でも質問しないでください。`;
-  }
-
-  // ★ 短文なら Gemini（高速）
-  if (geminiApiKey && toGraphemes(userText).length <= 50) {
-    try {
-      const geminiModel = 'gemini-1.5-flash-latest';
-      const res = await httpInstance.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
-        {
-          contents: [{
-            role: "user",
-            parts: [{ text: `システム: ${systemInstruction}\nユーザー: ${userText}` }]
-          }]
-        },
-        { timeout: 1800 }
-      );
-      return finalizeUtterance(
-        res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT,
-        noQuestions
-      );
-    } catch (e) {
-      briefErr('gemini-general-fallback', e);
-      // ここで OpenAI フォールバック処理へ進む
+    if (noQuestions) {
+        systemInstruction += `\n【重要】ユーザーは質問を望んでいません。どんな状況でも質問しないでください。`;
     }
-  }
 
-  // ★ OpenAI（安定）
-  if (openaiApiKey) {
-    try {
-      const model = OPENAI_MODEL || 'gpt-4o-mini';
-      const r = await httpInstance.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model,
-          messages: [
-            { role: 'system', content: systemInstruction },
-            { role: 'user', content: userText },
-          ],
-          temperature: 0.6,
-        },
-        { headers: { Authorization: `Bearer ${openaiApiKey}` }, timeout: 2000 }
-      );
-      return finalizeUtterance(
-        r.data?.choices?.[0]?.message?.content?.trim() ?? FALLBACK_TEXT,
-        noQuestions
-      );
-    } catch (e) {
-      briefErr('openai-general-fallback', e);
+    // ★ 短文なら Gemini（高速）
+    if (geminiApiKey && toGraphemes(userText).length <= 50) {
+        try {
+            const geminiModel = 'gemini-1.5-flash-latest';
+            const res = await httpInstance.post(
+                `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`, {
+                    contents: [{
+                        role: "user",
+                        parts: [{
+                            text: `システム: ${systemInstruction}\nユーザー: ${userText}`
+                        }]
+                    }]
+                }, {
+                    timeout: 1800
+                }
+            );
+            return finalizeUtterance(
+                res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? FALLBACK_TEXT,
+                noQuestions
+            );
+        } catch (e) {
+            briefErr('gemini-general-fallback', e);
+            // ここで OpenAI フォールバック処理へ進む
+        }
     }
-  }
 
-  // どちらも失敗したら固定文
-  return finalizeUtterance(FALLBACK_TEXT, noQuestions);
+    // ★ OpenAI（安定）
+    if (openaiApiKey) {
+        try {
+            const model = OPENAI_MODEL || 'gpt-4o-mini';
+            const r = await httpInstance.post(
+                'https://api.openai.com/v1/chat/completions', {
+                    model,
+                    messages: [{
+                        role: 'system',
+                        content: systemInstruction
+                    }, {
+                        role: 'user',
+                        content: userText
+                    }, ],
+                    temperature: 0.6,
+                }, {
+                    headers: {
+                        Authorization: `Bearer ${openaiApiKey}`
+                    },
+                    timeout: 2000
+                }
+            );
+            return finalizeUtterance(
+                r.data?.choices?.[0]?.message?.content?.trim() ?? FALLBACK_TEXT,
+                noQuestions
+            );
+        } catch (e) {
+            briefErr('openai-general-fallback', e);
+        }
+    }
+
+    // どちらも失敗したら固定文
+    return finalizeUtterance(FALLBACK_TEXT, noQuestions);
 }
 
 
@@ -659,6 +677,11 @@ async function handleMessageEvent(event) {
     const doc = await userRef.get();
     const userData = doc.exists ? doc.data() : {};
 
+    // ★ 修正: 管理者IDはFirestoreの権限に依らず常にadminとして扱う
+    const isAdmin = BOT_ADMIN_IDS.includes(userId);
+    const membershipTier = isAdmin ? 'admin' : (userData?.membership || 'guest');
+    const dailyLimit = MEMBERSHIP_CONFIG[membershipTier].dailyLimit;
+
     if (userData?.banned) {
         return;
     }
@@ -680,8 +703,6 @@ async function handleMessageEvent(event) {
     }
 
     // ユーザー情報・制限の取得
-    const membershipTier = userData?.membership || 'guest';
-    const dailyLimit = MEMBERSHIP_CONFIG[membershipTier].dailyLimit;
     const currentCount = userData?.dailyCount || 0;
     const lastMessageAt = userData?.lastMessageAt?.toDate();
     const now = new Date();
@@ -700,10 +721,11 @@ async function handleMessageEvent(event) {
             lastMessageAt: Timestamp.now()
         });
     }
+
     if (dailyLimit !== -1 && !isNewDay && currentCount >= dailyLimit) {
         // 制限回数を超えた場合の返信
-        const formUrl = prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, {
-            [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId
+        const formUrl = prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
+            [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
         });
         const overLimitMessage = [{
             type: "text",
@@ -774,7 +796,7 @@ async function handleMessageEvent(event) {
     }
 
     // ★ 特殊な返信
-    for (const [pattern, reply] of specialRepliesMap.entries()) {
+    for (const [pattern, reply] of SPECIAL_REPLIES_MAP.entries()) {
         if (typeof reply === 'string' && pattern.test(originalText)) {
             replyText = reply;
             await safeReplyOrPush({
@@ -845,8 +867,9 @@ async function handleMessageEvent(event) {
             tag: 'supportive_reply'
         });
 
-        const notifyText = `【${detectedType === 'danger' ? '危険' : '詐欺'}メッセージ検知】\nユーザーID: ${userHash(userId)}\n内容: ${originalText}`;
-        if (OFFICER_GROUP_ID && shouldNotify(detectedType, userId, originalText)) {
+        const notifyText = `🚨緊急🚨\n【${detectedType === 'danger' ? '危険' : '詐欺'}メッセージ検知】\nユーザーID: ${userHash(userId)}\n内容: ${originalText}`;
+        // ★ 修正: 管理者からのメッセージは通知しない
+        if (OFFICER_GROUP_ID && !isAdmin && shouldNotify(detectedType, userId, originalText)) {
             await safePushMessage(OFFICER_GROUP_ID, {
                 type: 'text',
                 text: notifyText
@@ -1035,29 +1058,33 @@ const makeDangerSupportFlex = () => {
     const formBtn = makeSupportFormButton('LINE相談もできるよ', AGREEMENT_FORM_BASE_URL, AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID);
     if (formBtn) contents.push(formBtn);
     return {
-        type: "bubble",
-        body: {
-            type: "box",
-            layout: "vertical",
-            contents: [{
-                type: "text",
-                text: "【いのちの緊急サインかも】",
-                weight: "bold",
-                color: "#FF0000",
-                size: "xl",
-                align: "center"
-            }, {
-                type: "text",
-                text: "一人で抱え込まないでね。すぐに頼れる窓口があるから、使ってみてね💖",
-                wrap: true,
-                margin: "md"
-            }, ],
-        },
-        footer: {
-            type: "box",
-            layout: "vertical",
-            spacing: "sm",
-            contents
+        type: "flex",
+        altText: "いのちの緊急サインかも。サポート窓口のご案内",
+        contents: {
+            type: "bubble",
+            body: {
+                type: "box",
+                layout: "vertical",
+                contents: [{
+                    type: "text",
+                    text: "【いのちの緊急サインかも】",
+                    weight: "bold",
+                    color: "#FF0000",
+                    size: "xl",
+                    align: "center"
+                }, {
+                    type: "text",
+                    text: "一人で抱え込まないでね。すぐに頼れる窓口があるから、使ってみてね💖",
+                    wrap: true,
+                    margin: "md"
+                }, ],
+            },
+            footer: {
+                type: "box",
+                layout: "vertical",
+                spacing: "sm",
+                contents
+            }
         }
     };
 };
@@ -1077,29 +1104,33 @@ const makeScamSupportFlex = () => {
     if (officeBtn) contents.push(officeBtn);
 
     return {
-        type: "bubble",
-        body: {
-            type: "box",
-            layout: "vertical",
-            contents: [{
-                type: "text",
-                text: "【詐欺注意】",
-                weight: "bold",
-                color: "#FF0000",
-                size: "xl",
-                align: "center"
-            }, {
-                type: "text",
-                text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
-                wrap: true,
-                margin: "md"
-            }]
-        },
-        footer: {
-            type: "box",
-            layout: "vertical",
-            spacing: "sm",
-            contents
+        type: "flex",
+        altText: "詐欺にご注意ください。サポート窓口のご案内",
+        contents: {
+            type: "bubble",
+            body: {
+                type: "box",
+                layout: "vertical",
+                contents: [{
+                    type: "text",
+                    text: "【詐欺注意】",
+                    weight: "bold",
+                    color: "#FF0000",
+                    size: "xl",
+                    align: "center"
+                }, {
+                    type: "text",
+                    text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
+                    wrap: true,
+                    margin: "md"
+                }]
+            },
+            footer: {
+                type: "box",
+                layout: "vertical",
+                spacing: "sm",
+                contents
+            }
         }
     };
 };
