@@ -469,9 +469,11 @@ async function checkAndSendPing() {
 
             } else if (mode === 'escalate') {
                 const canNotifyOfficer =
-                    WATCH_GROUP_ID &&
+                    (WATCH_GROUP_ID && WATCH_GROUP_ID.trim()) &&
                     (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
-
+                
+                if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
+                
                 if (canNotifyOfficer) {
                     const u = (await ref.get()).data() || {};
                     const prof = u.profile || {};
@@ -661,16 +663,26 @@ const makeTelButton = (label, phone) => {
 };
 
 const makeScamMessageFlex = (tel = '') => {
-    const contents = [{
-        type: "button",
-        style: "primary",
-        color: "#32CD32",
-        action: {
-            type: "uri",
-            label: "国民生活センター",
-            uri: "https://www.kokusen.go.jp/"
+    const contents = [
+        {
+            type: "button",
+            style: "primary",
+            color: "#32CD32",
+            action: { type: "uri", label: "国民生活センター", uri: "https://www.kokusen.go.jp/" }
+        },
+        {
+            type: "button",
+            style: "primary",
+            color: "#FF4500",
+            action: { type: "uri", label: "警察 (110)", uri: "tel:110" }
+        },
+        {
+            type: "button",
+            style: "primary",
+            color: "#FFA500",
+            action: { type: "uri", label: "消費者ホットライン (188)", uri: "tel:188" }
         }
-    }];
+    ];
     const officeBtn = makeTelButton("こころちゃん事務局（電話）", tel);
     if (officeBtn) contents.push(officeBtn);
 
@@ -829,14 +841,13 @@ const specialRepliesMap = new Map([
     [/(どこの\s*)?団体(なの|ですか)?[？?~～]?/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/団体.*(どこ|なに|何)/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
 
-    // 置き換え後（「アニメは？」/「アニメって？」/「好きなアニメ？」なども拾う）
-[/(?:好きな|推しの)?\s*アニメ(?:\s*は|って)?\s*(?:なに|何|どれ|好き|すき)?[！!。．、,\s]*[?？]?$/i,
-  "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
-],
-
+    // --- 好きなアニメ（「とかある？」/「あるの？」/自由語尾にもヒット）---
+    [/(?:好きな|推しの)?\s*アニメ(?:\s*は|って)?\s*(?:なに|何|どれ|好き|すき)?[！!。．、,\s]*[?？]?$/i,
+        "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
+    ],
     [/アニメ.*(おすすめ|教えて)[！!。．、,\s]*[?？]?$/i,
-  "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
-],
+        "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
+    ],
 
     // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
     [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
@@ -1241,7 +1252,7 @@ const handleEvent = async (event) => {
                 contents: EMERGENCY_FLEX_MESSAGE
             }, ]
         });
-        const allow = notifySettings?.danger === true;
+        const allow = notifySettings?.danger !== false;
         if (WATCH_NOTIFY_DANGER && WATCH_GROUP_ID && allow) {
             const prof = user?.profile || {};
             const emerg = user?.emergency || {};
@@ -1254,6 +1265,8 @@ const handleEvent = async (event) => {
               kinPhone: emerg.contactPhone,
               userId
             }));
+        } else {
+            watchLog(`[watch] danger notify skipped: env=${WATCH_NOTIFY_DANGER}, gid=${!!WATCH_GROUP_ID}, allow=${allow}`, 'info');
         }
         return;
     }
@@ -1275,7 +1288,7 @@ const handleEvent = async (event) => {
                 contents: makeScamMessageFlex(EMERGENCY_CONTACT_PHONE_NUMBER)
             }, ]
         });
-        const allow = notifySettings?.scam === true;
+        const allow = notifySettings?.scam !== false;
         if (WATCH_NOTIFY_SCAM && WATCH_GROUP_ID && allow) {
             const prof = user?.profile || {};
             const emerg = user?.emergency || {};
@@ -1288,6 +1301,8 @@ const handleEvent = async (event) => {
               kinPhone: emerg.contactPhone,
               userId
             }));
+        } else {
+            watchLog(`[watch] scam notify skipped: env=${WATCH_NOTIFY_SCAM}, gid=${!!WATCH_GROUP_ID}, allow=${allow}`, 'info');
         }
         return;
     }
