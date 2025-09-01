@@ -276,14 +276,23 @@ const inappropriateWords = [
 
 // === 判定関数 ===
 function isDangerMessage(text) {
-  return dangerWords.some(w => text.includes(w));
+  return dangerWords.some(r => {
+    // 文字列を正規表現に変換してテスト
+    const regex = new RegExp(r, 'i');
+    return regex.test(text);
+  });
 }
 function isScamMessage(text) {
   return scamWords.some(r => r.test(text));
 }
 function isInappropriateMessage(text) {
-  return inappropriateWords.some(w => text.includes(w));
+  return inappropriateWords.some(r => {
+    // 文字列を正規表現に変換してテスト
+    const regex = new RegExp(r, 'i');
+    return regex.test(text);
+  });
 }
+
 const sensitiveBlockers = [
     /(パンツ|ショーツ|下着|ランジェリー|ブラ|ブラジャー|キャミ|ストッキング)/i,
     /(スリーサイズ|3\s*サイズ|バスト|ウエスト|ヒップ)/i,
