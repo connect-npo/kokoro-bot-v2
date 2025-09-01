@@ -137,8 +137,9 @@ async function warmupFill(now) {
 }
 
 async function checkAndSendPing() {
-  const now = dayjs().tz(JST_TZ);
-  console.log(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')}`);
+  // === ここを修正 ===
+  const now = dayjs().tz('UTC'); 
+  console.log(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 
   await warmupFill(now);
   const targets = await fetchTargets(now);
@@ -180,10 +181,10 @@ async function checkAndSendPing() {
 
       let mode = awaiting ? 'noop' : 'ping';
       if (awaiting && lastPingAt) {
-        const hrs = dayjs().tz(JST_TZ).diff(lastPingAt, 'hour');
+        const hrs = dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour');
         if (hrs >= ESCALATE_AFTER_HOURS) mode = 'escalate';
         else if (hrs >= REMINDER_AFTER_HOURS) {
-          if (!lastReminderAt || dayjs().tz(JST_TZ).diff(lastReminderAt, 'hour') >= 1) mode = 'remind';
+          if (!lastReminderAt || dayjs().utc().diff(dayjs(lastReminderAt).utc(), 'hour') >= 1) mode = 'remind';
           else mode = 'noop';
         } else mode = 'noop';
       }
@@ -247,7 +248,7 @@ async function checkAndSendPing() {
         }, { merge: true });
 
       } else if (mode === 'escalate') {
-        const canNotifyOfficer = OFFICER_GROUP_ID && (!lastNotifiedAt || dayjs().tz(JST_TZ).diff(lastNotifiedAt, 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
+        const canNotifyOfficer = OFFICER_GROUP_ID && (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
         if (canNotifyOfficer) {
           await safePush(OFFICER_GROUP_ID, { type: 'text', text: `🚨見守り未応答: ユーザー ${doc.id} が ${ESCALATE_AFTER_HOURS}時間未応答` });
         }
@@ -256,7 +257,7 @@ async function checkAndSendPing() {
             lastNotifiedAt: firebaseAdmin.firestore.Timestamp.now(),
             awaitingReply: false,
             lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
-            nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(now.toDate())),
+            nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(dayjs().tz(JST_TZ).toDate())),
             notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
           },
         }, { merge: true });
@@ -268,7 +269,8 @@ async function checkAndSendPing() {
     }
   }
 
-  console.log(`[watch-service] end ${dayjs().tz(JST_TZ).format('YYYY/MM/DD HH:mm:ss')}`);
+  // === ここを修正 ===
+  console.log(`[watch-service] end ${dayjs().tz('UTC').format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 }
 
 function shutdown(code) {
