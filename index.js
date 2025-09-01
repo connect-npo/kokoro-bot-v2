@@ -62,14 +62,31 @@ const WATCH_SERVICE_FORM_BASE_URL = normalizeFormUrl(process.env.WATCH_SERVICE_F
 const MEMBER_CHANGE_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
 const MEMBER_CANCEL_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-let _WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || '';
-_WATCH_GROUP_ID = _WATCH_GROUP_ID.trim().replace(/\u200b/g, '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, s =>
-  String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
-);
-if (_WATCH_GROUP_ID && !/^C[0-9a-f]{32}$/i.test(_WATCH_GROUP_ID)) {
-  console.warn('[WARN] WATCH_GROUP_ID format suspicious:', JSON.stringify(_WATCH_GROUP_ID));
+// WATCH_GROUP_IDは削除。getActiveWatchGroupIdを使用
+// let _WATCH_GROUP_ID = process.env.WATCH_GROUP_ID || '';
+// _WATCH_GROUP_ID = _WATCH_GROUP_ID.trim().replace(/\u200b/g, '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, s =>
+//   String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+// );
+// if (_WATCH_GROUP_ID && !/^C[0-9a-f]{32}$/i.test(_WATCH_GROUP_ID)) {
+//   console.warn('[WARN] WATCH_GROUP_ID format suspicious:', JSON.stringify(_WATCH_GROUP_ID));
+// }
+// const WATCH_GROUP_ID = _WATCH_GROUP_ID;
+
+const WATCH_GROUP_DOC = db.collection('system').doc('watch_group');
+
+async function getActiveWatchGroupId() {
+  let gid = (process.env.WATCH_GROUP_ID || '').trim().replace(/\u200b/g,'');
+  if (/^C[0-9a-f]{32}$/i.test(gid)) return gid;
+
+  const snap = await WATCH_GROUP_DOC.get();
+  const v = snap.exists ? (snap.data().groupId || '') : '';
+  return /^C[0-9a-f]{32}$/i.test(v) ? v : '';
 }
-const WATCH_GROUP_ID = _WATCH_GROUP_ID;
+
+async function setActiveWatchGroupId(gid) {
+  if (!/^C[0-9a-f]{32}$/i.test(gid)) return;
+  await WATCH_GROUP_DOC.set({ groupId: gid, updatedAt: Timestamp.now() }, { merge: true });
+}
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
@@ -79,8 +96,6 @@ const OWNER_USER_ID = process.env.OWNER_USER_ID || BOT_ADMIN_IDS[0];
 const OWNER_GROUP_ID = process.env.OWNER_GROUP_ID || null;
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const WATCH_LOG_LEVEL = (process.env.WATCH_LOG_LEVEL || 'info').toLowerCase();
-// 強制通知方針：ゲートは使わない
-
 const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
 const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
 const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
@@ -318,8 +333,9 @@ const maskPhone = p => {
     return v.length <= 4 ? `**${v}` : `${'*'.repeat(Math.max(0, v.length - 4))}${v.slice(-4)}`;
 };
 const buildWatcherFlex = ({ name='—', address='—', selfPhone='', kinName='', kinPhone='', userId }) => {
-  const telBtn = (label, p, style='primary') => p ? ({
-    type: 'button', style,
+  const telBtn = (label, p) => p ? ({
+    type: 'button',
+    style: 'secondary',
     action: { type: 'uri', label, uri: `tel:${p}` }
   }) : null;
 
@@ -343,9 +359,9 @@ const buildWatcherFlex = ({ name='—', address='—', selfPhone='', kinName='',
         contents: [
           { type: 'button', style: 'primary',
             action: { type: 'postback', label: 'LINEで連絡', data: `action=notify_user&uid=${encodeURIComponent(userId)}` } },
-          ...(telBtn('本人に電話', selfPhone) ? [telBtn('本人に電話', selfPhone, 'secondary')] : []),
-          ...(telBtn('近親者に電話', kinPhone, 'secondary') ? [telBtn('近親者に電話', kinPhone, 'secondary')] : []),
-        ]
+          telBtn('本人に電話', selfPhone),
+          telBtn('近親者に電話', kinPhone),
+        ].filter(Boolean)
       }
     }
   };
@@ -368,6 +384,8 @@ async function checkAndSendPing() {
         logDebug('[watch-service] no targets.');
         return;
     }
+
+    const WATCH_GROUP_ID = await getActiveWatchGroupId();
 
     for (const doc of targets) {
         const ref = doc.ref;
@@ -542,7 +560,6 @@ async function withLock(lockId, ttlSec, fn) {
         const until = now + ttlSec * 1000;
         const cur = snap.exists ? snap.data() : null;
         if (cur && cur.until && cur.until.toMillis() > now) {
-            // すでに誰かが実行中
             return false;
         }
         tx.set(ref, {
@@ -1206,8 +1223,8 @@ const handlePostbackEvent = async (event, userId) => {
     }
     if (action === 'notify_user') {
         const uid = data.get('uid');
-        // セーフガード：呼び出し元が見守りグループかチェック
-        if (event.source.type === 'group' && event.source.groupId === WATCH_GROUP_ID) {
+        const activeWatchGroupId = await getActiveWatchGroupId();
+        if (event.source.type === 'group' && event.source.groupId === activeWatchGroupId) {
             await safePush(uid, {
                 type:'text',
                 text:'見守りグループからご様子確認のご連絡です。大丈夫なら「OKだよ💖」を押すか、一言返信してくださいね💖'
@@ -1221,6 +1238,9 @@ const handlePostbackEvent = async (event, userId) => {
 };
 
 const handleEvent = async (event) => {
+    if (event.source?.type === 'group' && event.source.groupId) {
+        await setActiveWatchGroupId(event.source.groupId);
+    }
     const {
         replyToken
     } = event;
@@ -1273,18 +1293,19 @@ const handleEvent = async (event) => {
                 contents: EMERGENCY_FLEX_MESSAGE
             }, ]
         });
-        if (WATCH_GROUP_ID) {
+        const activeWatchGroupId = await getActiveWatchGroupId();
+        if (activeWatchGroupId) {
             const prof = user?.profile || {};
             const emerg = user?.emergency || {};
             const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
-            await safePushMessage(WATCH_GROUP_ID, buildWatcherFlex({
+            await safePushMessage(activeWatchGroupId, buildWatcherFlex({
               name: prof.name,
               address: address,
               selfPhone: prof.phone,
               kinName: emerg.contactName,
               kinPhone: emerg.contactPhone,
               userId
-            }));
+            }), 'danger-alert');
         }
         return;
     }
@@ -1306,18 +1327,19 @@ const handleEvent = async (event) => {
                 contents: makeScamMessageFlex(EMERGENCY_CONTACT_PHONE_NUMBER)
             }, ]
         });
-        if (WATCH_GROUP_ID) {
+        const activeWatchGroupId = await getActiveWatchGroupId();
+        if (activeWatchGroupId) {
             const prof = user?.profile || {};
             const emerg = user?.emergency || {};
             const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
-            await safePushMessage(WATCH_GROUP_ID, buildWatcherFlex({
+            await safePushMessage(activeWatchGroupId, buildWatcherFlex({
               name: prof.name,
               address: address,
               selfPhone: prof.phone,
               kinName: emerg.contactName,
               kinPhone: emerg.contactPhone,
               userId
-            }));
+            }), 'scam-alert');
         }
         return;
     }
@@ -1424,6 +1446,9 @@ const handleUnfollowEvent = async (event) => {
 };
 
 const handleJoinEvent = async (event) => {
+    if (event.source.type === 'group' && event.source.groupId) {
+        await setActiveWatchGroupId(event.source.groupId);
+    }
     await safePushMessage(event.source.groupId, {
         type: 'text',
         text: 'はじめまして！このグループに参加できて嬉しいな🌸\n困ったことがあったら、いつでも声をかけてね💖'
