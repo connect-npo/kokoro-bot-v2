@@ -379,16 +379,15 @@ async function warmupFill() {
 const getWatchGroupDoc = () => firebaseAdmin.firestore()
     .collection('system').doc('watch_group');
 
+// 置き換え後
 async function getActiveWatchGroupId() {
     const envGid = (process.env.WATCH_GROUP_ID || '').trim().replace(/\u200b/g, '');
-    if (/^C[0-9a-f]{32}$/i.test(envGid)) return envGid;
+    if (envGid) return envGid;
     const snap = await getWatchGroupDoc().get();
-    const v = snap.exists ? (snap.data().groupId || '') : '';
-    return /^C[0-9a-f]{32}$/i.test(v) ? v : '';
+    return snap.exists ? (snap.data().groupId || '') : '';
 }
-
 async function setActiveWatchGroupId(gid) {
-    if (!/^C[0-9a-f]{32}$/i.test(gid)) return;
+    if (!gid) return;
     await getWatchGroupDoc().set({
         groupId: gid,
         updatedAt: Timestamp.now()
@@ -396,7 +395,6 @@ async function setActiveWatchGroupId(gid) {
         merge: true
     });
 }
-
 const OFFICER_NOTIFICATION_MIN_GAP_HOURS = Number(process.env.OFFICER_NOTIFICATION_MIN_GAP_HOURS || 1);
 const maskPhone = p => {
     const v = String(p || '').replace(/[^0-9+]/g, '');
@@ -694,18 +692,15 @@ async function checkAndSendPing() {
                         self: selfPhone || null,
                         kin: kinPhone || null
                     });
+                    
+                    // 1) グループには必ず送る（電話ボタンは未登録なら自動で出ない）
+                    await safePush(WATCH_GROUP_ID, buildWatcherFlex({
+                      name, address, selfPhone, kinName, kinPhone, userId: doc.id
+                    }));
+
+                    // 2) 電話未登録なら本人にも追加で案内
                     const hasAnyPhone = !!(selfPhone || kinPhone);
-                    if (hasAnyPhone) {
-                        await safePush(WATCH_GROUP_ID, buildWatcherFlex({
-                            name,
-                            address,
-                            selfPhone,
-                            kinName,
-                            kinPhone,
-                            userId: doc.id
-                        }));
-                    } else {
-                        // グループへは送らず、本人にAI案内のみ
+                    if (!hasAnyPhone) {
                         await safePush(doc.id, {
                             type: 'text',
                             text: 'こころチャット事務局です。大変な状況でしたら 110/119 にお電話ください。現在、電話番号未登録のため、人的な緊急対応は行えません。見守り支援をご希望の場合は、マイページから「電話番号と住所（詳細）」の登録をお願いします。'
@@ -736,7 +731,7 @@ async function withLock(lockId, ttlSec, fn) {
     const snap = await tx.get(ref);
     const now = Date.now();
     const until = now + ttlSec * 1000;
-    const cur = snap.exists ? snap.data() : null; // ← 修正
+    const cur = snap.exists ? snap.data() : null;
     if (cur && cur.until && cur.until.toMillis() > now) {
       return false;
     }
