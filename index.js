@@ -101,10 +101,13 @@ if (!firebaseAdmin.apps.length) {
 }
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
-const client = new Client({
+
+const lineConfig = {
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
-});
+};
+const client = new Client(lineConfig);
+
 const httpAgent = new require('http').Agent({
     keepAlive: true
 });
@@ -320,13 +323,18 @@ async function warmupFill() {
 
 const getWatchGroupDoc = () => firebaseAdmin.firestore()
     .collection('system').doc('watch_group');
+
 async function getActiveWatchGroupId() {
     const envGid = (process.env.WATCH_GROUP_ID || '').trim().replace(/\u200b/g, '');
-    if (/^C[0-9a-f]{32}$/i.test(envGid)) return envGid;
+    if (/^C[0-9a-f]{32}$/i.test(envGid)) {
+        return envGid;
+    }
     const snap = await getWatchGroupDoc().get();
-    const v = snap.exists ? (snap.data().groupId || '') : '';
-    return /^C[0-9a-f]{32}$/i.test(v) ?
-        v : '';
+    if (snap.exists && /^C[0-9a-f]{32}$/i.test(snap.data().groupId)) {
+        return snap.data().groupId;
+    }
+    console.error('[ERROR] WATCH_GROUP_ID not set in env or Firestore');
+    return '';
 }
 
 async function setActiveWatchGroupId(gid) {
@@ -1194,7 +1202,7 @@ const webhookRateLimiter = rateLimit({
     message: 'Too many requests from this IP, please try again after a minute.',
     statusCode: 429,
 });
-app.post('/webhook', webhookRateLimiter, middleware(client), async (req, res) => {
+app.post('/webhook', webhookRateLimiter, middleware(lineConfig), async (req, res) => {
     try {
         await Promise.all(
             req.body.events.map(async (event) => {
