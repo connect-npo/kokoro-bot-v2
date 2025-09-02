@@ -96,10 +96,20 @@ if (!firebaseAdmin.apps.length) {
 }
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
-const client = new Client({
-    channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
-    channelSecret: LINE_CHANNEL_SECRET,
+
+['LINE_CHANNEL_ACCESS_TOKEN','LINE_CHANNEL_SECRET'].forEach(k=>{
+  if (!process.env[k] || !process.env[k].trim()) {
+    console.error(`ENV ${k} が未設定です`);
+    process.exit(1);
+  }
 });
+
+const lineConfig = {
+    channelAccessToken: (LINE_CHANNEL_ACCESS_TOKEN || '').trim(),
+    channelSecret: (LINE_CHANNEL_SECRET || '').trim(),
+};
+const client = new Client(lineConfig);
+
 const httpAgent = new require('http').Agent({
     keepAlive: true
 });
@@ -1268,7 +1278,7 @@ app.get('/', (req, res) => {
     res.send('こころちゃんBOT稼働中🌸');
 });
 
-app.post('/webhook', middleware(client), async (req, res) => {
+app.post('/webhook', middleware(lineConfig), async (req, res) => {
     const events = req.body.events;
     // 監査ログを絞る
     audit('Webhook received', {
@@ -1333,3 +1343,7 @@ if (WATCH_RUNNER === 'internal') {
         timezone: 'UTC'
     });
 }
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+});
