@@ -176,6 +176,7 @@ const PING_HOUR_JST = 15;
 const PING_INTERVAL_DAYS = 3;
 const REMINDER_AFTER_HOURS = 24;
 const ESCALATE_AFTER_HOURS = 29;
+const ALERT_COOLDOWN_MIN = Number(process.env.ALERT_COOLDOWN_MIN || 60);
 
 function toJstParts(date) {
     const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
@@ -426,6 +427,29 @@ const buildWatcherFlex = ({
     };
 };
 
+async function sendWatcherAlert(uid) {
+    const gid = (await getActiveWatchGroupId()) || (OFFICER_GROUP_ID || '').trim();
+    if (!gid) {
+        watchLog('[watch] No WATCH_GROUP_ID / officer group set. Skip alert.', 'error');
+        return false;
+    }
+    const ref = db.collection('users').doc(uid);
+    const snap = await ref.get();
+    const u = snap.data() || {};
+    const prof = u.profile || {};
+    const emerg = u.emergency || {};
+
+    const name = prof.name || '—';
+    const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
+    const selfPhone = prof.phone || '';
+    const kinName = emerg.contactName || '';
+    const kinPhone = emerg.contactPhone || '';
+
+    await safePush(gid, buildWatcherFlex({ name, address, selfPhone, kinName, kinPhone, userId: uid }));
+    await ref.set({ watchService: { lastNotifiedAt: Timestamp.now() } }, { merge: true });
+    return true;
+}
+
 function watchLog(msg, level = 'info') {
     if (WATCH_LOG_LEVEL === 'silent') return;
     if (WATCH_LOG_LEVEL === 'error' && level !== 'error') return;
@@ -641,7 +665,7 @@ if (WATCH_RUNNER !== 'external') {
         timezone: 'UTC'
     });
 }
-// --- Flex Message テンプレート (緊急時連絡先) --- 
+// --- Flex Message テンプレート (緊急時連絡先) ---
 const EMERGENCY_FLEX_MESSAGE = {
     "type": "bubble",
     "body": {
@@ -782,26 +806,26 @@ const makeScamMessageFlex = (tel = '') => {
     return {
         type: "bubble",
         body: {
-            type: "box",
-            layout: "vertical",
-            contents: [{
-                type: "text",
-                text: "【詐欺注意】",
-                weight: "bold",
-                size: "xl",
-                align: "center"
+            "type": "box",
+            "layout": "vertical",
+            "contents": [{
+                "type": "text",
+                "text": "【詐欺注意】",
+                "weight": "bold",
+                "size": "xl",
+                "align": "center"
             }, {
-                type: "text",
-                text: "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
-                wrap: true,
-                margin: "md"
+                "type": "text",
+                "text": "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖",
+                "wrap": true,
+                "margin": "md"
             }]
         },
-        footer: {
-            type: "box",
-            layout: "vertical",
-            spacing: "sm",
-            contents
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": contents
         }
     };
 };
@@ -874,7 +898,7 @@ const INAPPROPRIATE_KEYWORDS = [
 ];
 const DANGER_KEYWORDS_REGEX = new RegExp(DANGER_KEYWORDS.join('|'), 'i');
 const SCAM_KEYWORDS_REGEX = new RegExp('(' + ['詐欺', 'さぎ', 'サギ'].join('|') + ')', 'i');
-const INAPPROPRIATE_KEYWORDS_REGEX = new RegExp(INAPPROPRIATE_KEYWORDS.join('|'), 'i');
+const INAPPROPRIATE_KEYWORDS_REGEX = new RegExp(INAPPROPRIATE_KEYWORDS.join('|') + '|' + 'いじめ', 'i');
 
 const isDangerMessage = (text) => DANGER_KEYWORDS_REGEX.test(text);
 const isScamMessage = (text) => SCAM_KEYWORDS_REGEX.test(text);
@@ -884,33 +908,33 @@ const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名
 const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
 
 const specialRepliesMap = new Map([
-    // --- ClariSと団体名の関係 --- 
+    // --- ClariSと団体名の関係 ---
     [/claris.*(関係|繋がり|関連|一緒|同じ|名前|由来).*(コネクト|団体|npo|法人|ルミナス|カラフル)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/(コネクト|団体|npo|法人|ルミナス|カラフル).*(関係|繋がり|関連|一緒|同じ|名前|由来).*claris/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/君のいるところと一緒の団体名だね\s*関係ある？/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと(関係|繋がり|関連)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/claris.*(歌を真似|コネクト)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    // --- 名前・団体 --- 
+    // --- 名前・団体 ---
     [/君の名前(なんていうの|は|教えて|なに)?[？?]?|名前(なんていうの|は|教えて|なに)?[？?]?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ 誤解させちゃってごめんね💖"],
     [/(どこの\s*)?団体(なの|ですか)?[？?~～]?/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     [/団体.*(どこ|なに|何)/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-    // --- 好きなアニメ（「とかある？」/「あるの？」/自由語尾にもヒット）--- 
+    // --- 好きなアニメ（「とかある？」/「あるの？」/自由語尾にもヒット）---
     [/(?:好きな|推しの)?\s*アニメ(?:\s*は|って)?\s*(?:なに|何|どれ|好き|すき)?[！!。．、,\s]*[?？]?$/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
     [/アニメ.*(おすすめ|教えて)[！!。．、,\s]*[?？]?$/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
     [/(好きな|推しの)?(漫画|マンガ|まんが)(は|なに|何|ある)?[？?]?/i, "私は色々な作品が好きだよ！🌸 物語に触れると、人の心の温かさや強さを感じることができて、とても勉強になるんだ😊 あなたのおすすめの漫画はどんなものがある？"],
-    // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）--- 
+    // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
     [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
     [/(好きな|推し|おすすめ)\s*音楽(は|ある)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
-    // --- 「ClariSで一番好きな曲は？」系 --- 
+    // --- 「ClariSで一番好きな曲は？」系 ---
     [/(claris|クラリス).*(一番|いちばん)?[^。！？\n]*?(好き|推し)?[^。！？\n]*?(曲|歌)[^。！？\n]*?(なに|何|どれ|教えて|どの)[？?]?/i, "一番好きなのは『コネクト』かな🌸 元気をもらえるんだ😊"],
-    // --- 既存の好みショートカット（残す）--- 
+    // --- 既存の好みショートカット（残す）---
     [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
     [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
     [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ💖 とくに『コネクト』！"],
-    // --- その他（元の定義は必要に応じて残す）--- 
+    // --- その他（元の定義は必要に応じて残す）---
     [/(ホームページ|HP|ＨＰ|サイト|公式|リンク).*(教えて|ある|ありますか|URL|url|アドレス|どこ)/i, "うん、あるよ！\nNPO法人コネクトのホームページはこちらだよ🌸\n[https://connect-npo.or.jp/](https://connect-npo.or.jp/)\n良かったら見てみてね😊"],
     [/(自己紹介|じこしょうかい|自己紹介して)[！!。．、,\s]*[?？]?/i, "私の名前は皆守こころ（みなもりこころ）🌸\nNPO法人コネクトのイメージキャラクターをしているよ😊\nみんなの心を繋げて、幸せを応援する活動をしているんだ💖\n好きなものは、甘いものとClariSさんの曲だよ！\nよろしくね😊"],
     [/(出身地|地元|どこ出身|出身)[！!。．、,\s]*[?？]?/i, "私はみんなの心の中にいるよ💖　出身地はないけど、みんなと繋がるのが大好きだよ！😊"],
@@ -979,6 +1003,13 @@ const handleTextMessage = async (event, user) => {
             type: 'text',
             text: '大丈夫だよ、ひとりじゃないからね🌸 辛い時は、いつでも話してね。'
         }, ]);
+        // 直近通知からのクールダウンを見て、管理グループへ即時通報
+        try {
+            const doc = await db.collection('users').doc(uid).get();
+            const last = doc.data()?.watchService?.lastNotifiedAt?.toDate?.();
+            const mins = last ? (Date.now() - last.getTime()) / 60000 : Infinity;
+            if (mins >= ALERT_COOLDOWN_MIN) await sendWatcherAlert(uid);
+        } catch (_) {}
         return;
     }
 
@@ -1100,7 +1131,8 @@ const handlePostbackEvent = async (event, uid) => {
     const {
         replyToken,
         data,
-        params
+        params,
+        source
     } = event;
     const parts = data.split(':');
     const action = parts[0];
@@ -1138,7 +1170,7 @@ const handlePostbackEvent = async (event, uid) => {
             type: 'text',
             text: 'こころちゃんの事務局です。ご返信が途絶えているため、念のためご連絡しました。ご心配であれば、こちらに返信いただくか、LINE通話でご相談ください。'
         });
-        await safePush(replyToken, {
+        await safePush(source.groupId || source.userId, {
             type: 'text',
             text: `${target.displayName}さんにメッセージを送信しました。`
         });
@@ -1245,23 +1277,27 @@ const handleJoinEvent = async (event) => {
         replyToken,
         source
     } = event;
-    if (source.type === 'group' && source.groupId === OFFICER_GROUP_ID) {
-        await setActiveWatchGroupId(OFFICER_GROUP_ID);
-        await client.replyMessage(replyToken, {
-            type: 'text',
-            text: '見守り通知グループに設定しました✅'
-        });
-        audit('Joined officer group', {
-            groupId: source.groupId
-        });
+    if (source.type === 'group') {
+        if (!OFFICER_GROUP_ID || source.groupId === OFFICER_GROUP_ID) {
+            await setActiveWatchGroupId(source.groupId);
+            await client.replyMessage(replyToken, {
+                type: 'text',
+                text: '見守り通知グループに設定しました✅'
+            });
+            audit('Joined officer group', {
+                groupId: source.groupId
+            });
+        } else {
+            await client.replyMessage(replyToken, {
+                type: 'text',
+                text: "グループに招待してくれてありがとう！😊\nごめんなさい、このアカウントは１対１のトーク専用だから、個別で話しかけてくれると嬉しいな💖"
+            });
+            audit('Joined other group', {
+                groupId: source.groupId
+            });
+        }
     } else {
-        await client.replyMessage(replyToken, {
-            type: 'text',
-            text: "グループに招待してくれてありがとう！😊\nごめんなさい、このアカウントは１対１のトーク専用だから、個別で話しかけてくれると嬉しいな💖"
-        });
-        audit('Joined other group', {
-            groupId: source.groupId
-        });
+        // room など他種別はそのまま
     }
 };
 
