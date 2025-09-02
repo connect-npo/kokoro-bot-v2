@@ -19,7 +19,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const OpenAI = require('openai'); // ← destructuringしないのが正解
+const OpenAI = require('openai');
 
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
@@ -561,23 +561,18 @@ async function checkAndSendPing() {
                 if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
 
                 if (canNotifyOfficer) {
-                    const u = (await ref.get()).data() ||
-                        {};
-                    const prof = u?.profile || {};
-                    const emerg = u?.emergency || {};
-                    const name = prof.name || '—';
-                    const address = [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' ');
-                    const selfPhone = prof.phone || '';
-                    const kinName = emerg.contactName || '';
-                    const kinPhone = emerg.contactPhone || '';
+                    const udoc = await db.collection('users').doc(userId).get();
+                    const u = udoc.exists ? (udoc.data() || {}) : {};
+                    const prof = u.profile || {};
+                    const emerg = u.emergency || {};
                     await safePush(WATCH_GROUP_ID, buildWatcherFlex({
-                        name,
-                        address,
-                        selfPhone,
-                        kinName,
-                        kinPhone,
-                        userId: doc.id
-                    }), 'danger-alert');
+                        name: prof.name || prof.displayName || '—',
+                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                        selfPhone: prof.phone || '',
+                        kinName: emerg.contactName || '',
+                        kinPhone: emerg.contactPhone || '',
+                        userId
+                    }));
                 }
                 await ref.set({
                     watchService: {
@@ -1039,10 +1034,10 @@ const getAIResponse = async (text) => {
     try {
         if (modelName.startsWith("gemini")) {
             const model = genai.getGenerativeModel({ model: modelName });
-            // generateContent は配列に「parts」だけ or 文字列で渡す
-            const result = await model.generateContent([
-                { text: `${KOKORO_SYSTEM_PROMPT}\n\nユーザー: ${text}` }
-            ]);
+            // 文字列1本渡し（最も安定）
+            const result = await model.generateContent(
+              `${KOKORO_SYSTEM_PROMPT}\n\nユーザー: ${text}`
+            );
             aiResponse = result.response.text() || "";
         } else {
             const completion = await openai.chat.completions.create({
@@ -1095,11 +1090,10 @@ const specialRepliesMap = new Map([
 
 // === handleEvent で先に specialRepliesMap を見る ===
 const handleEvent = async (event) => {
-    if (event.message?.type !== 'text') return; // ← 追加（画像/スタンプ等は無視）
+    if (event.message?.type !== 'text') return;
     const userId = event.source.userId;
     const text = event.message.text;
 
-    // 危険ワード／詐欺ワード／不適切ワードは従来の9-1処理を継続
     if (isDangerMessage(text)) {
         await client.replyMessage(event.replyToken, DANGER_REPLY);
         audit("danger-message-replied", {
@@ -1107,7 +1101,6 @@ const handleEvent = async (event) => {
             text: gTrunc(text, 50),
             date: new Date(),
         });
-        // --- ここで見守りグループにも通知 ---
         try {
             const WATCH_GROUP_ID = await getActiveWatchGroupId();
             if (SEND_OFFICER_ALERTS && WATCH_GROUP_ID) {
@@ -1148,7 +1141,6 @@ const handleEvent = async (event) => {
         return;
     }
 
-    // 特殊返信（安全チェック通過後に実施）
     const specialReplyEntry = Array.from(specialRepliesMap.entries())
         .find(([regex]) => regex.test(text));
     if (specialReplyEntry) {
@@ -1159,15 +1151,15 @@ const handleEvent = async (event) => {
         return;
     }
 
-    // 通常はAIレスポンス
     const aiResponse = await getAIResponse(text);
     await client.replyMessage(event.replyToken, { type: "text", text: aiResponse });
 };
 
 // --- handlePostbackEvent ---
 const handlePostbackEvent = async (event, userId) => {
-    const data = new URLSearchParams(event.postback.data);
-    const action = data.get('action');
+    const raw = String(event.postback?.data || '');
+    const data = new URLSearchParams(raw);
+    const action = data.get('action') || raw;
 
     switch (action) {
         case 'watch:ok':
