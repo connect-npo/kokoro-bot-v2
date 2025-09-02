@@ -97,11 +97,11 @@ if (!firebaseAdmin.apps.length) {
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
 
-['LINE_CHANNEL_ACCESS_TOKEN','LINE_CHANNEL_SECRET'].forEach(k=>{
-  if (!process.env[k] || !process.env[k].trim()) {
-    console.error(`ENV ${k} が未設定です`);
-    process.exit(1);
-  }
+['LINE_CHANNEL_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET'].forEach(k => {
+    if (!process.env[k] || !process.env[k].trim()) {
+        console.error(`ENV ${k} が未設定です`);
+        process.exit(1);
+    }
 });
 
 const lineConfig = {
@@ -396,13 +396,13 @@ const buildWatcherFlex = ({
                     type: 'text',
                     text: `本人TEL：${maskPhone(selfPhone)}`,
                     size: 'sm',
-                    color: '#777'
+                    color: '#777777'
                 }, {
                     type: 'text',
                     text: `近親者：${kinName ||
                         '—'}（${maskPhone(kinPhone)}）`,
                     size: 'sm',
-                    color: '#777',
+                    color: '#777777',
                     wrap: true
                 }, ]
             },
@@ -889,6 +889,7 @@ const makeRegistrationButtonsFlex = (userId) => {
 };
 const DANGER_KEYWORDS = [
     '死にたい', '自殺', '消えたい', 'もう疲れた', '生きてる意味ない', 'つらい', 'しんどい', '辛い', 'しにたい', 'もうだめだ', 'もういやだ', 'もう無理', 'もう無理だ', '助けて', '誰も信じられない', '全部終わり', '死ぬ', '死んだほうがまし', '死に場所', 'もうどうでもいい', '死んでやる', 'もう生きていけない',
+    'いじめ', 'いじめられ', '虐め', '虐められ',
 ];
 const SCAM_KEYWORDS = [
     '副業', '在宅ワーク', '投資', '儲かる', '必ず稼げる', '月収', '簡単に稼げる', '高収入', 'FX', 'バイナリー', 'アフィリエイト', 'ネットワークビジネス', 'MLM', 'ワンクリック詐欺', '未払い', '訴訟', '請求', '借金', 'お金配り', '当選', '振込先', '送金', '受け取り口座', '手数料', '個人情報',
@@ -898,7 +899,7 @@ const INAPPROPRIATE_KEYWORDS = [
 ];
 const DANGER_KEYWORDS_REGEX = new RegExp(DANGER_KEYWORDS.join('|'), 'i');
 const SCAM_KEYWORDS_REGEX = new RegExp('(' + ['詐欺', 'さぎ', 'サギ'].join('|') + ')', 'i');
-const INAPPROPRIATE_KEYWORDS_REGEX = new RegExp(INAPPROPRIATE_KEYWORDS.join('|') + '|' + 'いじめ', 'i');
+const INAPPROPRIATE_KEYWORDS_REGEX = new RegExp(INAPPROPRIATE_KEYWORDS.join('|'), 'i');
 
 const isDangerMessage = (text) => DANGER_KEYWORDS_REGEX.test(text);
 const isScamMessage = (text) => SCAM_KEYWORDS_REGEX.test(text);
@@ -923,6 +924,7 @@ const specialRepliesMap = new Map([
     // --- 好きなアニメ（「とかある？」/「あるの？」/自由語尾にもヒット）---
     [/(?:好きな|推しの)?\s*アニメ(?:\s*は|って)?\s*(?:なに|何|どれ|好き|すき)?[！!。．、,\s]*[?？]?$/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
     [/アニメ.*(おすすめ|教えて)[！!。．、,\s]*[?？]?$/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
+    [/アニメ.*(ある|あるの|ある？|あるの？|とかある|とかあるの|とかあるの？)/i, "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"],
     [/(好きな|推しの)?(漫画|マンガ|まんが)(は|なに|何|ある)?[？?]?/i, "私は色々な作品が好きだよ！🌸 物語に触れると、人の心の温かさや強さを感じることができて、とても勉強になるんだ😊 あなたのおすすめの漫画はどんなものがある？"],
     // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
     [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
@@ -930,9 +932,9 @@ const specialRepliesMap = new Map([
     // --- 「ClariSで一番好きな曲は？」系 ---
     [/(claris|クラリス).*(一番|いちばん)?[^。！？\n]*?(好き|推し)?[^。！？\n]*?(曲|歌)[^。！？\n]*?(なに|何|どれ|教えて|どの)[？?]?/i, "一番好きなのは『コネクト』かな🌸 元気をもらえるんだ😊"],
     // --- 既存の好みショートカット（残す）---
-    [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
-    [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
-    [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
+    [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
+    [/claris.*好きなの/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ💖 とくに『コネクト』！"],
     // --- その他（元の定義は必要に応じて残す）---
     [/(ホームページ|HP|ＨＰ|サイト|公式|リンク).*(教えて|ある|ありますか|URL|url|アドレス|どこ)/i, "うん、あるよ！\nNPO法人コネクトのホームページはこちらだよ🌸\n[https://connect-npo.or.jp/](https://connect-npo.or.jp/)\n良かったら見てみてね😊"],
@@ -1346,8 +1348,8 @@ app.post('/webhook', middleware(lineConfig), async (req, res) => {
 
                 if (event.type === 'message') {
                     if (event.message.type === 'text') return handleTextMessage(event, user);
-                    if (event.message.type === 'sticker') return handleStickerMessage(event, user);
-                    if (event.message.type === 'image') return handleImageMessage(event, user);
+                    if (event.message.type === 'sticker') return handleStickerMessage(event);
+                    if (event.message.type === 'image') return handleImageMessage(event);
                 } else if (event.type === 'postback') {
                     await handlePostbackEvent(event, event.source.userId);
                 } else if (event.type === 'follow') {
