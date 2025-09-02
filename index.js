@@ -18,6 +18,9 @@ const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const OpenAI = require('openai');
+
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 
@@ -313,7 +316,7 @@ const getWatchGroupDoc = () => firebaseAdmin.firestore()
     .collection('system').doc('watch_group');
 
 async function getActiveWatchGroupId() {
-    const envGid = (process.env.WATCH_GROUP_ID || '').trim().replace(/\u200b/g, '');
+    const envGid = (process.env.WATCH_GROUP_ID || process.env.OFFICER_GROUP_ID || '').trim().replace(/\u200b/g, '');
     if (/^C[0-9a-f]{32}$/i.test(envGid)) return envGid;
     const snap = await getWatchGroupDoc().get();
     const v = snap.exists ? (snap.data().groupId || '') : '';
@@ -880,7 +883,7 @@ const SCAM_REPLY_MESSAGE = {
 };
 const INAPPROPRIATE_REPLY_MESSAGE = {
     "type": "text",
-    "text": "🌸いやだなと思ったら、無理しないでね。そういったメッセージにはこころも悲しくなっちゃうよ😢\n\nこころは、みんなが笑顔になれるような、温かいお話がしたいな😊"
+    "text": "いやだなと思ったら、無理しないでね。そんな言葉、こころは悲しくなっちゃう😢"
 };
 
 const DANGER_REPLY = [
