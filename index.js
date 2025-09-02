@@ -561,7 +561,7 @@ async function checkAndSendPing() {
                 if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
 
                 if (canNotifyOfficer) {
-                    const udoc = await db.collection('users').doc(userId).get();
+                    const udoc = await db.collection('users').doc(doc.id).get();
                     const u = udoc.exists ? (udoc.data() || {}) : {};
                     const prof = u.profile || {};
                     const emerg = u.emergency || {};
@@ -571,7 +571,7 @@ async function checkAndSendPing() {
                         selfPhone: prof.phone || '',
                         kinName: emerg.contactName || '',
                         kinPhone: emerg.contactPhone || '',
-                        userId
+                        userId: doc.id
                     }));
                 }
                 await ref.set({
