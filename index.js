@@ -200,6 +200,40 @@ const watchMessages = [
 ];
 const pickWatchMsg = () => watchMessages[Math.floor(Math.random() * watchMessages.length)];
 
+// ---- Alerts helpers (ADD) ----
+const alertsCol = () => db.collection('alerts');
+/**
+ * Firestore にアラートを記録し、ドキュメントIDを返す
+ * @param {string} uid - LINE userId
+ * @param {'danger'|'fraud'|'inappropriate'|'no_response_29h'|'op_*'} type
+ * @param {object} snapshot - name/address/phone masked 等
+ * @param {{self?: string|null, kin?: string|null}} phones - 実電話番号（存在すれば）
+ */
+async function createAlert(uid, type, snapshot = {}, phones = {}) {
+  const doc = await alertsCol().add({
+    uid,
+    type,
+    snapshot,
+    phones: {
+      self: phones.self || null,
+      kin: phones.kin || null,
+    },
+    atUTC: Timestamp.now(),
+    handled: false,
+    appVersion: APP_VERSION || 'unknown',
+  });
+  return doc.id;
+}
+/**
+ * クールダウン判定。前回通知時刻から min 分以上空いていたら true
+ * Firestore Timestamp でも Date でも null でもOK
+ */
+function canCooldown(lastTs, min = 60) {
+  if (!lastTs) return true;
+  const last = typeof lastTs.toDate === 'function' ? lastTs.toDate() : lastTs;
+  return dayjs().diff(dayjs(last), 'minute') >= min;
+}
+
 
 async function scheduleNextPing(userId, fromDate = new Date()) {
     const nextAt = dayjs(fromDate).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate();
@@ -697,31 +731,29 @@ async function checkAndSendPing() {
     logDebug(`[watch-service] end ${dayjs().utc().format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 }
 async function withLock(lockId, ttlSec, fn) {
-    const ref = db.collection('locks').doc(lockId);
-    return db.runTransaction(async tx => {
-        const snap = await tx.get(ref);
-        const now = Date.now();
-        const until = now + ttlSec * 1000;
-        const cur = snap.exists ? cur.data() : null;
-        if (cur && cur.until && cur.until.toMillis() > now) {
-            return false;
-        }
-        tx.set(ref, {
-            until: Timestamp.fromMillis(until)
-        });
-        return true;
-    }).then(async acquired => {
-        if (!acquired) {
-            watchLog(`[watch-service] Lock acquisition failed, skipping.`, 'info');
-            return false;
-        }
-        try {
-            await fn();
-        } finally {
-            await db.collection('locks').doc(lockId).delete().catch(() => {});
-        }
-        return true;
-    });
+  const ref = db.collection('locks').doc(lockId);
+  return db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    const now = Date.now();
+    const until = now + ttlSec * 1000;
+    const cur = snap.exists ? snap.data() : null; // ← 修正
+    if (cur && cur.until && cur.until.toMillis() > now) {
+      return false;
+    }
+    tx.set(ref, { until: Timestamp.fromMillis(until) });
+    return true;
+  }).then(async acquired => {
+    if (!acquired) {
+      watchLog(`[watch-service] Lock acquisition failed, skipping.`, 'info');
+      return false;
+    }
+    try {
+      await fn();
+    } finally {
+      await db.collection('locks').doc(lockId).delete().catch(() => {});
+    }
+    return true;
+  });
 }
 if (WATCH_RUNNER !== 'external') {
     cron.schedule('*/5 * * * *', () => {
@@ -1070,6 +1102,7 @@ const religiousWords = /(仏教|キリスト教|イスラム教|宗教|信仰)/i
 const medicalWords = /(癌|がん|医療|治療|薬|診断|発達障害|精神疾患|病気|病院|認知症|介護|病気)/i;
 const specialWords = /(理事長|松本博文|怪しい|胡散臭い|反社|税金泥棒)/i;
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || 'local-dev';
+const LOG_INCOMING = (process.env.LOG_INCOMING || '').toLowerCase() === 'true';
 
 function tidyJa(text = "") {
     let t = String(text);
@@ -1109,7 +1142,7 @@ async function handleEvent(event) {
 
     if (event.type === 'message' && event.message.type === 'text') {
         const text = event.message.text.trim();
-        console.log("👉 受信:", text); // ここにログを追加
+        if (LOG_INCOMING) console.log("👉 受信:", text); // ここにログを追加
         const udoc = await db.collection('users').doc(userId).get();
         const u = udoc.data() || {};
         const prof = u.profile || {};
