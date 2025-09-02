@@ -18,9 +18,6 @@ const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const OpenAI = require('openai');
-
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 
@@ -593,7 +590,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? cur.data() : null;
+        const cur = snap.exists ? snap.data() : null;
         if (cur && cur.until && cur.until.toMillis() > now) {
             return false;
         }
@@ -874,12 +871,12 @@ const makeRegistrationButtonsFlex = (userId) => {
 };
 
 const DANGER_REPLY_MESSAGE = {
-    "type": "text",
-    "text": "🌸辛いこと、苦しいこと、一人で抱え込まないで。いつでもこころがそばにいるよ。💖\n\nもし、すぐにでも誰かに相談したいことがあったら、下記の専門機関に連絡してみてね。こころがいつでも味方だよ😊"
+    type: "text",
+    text: "つらかったね。ひとりじゃないよ。今すぐ助けが要るときは下の連絡先を使ってね🌸"
 };
 const SCAM_REPLY_MESSAGE = {
-    "type": "text",
-    "text": "🌸詐欺かもしれないと思ったら、まずは落ち着いてね。もし不安なことがあったら、こころに教えてね💖\n\nすぐに誰かに相談したい時には、下記の窓口に連絡してみてね！"
+    type: "text",
+    text: "あやしい話かも。急がず確認しよ？困ったら下の窓口も使ってね🌸"
 };
 const INAPPROPRIATE_REPLY_MESSAGE = {
     "type": "text",
@@ -1072,9 +1069,9 @@ function tidyReply(s, userText) {
 
 // === 特殊応答マップ ===
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY =
-    "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋げたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
+    "名前が同じ“コネクト”だね、ちょっと嬉しい偶然🌸 活動は人をつなぐことだよ。";
 const CLARIS_SONG_FAVORITE_REPLY =
-    "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊";
+    "一曲なら『コネクト』かな。前向きになれる曲だよ🌸";
 
 const specialRepliesMap = new Map([
     // ClariSと団体名
