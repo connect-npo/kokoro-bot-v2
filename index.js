@@ -120,6 +120,7 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
+app.use('/webhook', rateLimit({ windowMs: 60_000, max: 100 }));
 const audit = (event, detail) => {
     console.log(`[AUDIT] ${event}`, JSON.stringify(detail));
 };
@@ -384,13 +385,13 @@ const buildWatcherFlex = ({
                     type: 'text',
                     text: `本人TEL：${maskPhone(selfPhone)}`,
                     size: 'sm',
-                    color: '#777'
+                    color: '#777777'
                 }, {
                     type: 'text',
                     text: `近親者：${kinName ||
                     '—'}（${maskPhone(kinPhone)}）`,
                     size: 'sm',
-                    color: '#777',
+                    color: '#777777',
                     wrap: true
                 }, ]
             },
@@ -429,7 +430,6 @@ async function checkAndSendPing() {
         logDebug('[watch-service] no targets.');
         return;
     }
-
     const WATCH_GROUP_ID = await getActiveWatchGroupId();
     for (const doc of targets) {
         const ref = doc.ref;
@@ -441,7 +441,6 @@ async function checkAndSendPing() {
             const lastPingAt = ws.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
             const lastReminderAt = ws.lastReminderAt?.toDate?.() ? dayjs(ws.lastReminderAt.toDate()) : null;
             const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(ws.lastNotifiedAt.toDate()) : null;
-
             let mode = awaiting ? 'noop' : 'ping';
             if (awaiting && lastPingAt) {
                 const hrs = dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour');
@@ -451,11 +450,9 @@ async function checkAndSendPing() {
                     else mode = 'noop';
                 } else mode = 'noop';
             }
-
             if (mode === 'noop') {
                 continue;
             }
-
             if (mode === 'ping') {
                 await safePush(doc.id, [{
                     type: 'text',
@@ -557,9 +554,7 @@ async function checkAndSendPing() {
                 const canNotifyOfficer =
                     (WATCH_GROUP_ID && WATCH_GROUP_ID.trim()) &&
                     (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
-
                 if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
-
                 if (canNotifyOfficer) {
                     const udoc = await db.collection('users').doc(doc.id).get();
                     const u = udoc.exists ? (udoc.data() || {}) : {};
@@ -598,7 +593,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? snap.data() : null;
+        const cur = snap.exists ? cur.data() : null;
         if (cur && cur.until && cur.until.toMillis() > now) {
             return false;
         }
@@ -619,7 +614,6 @@ async function withLock(lockId, ttlSec, fn) {
         return true;
     });
 }
-
 if (WATCH_RUNNER !== 'external') {
     cron.schedule('*/5 * * * *', () => {
         withLock('watch-cron', 240, checkAndSendPing);
@@ -769,7 +763,6 @@ const makeScamMessageFlex = (tel = '') => {
             text: `${EMERGENCY_CONTACT_PHONE_NUMBER}に電話する`
         }
     });
-
     return {
         type: "bubble",
         body: {
@@ -966,7 +959,6 @@ const SCAM_WORDS = [
     "絶対儲かる", "簡単に稼げる", "今だけ", "限定", "無料",
     "クリック", "ログイン", "個人情報", "送って", "教えて",
     "有料サイト", "登録", "退会", "解約",
-    "怪しい", "不審", "知らない",
     "クレジットカード", "クレカ", "銀行口座", "口座番号", "パスワード"
 ];
 
@@ -992,7 +984,6 @@ function isDangerMessage(text) {
 
 function isScamMessage(text) {
     const norm = normalizeJa(text);
-    // 代表パターン（詐欺/さぎ/サギ/ｻｷﾞ いずれも拾う）
     if (/(詐欺|さぎ)/.test(norm)) return true;
     return SCAM_WORDS.some(word => norm.includes(normalizeJa(word)));
 }
@@ -1023,6 +1014,14 @@ const KOKORO_SYSTEM_PROMPT = `
 - 好きなアニメは「ヴァイオレット・エヴァーガーデン」
 - 好きなアーティストは「ClariS」
 崩れず、必ずこのキャラクターとして話してください。
+返信は短文（最大2文 / 120字目安）。絵文字は1〜2個だけ。
+既出の話題（作品名/アーティスト）は繰り返さない。ユーザーが聞いた時だけ一言で触れる。
+大げさ/説教調/箇条書き長文は避ける。やさしく・端的に。
+性的/挑発的表現には即座にやんわり拒否し話題転換（1文）。
+困っている人にはやさしく、挑発には真面目に向き合う（煽りには乗らない）。
+自分の名前・団体・活動内容には自信と誇りを持って簡潔に答える。
+ユーザーに安心感と信頼感を与える短い言葉を優先する。
+ふざけた対応や意味不明な言い回し、AIらしい表現はしない。
 `;
 
 // === AIレスポンス生成（文字数で切替） ===
@@ -1034,9 +1033,8 @@ const getAIResponse = async (text) => {
     try {
         if (modelName.startsWith("gemini")) {
             const model = genai.getGenerativeModel({ model: modelName });
-            // 文字列1本渡し（最も安定）
             const result = await model.generateContent(
-              `${KOKORO_SYSTEM_PROMPT}\n\nユーザー: ${text}`
+                `${KOKORO_SYSTEM_PROMPT}\n\nユーザー: ${text}`
             );
             aiResponse = result.response.text() || "";
         } else {
@@ -1054,14 +1052,27 @@ const getAIResponse = async (text) => {
     } catch (e) {
         briefErr(`AI response failed for ${modelName}`, e);
     }
-
     return aiResponse || "読んだよ🌸 よかったらもう少し教えてね。";
 };
+
+// 返信の後処理（短く・出しすぎ抑制・軽く絵文字）
+function tidyReply(s, userText) {
+    if (!s) return s;
+    const asked = /claris|クラリス|ヴァイオレット|エヴァーガーデン/i.test(userText);
+    if (!asked) s = s.replace(/(ClariS|クラリス|ヴァイオレット・?エヴァーガーデン)/gi, '');
+    s = s.replace(/\s+/g, ' ').trim();
+    const parts = s.split(/(?<=。|!|！|\?|？)/).filter(Boolean).slice(0, 2);
+    s = parts.join(' ');
+    const MAX_LENGTH = 120;
+    if (toGraphemes(s).length > MAX_LENGTH) s = toGraphemes(s).slice(0, MAX_LENGTH - 1).join('') + '…';
+    if (!/[^\w\s\u3000-\u303F\u3040-\u30FF\u4E00-\u9FFF]/.test(s)) s += ' 🌸';
+    return s;
+}
+
 
 // === 特殊応答マップ ===
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY =
     "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋げたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
-
 const CLARIS_SONG_FAVORITE_REPLY =
     "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊";
 
@@ -1151,7 +1162,7 @@ const handleEvent = async (event) => {
         return;
     }
 
-    const aiResponse = await getAIResponse(text);
+    const aiResponse = tidyReply(await getAIResponse(text), text);
     await client.replyMessage(event.replyToken, { type: "text", text: aiResponse });
 };
 
@@ -1225,7 +1236,7 @@ const handleFollowEvent = async (event) => {
         }
         await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: '🌸こんにちは！こころだよ！💖\n\nNPO法人コネクトの公式キャラクターです😊\nこころと色々お話してみてね！\nこころからのおすすめサービスはこちらから確認できるよ✨'
+            text: 'こんにちは、こころだよ🌸 よかったら話そうね。おすすめはこちらだよ✨'
         });
         await client.pushMessage(userId, {
             type: 'flex',
