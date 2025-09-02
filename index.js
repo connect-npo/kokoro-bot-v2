@@ -210,28 +210,28 @@ const alertsCol = () => db.collection('alerts');
  * @param {{self?: string|null, kin?: string|null}} phones - 実電話番号（存在すれば）
  */
 async function createAlert(uid, type, snapshot = {}, phones = {}) {
-  const doc = await alertsCol().add({
-    uid,
-    type,
-    snapshot,
-    phones: {
-      self: phones.self || null,
-      kin: phones.kin || null,
-    },
-    atUTC: Timestamp.now(),
-    handled: false,
-    appVersion: APP_VERSION || 'unknown',
-  });
-  return doc.id;
+    const doc = await alertsCol().add({
+        uid,
+        type,
+        snapshot,
+        phones: {
+            self: phones.self || null,
+            kin: phones.kin || null,
+        },
+        atUTC: Timestamp.now(),
+        handled: false,
+        appVersion: APP_VERSION || 'unknown',
+    });
+    return doc.id;
 }
 /**
  * クールダウン判定。前回通知時刻から min 分以上空いていたら true
  * Firestore Timestamp でも Date でも null でもOK
  */
 function canCooldown(lastTs, min = 60) {
-  if (!lastTs) return true;
-  const last = typeof lastTs.toDate === 'function' ? lastTs.toDate() : lastTs;
-  return dayjs().diff(dayjs(last), 'minute') >= min;
+    if (!lastTs) return true;
+    const last = typeof lastTs.toDate === 'function' ? lastTs.toDate() : lastTs;
+    return dayjs().diff(dayjs(last), 'minute') >= min;
 }
 
 
@@ -672,9 +672,10 @@ async function checkAndSendPing() {
                     (WATCH_GROUP_ID && WATCH_GROUP_ID.trim()) &&
                     (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
 
-                if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
+                const WATCH_GROUP_ID_FOR_PUSH = await getActiveWatchGroupId();
+                if (!WATCH_GROUP_ID_FOR_PUSH) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
 
-                if (canNotifyOfficer) {
+                if (canNotifyOfficer && WATCH_GROUP_ID_FOR_PUSH) {
                     const u = (await ref.get()).data() || {};
                     const prof = u?.profile || {};
                     const emerg = u?.emergency || {};
@@ -692,9 +693,9 @@ async function checkAndSendPing() {
                         self: selfPhone || null,
                         kin: kinPhone || null
                     });
-                    
+
                     // 1) グループには必ず送る（電話ボタンは未登録なら自動で出ない）
-                    await safePush(WATCH_GROUP_ID, buildWatcherFlex({
+                    await safePush(WATCH_GROUP_ID_FOR_PUSH, buildWatcherFlex({
                       name, address, selfPhone, kinName, kinPhone, userId: doc.id
                     }));
 
@@ -731,7 +732,7 @@ async function withLock(lockId, ttlSec, fn) {
     const snap = await tx.get(ref);
     const now = Date.now();
     const until = now + ttlSec * 1000;
-    const cur = snap.exists ? snap.data() : null;
+    const cur = snap.exists ? cur.data() : null;
     if (cur && cur.until && cur.until.toMillis() > now) {
       return false;
     }
@@ -871,22 +872,25 @@ const makeScamMessageFlex = (tel = '') => {
         style: "primary",
         color: "#FF4500",
         action: {
-            type: "uri",
+            type: "message",
             label: "警察 (110)",
-            uri: "tel:110"
+            text: "110に電話する"
         }
     }, {
         type: "button",
         style: "primary",
         color: "#FFA500",
         action: {
-            type: "uri",
+            type: "message",
             label: "消費者ホットライン (188)",
-            uri: "tel:188"
+            text: "188に電話する"
         }
     }];
     const officeBtn = makeTelButton("こころちゃん事務局（電話）", EMERGENCY_CONTACT_PHONE_NUMBER);
-    if (officeBtn) contents.push(officeBtn);
+    if (officeBtn) {
+        officeBtn.color = "#000000";
+        contents.push(officeBtn);
+    }
     return {
         type: "bubble",
         body: {
@@ -1009,6 +1013,7 @@ const specialRepliesMap = new Map([
     [/アニメ.*(おすすめ|教えて)[！!。．、,\s]*[?？]?$/i,
         "『ヴァイオレット・エヴァーガーデン』が好きだよ🌸 心に響くお話なんだ。あなたはどれが好き？"
     ],
+    [/(好きな|推しの)?(漫画|マンガ|まんが)(は|なに|何|ある)?[？?]?/i, "私は色々な作品が好きだよ！🌸 物語に触れると、人の心の温かさや強さを感じることができて、とても勉強になるんだ😊 あなたのおすすめの漫画はどんなものがある？"],
 
     // --- 好きなアーティスト/音楽（「とかいない？」なども拾う）---
     [/(好きな|推し|おすすめ)\s*アーティスト(は|いる)?/i, "ClariSが好きだよ💖 とくに『コネクト』！あなたの推しも教えて～"],
