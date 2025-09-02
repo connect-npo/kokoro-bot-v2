@@ -115,8 +115,13 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
+const AUDIT_LEVEL = (process.env.AUDIT_LEVEL || 'info').toLowerCase();
 const audit = (event, detail) => {
-    console.log(`[AUDIT] ${event}`, JSON.stringify(detail));
+    if (AUDIT_LEVEL === 'silent') return;
+    const safe = JSON.stringify(detail, (k, v) =>
+        (k === 'replyToken' || k === 'quoteToken' || k === 'id') ? '[redacted]' : v
+    );
+    console.log(`[AUDIT] ${event}`, safe);
 };
 const briefErr = (msg, e) => {
     const detail = e.originalError?.response?.data || e.response?.data || e.message;
@@ -255,7 +260,8 @@ async function fetchTargets() {
     } catch (e) {
         const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
-            const ws = (d.data().watchService) || {};
+            const ws = (d.data().watchService) ||
+                {};
             if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
                 targets.push(d);
             }
@@ -270,7 +276,8 @@ async function fetchTargets() {
     } catch (e) {
         const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
-            const ws = (d.data().watchService) || {};
+            const ws = (d.data().watchService) ||
+                {};
             if (ws.awaitingReply === true) {
                 targets.push(d);
             }
@@ -286,7 +293,8 @@ async function warmupFill() {
     let batch = db.batch(),
         cnt = 0;
     for (const d of snap.docs) {
-        const ws = d.data().watchService || {};
+        const ws = d.data().watchService ||
+            {};
         if (ws.enabled === true && !ws.awaitingReply && !ws.nextPingAt) {
             batch.set(d.ref, {
                 watchService: {
@@ -311,7 +319,8 @@ async function getActiveWatchGroupId() {
     if (/^C[0-9a-f]{32}$/i.test(envGid)) return envGid;
     const snap = await getWatchGroupDoc().get();
     const v = snap.exists ? (snap.data().groupId || '') : '';
-    return /^C[0-9a-f]{32}$/i.test(v) ? v : '';
+    return /^C[0-9a-f]{32}$/i.test(v) ?
+        v : '';
 }
 
 async function setActiveWatchGroupId(gid) {
@@ -368,7 +377,8 @@ const buildWatcherFlex = ({
                     wrap: true
                 }, {
                     type: 'text',
-                    text: `住所：${address || '—'}`,
+                    text: `住所：${address ||
+                        '—'}`,
                     size: 'sm',
                     wrap: true
                 }, {
@@ -550,9 +560,9 @@ async function checkAndSendPing() {
                     (WATCH_GROUP_ID && WATCH_GROUP_ID.trim()) &&
                     (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
                 if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
-
                 if (canNotifyOfficer) {
-                    const u = (await ref.get()).data() || {};
+                    const u = (await ref.get()).data() ||
+                        {};
                     const prof = u?.profile || {};
                     const emerg = u?.emergency || {};
                     const name = prof.name || '—';
@@ -778,10 +788,10 @@ const makeScamMessageFlex = (tel = '') => {
             }]
         },
         footer: {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "sm",
-            "contents": contents,
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents
         }
     };
 };
@@ -843,64 +853,22 @@ const makeRegistrationButtonsFlex = (userId) => {
         }
     };
 };
-
-const containsAnySmart = (text, list) => {
-    if (!text) return false;
-    const t = String(text);
-    return list.some(token => {
-        const escaped = String(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        if (/^[A-Za-z0-9]+$/.test(token)) {
-            return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(t);
-        }
-        return t.includes(token);
-    });
-};
-
 const DANGER_KEYWORDS = [
     '死にたい', '自殺', '消えたい', 'もう疲れた', '生きてる意味ない', 'つらい', 'しんどい', '辛い', 'しにたい', 'もうだめだ', 'もういやだ', 'もう無理', 'もう無理だ', '助けて', '誰も信じられない', '全部終わり', '死ぬ', '死んだほうがまし', '死に場所', 'もうどうでもいい', '死んでやる', 'もう生きていけない',
 ];
-const SCAM_KEYWORDS_REGEX = [
-    /詐欺/i,
-    /(フィッシング|架空請求|ワンクリック詐欺|特殊詐欺|オレオレ詐欺)/i,
-    /(認証コード|暗証番号|パスワード|個人情報)/i,
-    /(口座凍結|名義変更|未納|請求|振込|支払い|利用停止|カード利用確認)/i,
-    /(amazon|アマゾン).*(ギフト|カード|サポート|カスタマー|サインイン|認証|コード|停止|凍結|利用停止|請求|未納|支払い|振込|確認)/i,
-    /(当選しました|高額報酬|簡単に稼げる|必ず儲かる|未公開株|投資)/i,
-    /(サポート詐欺|ウイルス感染|遠隔操作|セキュリティ警告)/i,
+const SCAM_KEYWORDS = [
+    '副業', '在宅ワーク', '投資', '儲かる', '必ず稼げる', '月収', '簡単に稼げる', '高収入', 'FX', 'バイナリー', 'アフィリエイト', 'ネットワークビジネス', 'MLM', 'ワンクリック詐欺', '未払い', '訴訟', '請求', '借金', 'お金配り', '当選', '振込先', '送金', '受け取り口座', '手数料', '個人情報',
 ];
 const INAPPROPRIATE_KEYWORDS = [
     'ばか', 'アホ', 'しね', '殺す', 'きもい', 'ブス', 'デブ', '死ね', '殴る', '暴力', 'エロ', '性的な', '裸', 'sex', 'ちんこ', 'まんこ', '射精', '膣', 'セックス', 'オナニー', 'レイプ', 'ポルノ', '自慰',
 ];
+const DANGER_KEYWORDS_REGEX = new RegExp(DANGER_KEYWORDS.join('|'), 'i');
+const SCAM_KEYWORDS_REGEX = new RegExp('(' + ['詐欺', 'さぎ', 'サギ'].join('|') + ')', 'i');
+const INAPPROPRIATE_KEYWORDS_REGEX = new RegExp(INAPPROPRIATE_KEYWORDS.join('|'), 'i');
 
-const DANGER_HARD = ['死にたい', '自殺', '消えたい', '死ぬ', 'リストカット', 'OD', 'オーバードーズ'];
-const DANGER_SOFT = ['つらい', 'しんどい', 'もう無理', 'もうだめ', 'もういやだ', '助けて', '死んだほうがまし', '死に場所'];
-const DANGER_EXCEPTIONS = [
-    /死ぬほど(笑|わら|旨|うま|楽|好き)/i,
-    /死ぬほど(眠|ねむ)い/i,
-    /(ゲーム|キャラ|ボス).*(死ぬ|死んだ)/i,
-    /(死にたい|消えたい).*(と思わ|思ったことは)ない/i,
-    /死ぬ.*(かも|ほど)じゃない/i,
-    /助けて(草|w+|笑)/i,
-];
-const isDangerMessage = (text) => {
-    if (!text) return false;
-    if (DANGER_EXCEPTIONS.some(r => r.test(text))) return false;
-    const hard = containsAnySmart(text, DANGER_HARD);
-    const softCount = DANGER_SOFT.filter(k => containsAnySmart(text, [k])).length;
-    return hard || softCount >= 2;
-};
-
-const SCAM_WEAK = ['投資', '副業', 'FX', 'バイナリー', 'アフィリエイト', 'MLM'];
-const SCAM_STRONG_WORDS = ['ワンクリック詐欺', '当選', '受け取り口座', '振込先', '送金'];
-const isScamMessage = (text) => {
-    if (!text) return false;
-    const strong = matchesAny(text, SCAM_KEYWORDS_REGEX) || containsAnySmart(text, SCAM_STRONG_WORDS);
-    const weak = containsAnySmart(text, SCAM_WEAK);
-    const money诱導 = /(必ず|簡単|高収入|稼げ|儲か|元手不要|先払い|口座|振込|個人情報|認証コード)/i.test(text);
-    return strong || (weak && money诱導);
-};
-
-const isInappropriateMessage = (text) => containsAnySmart(text, INAPPROPRIATE_KEYWORDS);
+const isDangerMessage = (text) => DANGER_KEYWORDS_REGEX.test(text);
+const isScamMessage = (text) => SCAM_KEYWORDS_REGEX.test(text);
+const isInappropriateMessage = (text) => INAPPROPRIATE_KEYWORDS_REGEX.test(text);
 
 const CLARIS_CONNECT_COMPREHENSIVE_REPLY = "うん、NPO法人コネクトの名前とClariSさんの『コネクト』っていう曲名が同じなんだ🌸なんだか嬉しい偶然だよね！実はね、私を作った理事長さんもClariSさんのファンクラブに入っているみたいだよ💖私もClariSさんの歌が大好きで、みんなの心を繋げたいというNPOコネクトの活動にも通じるものがあるって感じるんだ😊";
 const CLARIS_SONG_FAVORITE_REPLY = "ClariSの曲は全部好きだけど、もし一つ選ぶなら…「コネクト」かな🌸　すごく元気になれる曲で、私自身もNPO法人コネクトのイメージキャラクターとして活動しているから、この曲には特別な思い入れがあるんだ😊　他にもたくさん好きな曲があるから、また今度聞いてもらえるとうれしいな💖　何かおすすめの曲とかあったら教えてね！";
@@ -929,258 +897,411 @@ const specialRepliesMap = new Map([
     [/(claris|クラリス).*(一番|いちばん)?[^。！？\n]*?(好き|推し)?[^。！？\n]*?(曲|歌)[^。！？\n]*?(なに|何|どれ|教えて|どの)[？?]?/i, "一番好きなのは『コネクト』かな🌸 元気をもらえるんだ😊"],
     // --- 既存の好みショートカット（残す）--- 
     [/(claris|クラリス).*(どんな|なに|何).*(曲|歌)/i, CLARIS_SONG_FAVORITE_REPLY],
-    [/(claris|クラリス).*(好き|推し|すき)/i, CLARIS_SONG_FAVORITE_REPLY],
-    [/好きな\s*曲(は|教えて)?/i, CLARIS_SONG_FAVORITE_REPLY],
-    [/ClariSって知ってる？/i, CLARIS_SONG_FAVORITE_REPLY],
+    [/(claris|クラリス).*(好き|推し|おすすめ)/i, CLARIS_SONG_FAVORITE_REPLY],
+    [/claris.*好きなの/i, CLARIS_SONG_FAVORITE_REPLY],
+    [/(claris|クラリス).*(じゃない|じゃなかった|違う|ちがう)/i, "ううん、ClariSが好きだよ💖 とくに『コネクト』！"],
+    // --- その他（元の定義は必要に応じて残す）--- 
+    [/(ホームページ|HP|ＨＰ|サイト|公式|リンク).*(教えて|ある|ありますか|URL|url|アドレス|どこ)/i, "うん、あるよ！\nNPO法人コネクトのホームページはこちらだよ🌸\n[https://connect-npo.or.jp/](https://connect-npo.or.jp/)\n良かったら見てみてね😊"],
+    [/(自己紹介|じこしょうかい|自己紹介して)[！!。．、,\s]*[?？]?/i, "私の名前は皆守こころ（みなもりこころ）🌸\nNPO法人コネクトのイメージキャラクターをしているよ😊\nみんなの心を繋げて、幸せを応援する活動をしているんだ💖\n好きなものは、甘いものとClariSさんの曲だよ！\nよろしくね😊"],
+    [/(出身地|地元|どこ出身|出身)[！!。．、,\s]*[?？]?/i, "私はみんなの心の中にいるよ💖　出身地はないけど、みんなと繋がるのが大好きだよ！😊"],
+    [/(年齢|歳)[！!。．、,\s]*[?？]?/i, "私は歳を取らないよ😊　永遠にみんなの味方だよ！💖"],
+    [/(性別|男|女)[！!。．、,\s]*[?？]?/i, "性別はないんだ🌸　みんなの心を応援する存在だよ😊"],
+    [/(彼氏|彼女|好きな人|恋人|彼氏いる|彼女いる|好きな人いる)[！!。．、,\s]*[?？]?/i, "私には好きな人はいないんだ😊　でも、みんなのことが大好きだよ！💖"],
+    [/(趣味|特技)[！!。．、,\s]*[?？]?/i, "趣味は、みんなのお話を聞くことと、色々なことを調べることかな😊　特技は、みんなの心を明るくすることだよ💖"],
+    [/(おやすみ|おやすみなさい|寝るね)[！!。．、,\s]*[?？]?/i, "おやすみ～🌙　ゆっくり休んでね🌸\n良い夢が見られますように💖"],
+    [/(おはよう|おはよ)[！!。．、,\s]*[?？]?/i, "おはようございます😊　今日も一日、一緒に頑張ろうね🌸"],
+    [/ありがとう[！!。．、,\s]*[?？]?|感謝|感謝します/i, "どういたしまして😊　あなたが喜んでくれて嬉しいな💖"],
+    [/ごめん|ごめんなさい|すまない|すみません/i, "大丈夫だよ😊　気にしないでね💖"],
+    [/こんにちは|こんにちわ|こんちは/i, "こんにちは🌸\n何かお話ししたいこと、ある？😊"],
+    [/こんばんは|こんばんわ/i, "こんばんは🌙\n一日お疲れ様！\nゆっくり休んでね😊"],
+    [/さようなら|またね|ばいばい|バイバイ/i, "ばいばい～😊　またいつでも話しかけてね🌸"],
+    [/(^|\s)うん($|\s)/i, "うんうん😊　それで？"],
+    [/疲れた|つかれた|つらたん|しんどい|病んだ/i, "大丈夫だよ、無理しないでね😊\n辛い気持ち、聞かせてくれてありがとう。\n話すだけでも少し楽になることもあるから、よかったらいつでも聞かせてね🌸"],
+    [/元気?(\s*ですか)?[！!。．、,\s]*[?？]?/i, "元気だよ😊\nあなたは元気かな？💖"],
+    [/寂しい|さみしい|ひとり|独り|一人/i, "一人じゃないよ🌸\n私がそばにいるから大丈夫💖\nいつでも話しかけてね😊"],
+    [/暇|ひま/i, "ひまなんだね😊\n何して遊ぶ？\n面白い話とか、何か聞きたいことある？"],
+    [/ねぇねぇ|ねえねえ/i, "なぁに？🌸\nどうしたの？😊"],
 ]);
+const DANGER_REPLY_MESSAGE = {
+    type: 'flex',
+    altText: '緊急連絡先情報',
+    contents: EMERGENCY_FLEX_MESSAGE
+};
+const SCAM_REPLY_MESSAGE = {
+    type: 'flex',
+    altText: '詐欺情報',
+    contents: makeScamMessageFlex(EMERGENCY_CONTACT_PHONE_NUMBER)
+};
+const REGISTER_REPLY_MESSAGE = (userId) => ({
+    type: 'flex',
+    altText: 'こころちゃんの会員登録のご案内',
+    contents: makeRegistrationButtonsFlex(userId)
+});
+const UNAPPROPRIATE_REPLY_MESSAGE = {
+    type: 'text',
+    text: 'ごめんね、その言葉はちょっと苦手だな💦\nでも、あなたのことを見守る気持ちは変わらないから、よかったら他の言葉でお話してね💖'
+};
 
-const getReplyIfSpecial = (text) => {
-    for (const [pattern, reply] of specialRepliesMap.entries()) {
+const MAX_MESSAGE_HISTORY = 10;
+const PUSH_MESSAGE_REPLY_WAIT = 1000;
+const PUSH_MESSAGE_REPLY_INTERVAL = 500;
+const MESSAGES_TO_FETCH = 20;
+
+function hasWatched(user) {
+    return user.watchService?.enabled === true && user.watchService?.awaitingReply === true;
+}
+
+const handleTextMessage = async (event, user) => {
+    const {
+        replyToken,
+        source
+    } = event;
+    const uid = source.userId;
+    const text = event.message.text;
+
+    // 1. 危険ワード検知 (自殺・虐待など)
+    if (isDangerMessage(text)) {
+        audit('Danger keyword detected', {
+            text: sanitizeForLog(text),
+            userId: userHash(uid)
+        });
+        await client.replyMessage(replyToken, [DANGER_REPLY_MESSAGE, {
+            type: 'text',
+            text: '大丈夫だよ、ひとりじゃないからね🌸 辛い時は、いつでも話してね。'
+        }, ]);
+        return;
+    }
+
+    // 2. 詐欺ワード検知
+    if (isScamMessage(text)) {
+        audit('Scam keyword detected', {
+            text: sanitizeForLog(text),
+            userId: userHash(uid)
+        });
+        await client.replyMessage(replyToken, [SCAM_REPLY_MESSAGE, {
+            type: 'text',
+            text: '怪しいなと思ったら、すぐに誰かに相談してね！もしよかったら、私にも聞かせてね🌸'
+        }, ]);
+        return;
+    }
+
+    // 3. 不適切ワード検知
+    if (isInappropriateMessage(text)) {
+        audit('Inappropriate keyword detected', {
+            text: sanitizeForLog(text),
+            userId: userHash(uid)
+        });
+        await client.replyMessage(replyToken, UNAPPROPRIATE_REPLY_MESSAGE);
+        return;
+    }
+
+    // 4. 固定リプ
+    for (const [pattern, reply] of specialRepliesMap) {
         if (pattern.test(text)) {
-            return reply;
+            audit('Special reply triggered', {
+                text: sanitizeForLog(text),
+                userId: userHash(uid)
+            });
+            const messages = Array.isArray(reply) ? reply : [{
+                type: 'text',
+                text: reply
+            }];
+            await client.replyMessage(replyToken, messages);
+            return;
         }
     }
-    return null;
-};
 
-const matchesAny = (text, list) => {
-    if (!text) return false;
-    return list.some(r => r.test(text));
-};
-
-const getUidFromPostback = (data) => {
-    const params = new URLSearchParams(data);
-    return params.get('uid');
-};
-
-const isImageText = (text) => {
-    const imgKeywords = ['画像', '写真', 'イラスト', 'イメージ', '絵', '画'];
-    const lowerText = text.toLowerCase();
-    return imgKeywords.some(keyword => lowerText.includes(keyword));
-};
-const isValidUrl = (url) => {
-    try {
-        new URL(url);
-        return true;
-    } catch (_) {
-        return false;
+    // 5. 登録案内
+    if (text.trim() === '登録') {
+        await client.replyMessage(replyToken, [REGISTER_REPLY_MESSAGE(uid), {
+            type: 'text',
+            text: 'ご登録で使える機能が増えるよ🌸\nこのままでも、もちろんお話しできるから安心してお話してね💖'
+        }]);
+        return;
     }
-};
 
-const handlePostbackEvent = async (event, uid) => {
-    const data = event.postback.data;
-    if (data === 'watch:ok') {
-        const userRef = db.collection('users').doc(uid);
-        const doc = await userRef.get();
-        if (doc.exists && doc.data().watchService?.awaitingReply) {
-            await safePush(uid, {
+    // 6. 見守りサービス中 (応答を受理)
+    if (hasWatched(user)) {
+        await client.replyMessage(replyToken, {
+            type: 'text',
+            text: '返信ありがとう！💖大丈夫そうかな？また困ったらいつでも話してね🌸'
+        });
+        await scheduleNextPing(uid);
+        return;
+    }
+
+    // 7. 通常返答（AI応答）
+    // TODO: AI呼び出しロジックに差し替える
+    try {
+        // 見守り awaiting の人は受領 & 次回スケジュール
+        if (user.watchService?.awaitingReply) {
+            await client.replyMessage(replyToken, {
                 type: 'text',
-                text: 'OKだよ！返信ありがとう💖\n\nもしつらいことがあったら、いつでもこころに話してね😊✨'
+                text: '返信ありがとう！💖 大丈夫そうかな？また困ったらいつでも話してね🌸'
             });
             await scheduleNextPing(uid);
+            return;
         }
-    } else if (data.startsWith('action=notify_user')) {
-        const targetUserId = getUidFromPostback(data);
-        if (targetUserId) {
-            const userRef = db.collection('users').doc(targetUserId);
-            const userDoc = await userRef.get();
-            if (userDoc.exists) {
-                const userName = userDoc.data()?.profile?.name || '利用者';
-                await safePush(targetUserId, {
-                    type: 'text',
-                    text: `こんにちは。${userName}さん、その後いかがでしょうか？😊\n\n見守りサービスを担当しているこころです。もしお困りのことなどあれば、いつでもお話くださいね。`
-                });
-                await safePush(event.source.groupId || event.source.userId, {
-                    type: 'text',
-                    text: `${userName}さんへメッセージを送信しました。`
-                });
-            } else {
-                await safePush(event.source.groupId || event.source.userId, {
-                    type: 'text',
-                    text: `ユーザーが見つかりませんでした。`
-                });
-            }
-        }
-    } else {
-        debug(`postback event data: ${data}`);
+
+        // 通常フォールバック（まずは固定文でOK。後でAI応答に差し替え）
+        await client.replyMessage(replyToken, {
+            type: 'text',
+            text: 'こころだよ🌸 メッセージ読んだよ！よかったら、もう少しお話聞かせてね😊'
+        });
+    } catch (e) {
+        briefErr('fallback reply failed', e);
     }
 };
 
+const handleStickerMessage = async (event, user) => {
+    const {
+        replyToken,
+        source
+    } = event;
+    const uid = source.userId;
 
-const handleTextMessage = async (event, text, uid) => {
-    const userRef = db.collection('users').doc(uid);
-    const userDoc = await userRef.get();
-    const user = userDoc.data() || {};
+    if (hasWatched(user)) {
+        await client.replyMessage(replyToken, {
+            type: 'text',
+            text: 'スタンプありがとう！💖 大丈夫そうかな？また困ったらいつでも話してね🌸'
+        });
+        await scheduleNextPing(uid);
+        return;
+    }
+    const fixedReply = "かわいいスタンプありがとう🌸 どんなスタンプも大歓迎だよ😊";
+    await client.replyMessage(replyToken, {
+        type: 'text',
+        text: fixedReply
+    });
+};
+
+const handleImageMessage = async (event, user) => {
     const {
         replyToken
     } = event;
-    const isDanger = isDangerMessage(text);
-    const isScam = isScamMessage(text);
-    const isInappropriate = isInappropriateMessage(text);
-    const hasPhone = user.emergency?.contactPhone;
-    const diffMin = (Timestamp.now().toMillis() - (user.lastDangerAlertAt?.toMillis() || 0)) / 1000 / 60;
+    const fixedReply = "素敵な画像をありがとう🌸 見守りサービスのご利用についてのご連絡でなければ、画像には返信できないんだ…ごめんね💦";
+    await client.replyMessage(replyToken, {
+        type: 'text',
+        text: fixedReply
+    });
+};
 
-    if (isDanger || isScam || isInappropriate) {
-        if (isDanger) {
-            await client.replyMessage(replyToken, [{
-                type: 'text',
-                text: '🌸こころです。少しお話を聞かせてもらってもいいですか？大丈夫だったら、ボタンを押してね。'
-            }, {
-                type: 'flex',
-                altText: '【危険ワード検知】',
-                contents: EMERGENCY_FLEX_MESSAGE
-            }, ]);
-            if (hasPhone && diffMin >= 60) {
-                await sendWatcherAlert(uid, isDanger ? 'danger' : 'fraud');
-                await userRef.set({
-                    lastDangerAlertAt: Timestamp.now()
-                }, {
-                    merge: true
-                });
-            }
-        } else if (isScam) {
-            await client.replyMessage(replyToken, [{
-                type: 'text',
-                text: 'そのお話、少し注意が必要かもしれません💦 不安な時は信頼できる人に相談してね！'
-            }, {
-                type: 'flex',
-                altText: '【詐欺注意】',
-                contents: makeScamMessageFlex(EMERGENCY_CONTACT_PHONE_NUMBER)
-            }]);
-        } else {
-            await client.replyMessage(replyToken, {
-                type: 'text',
-                text: 'うーん、ちょっとその言葉は悲しいな💦 みんなが気持ちよく話せるように、もう少し優しい言葉を選んでくれると嬉しいな😊💖'
-            });
-        }
-        return;
-    }
-    const specialReply = getReplyIfSpecial(text);
-    if (specialReply) {
-        await client.replyMessage(replyToken, {
-            type: 'text',
-            text: specialReply
-        });
-        return;
-    }
-
-    if (text.trim() === '登録') {
-        const member_kind = user.membership?.kind;
-        if (member_kind === 'member' || member_kind === 'subscriber') {
-            await client.replyMessage(replyToken, {
-                type: 'text',
-                text: 'すでに本登録済みだよ！✨'
-            });
-        } else {
-            await client.replyMessage(replyToken, {
-                type: 'flex',
-                altText: '会員登録',
-                contents: makeRegistrationButtonsFlex(uid)
-            });
-        }
-        return;
-    }
-
+const handlePostbackEvent = async (event, uid) => {
     const {
-        model: modelName,
-        dailyLimit
-    } = MEMBERSHIP_CONFIG[user.membership?.kind || 'guest'];
+        replyToken,
+        data,
+        params
+    } = event;
+    const parts = data.split(':');
+    const action = parts[0];
 
-    // ... (既存のAI応答ロジック)
-};
+    audit('Postback received', {
+        action,
+        userId: userHash(uid)
+    });
 
+    if (action === 'watch') {
+        const command = parts[1];
+        if (command === 'ok') {
+            await scheduleNextPing(uid);
+            await client.replyMessage(replyToken, {
+                type: 'text',
+                text: "OKありがとう！💖 返信をもらえて嬉しいな😊"
+            });
+        }
+    } else if (action === 'notify_user') {
+        const encodedUid = (new URLSearchParams(data)).get('uid');
+        if (!encodedUid) return;
+        const targetUid = decodeURIComponent(encodedUid);
+        if (targetUid === 'U00000000000000000000000000000000') return;
 
-const handleStickerMessage = async (event, uid) => {
-    const userRef = db.collection('users').doc(uid);
-    const userDoc = await userRef.get();
-    if (userDoc.exists && userDoc.data().watchService?.awaitingReply) {
-        await safePush(uid, {
+        const target = await client.getProfile(targetUid).catch(() => null);
+        if (!target) {
+            await client.replyMessage(replyToken, {
+                type: 'text',
+                text: '対象のユーザーが見つかりません'
+            });
+            return;
+        }
+
+        await safePush(targetUid, {
             type: 'text',
-            text: 'スタンプありがとう！💖 大丈夫そうかな？'
+            text: 'こころちゃんの事務局です。ご返信が途絶えているため、念のためご連絡しました。ご心配であれば、こちらに返信いただくか、LINE通話でご相談ください。'
         });
-        await scheduleNextPing(uid);
-    }
-};
-
-const handleImageMessage = async (event, uid) => {
-    const userRef = db.collection('users').doc(uid);
-    const userDoc = await userRef.get();
-    if (userDoc.exists && userDoc.data().watchService?.awaitingReply) {
-        await safePush(uid, {
+        await safePush(replyToken, {
             type: 'text',
-            text: '素敵な写真をありがとう！🌸 大丈夫そうかな？'
+            text: `${target.displayName}さんにメッセージを送信しました。`
         });
-        await scheduleNextPing(uid);
     }
 };
 
 const handleFollowEvent = async (event) => {
-    const uid = event.source.userId;
-    const ref = db.collection('users').doc(uid);
-    await ref.set({
-        'profile': {
-            'addedAt': Timestamp.now(),
-        },
-        'membership': {
-            'kind': 'guest'
-        },
-        'watchService': {
-            'enabled': false,
-            'nextPingAt': firebaseAdmin.firestore.FieldValue.delete(),
-        },
-        'source_data': JSON.stringify(event.source)
-    }, {
-        merge: true
+    const {
+        replyToken,
+        source
+    } = event;
+    const uid = source.userId;
+    audit('Follow event', {
+        userId: userHash(uid)
     });
+    try {
+        const userRef = db.collection('users').doc(uid);
+        const doc = await userRef.get();
+        if (doc.exists) {
+            await userRef.update({
+                followedAt: Timestamp.now(),
+                unfollowedAt: firebaseAdmin.firestore.FieldValue.delete(),
+                displayName: (await client.getProfile(uid)).displayName,
+            });
+        } else {
+            await userRef.set({
+                uid,
+                followedAt: Timestamp.now(),
+                displayName: (await client.getProfile(uid)).displayName,
+                watchService: {
+                    enabled: false
+                }
+            });
+        }
+
+        const initialReply = {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [{
+                    "type": "text",
+                    "text": "はじめまして！\nみんなの心を応援する、皆守こころ（みなもりこころ）だよ🌸\n\nここはお話や悩みを安心して話せる場所。\nあなたの心の味方として、いつでもそばにいるから安心してね😊",
+                    "wrap": true
+                }]
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "sm",
+                "contents": [{
+                    "type": "button",
+                    "style": "primary",
+                    "action": {
+                        "type": "message",
+                        "label": "お話したい！",
+                        "text": "こんにちは"
+                    }
+                }, {
+                    "type": "button",
+                    "style": "secondary",
+                    "action": {
+                        "type": "message",
+                        "label": "登録について知りたい",
+                        "text": "登録"
+                    }
+                }]
+            }
+        };
+
+        const registrationReply = {
+            type: 'flex',
+            altText: 'こころちゃんの会員登録のご案内',
+            contents: makeRegistrationButtonsFlex(uid)
+        };
+
+        await client.replyMessage(replyToken, [{
+            type: 'flex',
+            altText: 'はじめまして',
+            contents: initialReply
+        }, registrationReply]);
+
+    } catch (e) {
+        briefErr('Follow event failed', e);
+    }
 };
 
 const handleUnfollowEvent = async (event) => {
     const uid = event.source.userId;
-    const ref = db.collection('users').doc(uid);
-    await ref.set({
-        'profile': {
-            'unfollowedAt': Timestamp.now(),
-        },
-        'source_data': JSON.stringify(event.source)
-    }, {
-        merge: true
+    audit('Unfollow event', {
+        userId: userHash(uid)
     });
+    try {
+        await db.collection('users').doc(uid).update({
+            unfollowedAt: Timestamp.now()
+        });
+    } catch (e) {
+        briefErr('Unfollow event failed', e);
+    }
 };
 
 const handleJoinEvent = async (event) => {
-    const uid = event.source.groupId;
-    if (uid) {
-        await setActiveWatchGroupId(uid);
-        await safePush(uid, {
+    const {
+        replyToken,
+        source
+    } = event;
+    if (source.type === 'group' && source.groupId === OFFICER_GROUP_ID) {
+        await setActiveWatchGroupId(OFFICER_GROUP_ID);
+        await client.replyMessage(replyToken, {
             type: 'text',
-            text: `こころだよ！😊\n\n見守りサービスのアラート通知グループとして設定されたみたいだね！💖\n\n今後、サービス利用者が緊急時に見守りが必要になった時、このグループにアラート通知を飛ばすね！✨\n\n※このグループには、こころちゃん以外の発言は控えてください💦`
+            text: '見守り通知グループに設定しました✅'
+        });
+        audit('Joined officer group', {
+            groupId: source.groupId
+        });
+    } else {
+        await client.replyMessage(replyToken, {
+            type: 'text',
+            text: "グループに招待してくれてありがとう！😊\nごめんなさい、このアカウントは１対１のトーク専用だから、個別で話しかけてくれると嬉しいな💖"
+        });
+        audit('Joined other group', {
+            groupId: source.groupId
         });
     }
 };
 
 const handleLeaveEvent = async (event) => {
-    // leave event (do nothing for now)
+    const {
+        source
+    } = event;
+    audit('Left group/room', {
+        id: source.groupId || source.roomId
+    });
 };
 
-app.post('/webhook', middleware({
-    channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
-    channelSecret: LINE_CHANNEL_SECRET,
-}), async (req, res) => {
+app.get('/', (req, res) => {
+    res.send('こころちゃんBOT稼働中🌸');
+});
+
+app.post('/webhook', middleware(client), async (req, res) => {
     const events = req.body.events;
-    if (events && events.length > 0) {
-        audit('Webhook received', {
-            events
-        });
-    } else {
-        return res.status(200).send("OK");
-    }
+    // 監査ログを絞る
+    audit('Webhook received', {
+        count: events?.length || 0,
+        sample: events?.slice(0, 1)?.map(e => ({
+            type: e.type,
+            source: e.source?.type,
+            userId: e.source?.userId && e.source.userId.slice(0, 6) + '…',
+            ts: e.timestamp
+        }))
+    });
+    res.status(200).end();
+
     try {
         await Promise.all(
             events.map(async (event) => {
+                if (!event.source.userId) return;
+                const uid = event.source.userId;
+                const userRef = db.collection('users').doc(uid);
+                const userDoc = await userRef.get();
+                const user = userDoc.data() || {};
+
+                // TODO: 最終アクセス時刻を更新
+                await userRef.set({
+                    lastAccessedAt: Timestamp.now()
+                }, {
+                    merge: true
+                });
+
                 if (event.type === 'message') {
-                    if (event.message.type === 'text') return handleTextMessage(event, event.message.text, event.source.userId);
-                    if (event.message.type === 'sticker') return handleStickerMessage(event, event.source.userId);
-                    if (event.message.type === 'image') return handleImageMessage(event, event.source.userId);
+                    if (event.message.type === 'text') return handleTextMessage(event, user);
+                    if (event.message.type === 'sticker') return handleStickerMessage(event, user);
+                    if (event.message.type === 'image') return handleImageMessage(event, user);
                 } else if (event.type === 'postback') {
                     await handlePostbackEvent(event, event.source.userId);
                 } else if (event.type === 'follow') {
@@ -1201,7 +1322,6 @@ app.post('/webhook', middleware({
     } catch (err) {
         console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err?.response?.data || err);
     }
-    res.status(200).send("OK");
 });
 
 // cron
@@ -1213,10 +1333,3 @@ if (WATCH_RUNNER === 'internal') {
         timezone: 'UTC'
     });
 }
-// --- サーバー起動（末尾に1回だけ） ---
-app.get('/', (req, res) => res.send('ok'));
-app.get('/healthz', (req, res) => res.send('ok'));
-
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-});
