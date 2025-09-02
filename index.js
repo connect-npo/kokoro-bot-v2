@@ -240,6 +240,32 @@ async function safePush(to, messages) {
         }, null, 2));
     }
 }
+async function safeReply(replyToken, messages) {
+    const arr = Array.isArray(messages) ? messages : [messages];
+    try {
+        for (const m of arr) {
+            if (m.type === 'flex') {
+                if (!m.altText || !m.altText.trim()) m.altText = '通知があります';
+                if (!m.contents || typeof m.contents !== 'object') {
+                    throw new Error(`[safeReply] flex "contents" is required`);
+                }
+            } else if (m.type === 'text') {
+                m.text = String(m.text || '').trim() ||
+                    '（内容なし）';
+                if (m.text.length > 1800) m.text = m.text.slice(0, 1800);
+            }
+        }
+        await client.replyMessage(replyToken, arr);
+    } catch (err) {
+        const detail = err?.originalError?.response?.data || err?.response?.data || err;
+        console.error('[ERR] LINE reply failed', JSON.stringify({
+            replyToken: '...',
+            status: err?.statusCode || err?.response?.status,
+            detail
+        }, null, 2));
+    }
+}
+
 
 async function fetchTargets() {
     const now = dayjs().utc();
@@ -676,7 +702,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? snap.data() : null;
+        const cur = snap.exists ? cur.data() : null;
         if (cur && cur.until && cur.until.toMillis() > now) {
             return false;
         }
@@ -1083,6 +1109,7 @@ async function handleEvent(event) {
 
     if (event.type === 'message' && event.message.type === 'text') {
         const text = event.message.text.trim();
+        console.log("👉 受信:", text); // ここにログを追加
         const udoc = await db.collection('users').doc(userId).get();
         const u = udoc.data() || {};
         const prof = u.profile || {};
@@ -1097,7 +1124,7 @@ async function handleEvent(event) {
             const okKeywords = ['ok', 'okだよ', '大丈夫', 'だいじょうぶ', '大丈夫だよ'];
             if (okKeywords.some(x => t.includes(x))) {
                 await scheduleNextPing(userId);
-                await client.replyMessage(event.replyToken, {
+                await safeReply(event.replyToken, {
                     type: 'text',
                     text: 'OK、ありがとう😊 元気そうでよかった💖'
                 });
@@ -1147,7 +1174,7 @@ async function handleEvent(event) {
                     });
                 }
             } else if (!hasAnyPhone) {
-                await client.replyMessage(event.replyToken, {
+                await safeReply(event.replyToken, {
                     type: 'flex',
                     altText: '緊急連絡先',
                     contents: EMERGENCY_FLEX_MESSAGE
@@ -1157,9 +1184,25 @@ async function handleEvent(event) {
             return;
         }
 
+        // --- フォールバック処理の追加 ---
+        let matched = false;
+        for (const [pattern, reply] of specialRepliesMap) {
+            if (pattern.test(text)) {
+                await safeReply(event.replyToken, {
+                    type: 'text',
+                    text: reply
+                });
+                matched = true;
+                break;
+            }
+        }
 
-        // ... 省略された他のメッセージ処理 ...
-
+        if (!matched) {
+            await safeReply(event.replyToken, {
+                type: 'text',
+                text: "うん、こころちゃんだよ🌸 そばにいるよ！"
+            });
+        }
     } else if (event.type === 'message' && event.message.type === 'sticker') {
         await handleStickerMessage(event);
     } else if (event.type === 'message' && event.message.type === 'image') {
@@ -1170,10 +1213,9 @@ async function handleEvent(event) {
 
 async function handleStickerMessage(event) {
     const userId = event.source.userId;
-    const stickerId = event.message.stickerId;
     audit('sticker_message', {
         userId: userHash(userId),
-        stickerId
+        stickerId: event.message.stickerId
     });
 
     const userDocRef = db.collection('users').doc(userId);
@@ -1181,6 +1223,15 @@ async function handleStickerMessage(event) {
     const u = doc.data() || {};
     if (u?.watchService?.awaitingReply) {
         await scheduleNextPing(userId);
+        await safeReply(event.replyToken, {
+            type: 'text',
+            text: 'OK、スタンプありがとう😊 元気そうでよかった💖'
+        });
+    } else {
+        await safeReply(event.replyToken, {
+            type: 'text',
+            text: 'スタンプありがとう💖 可愛いスタンプだね😊'
+        });
     }
 }
 
@@ -1190,7 +1241,7 @@ async function handleImageMessage(event) {
         userId: userHash(userId)
     });
     // 画像メッセージへの対応ロジック
-    await client.replyMessage(event.replyToken, {
+    await safeReply(event.replyToken, {
         type: 'text',
         text: '画像をありがとう！\n\n見守りサービスをご利用中の方は、画像を送信する代わりにスタンプやテキストで返信していただくことでも、応答を確認することができます。\n\nそれ以外の方は、AIへの質問などにご利用いただけます。'
     });
@@ -1206,7 +1257,7 @@ const handlePostbackEvent = async (event, userId) => {
         audit('watch_ok', {
             userId: userHash(userId)
         });
-        return client.replyMessage(event.replyToken, {
+        return safeReply(event.replyToken, {
             type: 'text',
             text: '💖 OKしてくれてありがとう！また次回連絡するね！💖'
         });
@@ -1215,7 +1266,7 @@ const handlePostbackEvent = async (event, userId) => {
     if (action === 'notify_user') {
         const uid = data.get('uid');
         if (uid) {
-            await client.pushMessage(uid, {
+            await safePush(uid, {
                 type: 'text',
                 text: '見守り担当の方から、LINEでメッセージが届いています。'
             });
@@ -1225,7 +1276,7 @@ const handlePostbackEvent = async (event, userId) => {
                 atUTC: Timestamp.now(),
                 who: event.source.userId
             });
-            return client.replyMessage(event.replyToken, {
+            return safeReply(event.replyToken, {
                 type: 'text',
                 text: '利用者に「担当者からLINEが届いています」と通知しました。'
             });
@@ -1240,7 +1291,7 @@ const handlePostbackEvent = async (event, userId) => {
             who: event.source.userId,
             value: g
         });
-        return client.replyMessage(event.replyToken, {
+        return safeReply(event.replyToken, {
             type: 'text',
             text: `チャット希望（${g}）を受け付けました。`
         });
@@ -1260,7 +1311,7 @@ const handlePostbackEvent = async (event, userId) => {
             atUTC: Timestamp.now(),
             who: event.source.userId
         });
-        return client.replyMessage(event.replyToken, {
+        return safeReply(event.replyToken, {
             type: 'text',
             text: '次回Pingを即時に設定しました。'
         });
@@ -1272,7 +1323,7 @@ const handlePostbackEvent = async (event, userId) => {
             atUTC: Timestamp.now(),
             who: event.source.userId
         });
-        return client.replyMessage(event.replyToken, {
+        return safeReply(event.replyToken, {
             type: 'text',
             text: '状況メモ記録機能は後続画面で対応予定です。'
         });
@@ -1291,7 +1342,7 @@ const handlePostbackEvent = async (event, userId) => {
             atUTC: Timestamp.now(),
             who: event.source.userId
         });
-        return client.replyMessage(event.replyToken, {
+        return safeReply(event.replyToken, {
             type: 'text',
             text: '見守りを一時停止にしました（再開は管理側で可能）。'
         });
@@ -1319,7 +1370,7 @@ async function handleFollowEvent(event) {
     }, {
         merge: true
     });
-    await client.replyMessage(event.replyToken, {
+    await safeReply(event.replyToken, {
         type: 'flex',
         altText: '会員登録フォーム',
         contents: makeRegistrationButtonsFlex(userId)
