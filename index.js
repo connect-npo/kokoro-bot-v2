@@ -19,7 +19,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { OpenAI } = require('openai');
+const OpenAI = require('openai'); // ← destructuringしないのが正解
 
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
@@ -44,6 +44,7 @@ const normalizeFormUrl = s => {
 };
 
 const prefillUrl = (base, params) => {
+    if (!base) return '#';
     const url = new URL(base);
     for (const [key, value] of Object.entries(params)) {
         if (value) {
@@ -80,6 +81,7 @@ const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_M
 const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
+const SEND_OFFICER_ALERTS = process.env.SEND_OFFICER_ALERTS !== 'false';
 let creds = null;
 if (process.env.FIREBASE_CREDENTIALS_BASE64) {
     creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
@@ -961,7 +963,8 @@ const DANGER_WORDS = [
 ];
 
 const SCAM_WORDS = [
-    "詐欺", "フィッシング", "架空請求", "ワンクリック詐欺", "特殊詐欺", "オレオレ詐欺",
+    "詐欺", "さぎ", "サギ", "ｻｷﾞ",
+    "フィッシング", "架空請求", "ワンクリック詐欺", "特殊詐欺", "オレオレ詐欺",
     "当選", "高額当選", "宝くじ", "ロト", "ビットコイン", "投資", "バイナリー", "暗号資産",
     "未払い", "滞納", "訴訟", "裁判", "裁判所", "訴える",
     "副業", "在宅ワーク", "転売", "アフィリエイト", "MLM", "マルチ商法",
@@ -981,20 +984,27 @@ const INAPPROPRIATE_WORDS = [
     "バカ", "アホ", "死ね", "クソ", "馬鹿"
 ];
 
+// --- Japanese normalize (かな/カナ・全角半角など最低限) ---
+const toHiragana = (s) =>
+    s.replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+const nfkc = (s) => s.normalize('NFKC');
+const normalizeJa = (s) => toHiragana(nfkc(String(s || '')).toLowerCase());
 
 function isDangerMessage(text) {
-    const lowerText = text.toLowerCase();
-    return DANGER_WORDS.some(word => lowerText.includes(word.toLowerCase()));
+    const norm = normalizeJa(text);
+    return DANGER_WORDS.some(word => norm.includes(normalizeJa(word)));
 }
 
 function isScamMessage(text) {
-    const lowerText = text.toLowerCase();
-    return SCAM_WORDS.some(word => lowerText.includes(word.toLowerCase()));
+    const norm = normalizeJa(text);
+    // 代表パターン（詐欺/さぎ/サギ/ｻｷﾞ いずれも拾う）
+    if (/(詐欺|さぎ)/.test(norm)) return true;
+    return SCAM_WORDS.some(word => norm.includes(normalizeJa(word)));
 }
 
 function isInappropriateMessage(text) {
-    const lowerText = text.toLowerCase();
-    return INAPPROPRIATE_WORDS.some(word => lowerText.includes(word.toLowerCase()));
+    const norm = normalizeJa(text);
+    return INAPPROPRIATE_WORDS.some(word => norm.includes(normalizeJa(word)));
 }
 
 if (!OPENAI_API_KEY) {
@@ -1029,11 +1039,11 @@ const getAIResponse = async (text) => {
     try {
         if (modelName.startsWith("gemini")) {
             const model = genai.getGenerativeModel({ model: modelName });
+            // generateContent は配列に「parts」だけ or 文字列で渡す
             const result = await model.generateContent([
-                { role: "user", parts: [{ text: KOKORO_SYSTEM_PROMPT }] },
-                { role: "user", parts: [{ text }] }
+                { text: `${KOKORO_SYSTEM_PROMPT}\n\nユーザー: ${text}` }
             ]);
-            aiResponse = result.response.text();
+            aiResponse = result.response.text() || "";
         } else {
             const completion = await openai.chat.completions.create({
                 model: modelName,
@@ -1076,25 +1086,18 @@ const specialRepliesMap = new Map([
         "一番好きなのは『コネクト』かな🌸 元気をもらえるんだ😊"
     ],
     // その他
-    [/(ホームページ|HP|公式|サイト)/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
+    // 「どこ？」「URL？」「教えて」などの問いかけに限定
+    [/(ホームページ|HP|公式(?:サイト)?|サイト).*(どこ|URL|リンク|教えて|ありますか|\?|どれ)/i,
+        "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"
+    ],
 ]);
 
 
 // === handleEvent で先に specialRepliesMap を見る ===
 const handleEvent = async (event) => {
+    if (event.message?.type !== 'text') return; // ← 追加（画像/スタンプ等は無視）
     const userId = event.source.userId;
     const text = event.message.text;
-
-    // 特殊返信
-    const specialReplyEntry = Array.from(specialRepliesMap.entries())
-        .find(([regex]) => regex.test(text));
-    if (specialReplyEntry) {
-        await client.replyMessage(event.replyToken, {
-            type: "text",
-            text: specialReplyEntry[1],
-        });
-        return;
-    }
 
     // 危険ワード／詐欺ワード／不適切ワードは従来の9-1処理を継続
     if (isDangerMessage(text)) {
@@ -1104,6 +1107,26 @@ const handleEvent = async (event) => {
             text: gTrunc(text, 50),
             date: new Date(),
         });
+        // --- ここで見守りグループにも通知 ---
+        try {
+            const WATCH_GROUP_ID = await getActiveWatchGroupId();
+            if (SEND_OFFICER_ALERTS && WATCH_GROUP_ID) {
+                const udoc = await db.collection('users').doc(userId).get();
+                const u = udoc.exists ? (udoc.data() || {}) : {};
+                const prof = u.profile || {};
+                const emerg = u.emergency || {};
+                await safePush(WATCH_GROUP_ID, buildWatcherFlex({
+                    name: prof.name || prof.displayName || '—',
+                    address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                    selfPhone: prof.phone || '',
+                    kinName: emerg.contactName || '',
+                    kinPhone: emerg.contactPhone || '',
+                    userId
+                }));
+            }
+        } catch (e) {
+            briefErr('officer notify on danger failed', e);
+        }
         return;
     }
     if (isScamMessage(text)) {
@@ -1121,6 +1144,17 @@ const handleEvent = async (event) => {
             userId: userHash(userId),
             text: gTrunc(text, 50),
             date: new Date(),
+        });
+        return;
+    }
+
+    // 特殊返信（安全チェック通過後に実施）
+    const specialReplyEntry = Array.from(specialRepliesMap.entries())
+        .find(([regex]) => regex.test(text));
+    if (specialReplyEntry) {
+        await client.replyMessage(event.replyToken, {
+            type: "text",
+            text: specialReplyEntry[1],
         });
         return;
     }
