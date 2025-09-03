@@ -31,17 +31,29 @@ const {
     middleware
 } = require('@line/bot-sdk');
 
-// --- Firebase Admin SDKの初期化 ---
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+// --- Firebase Admin SDKの初期化（どれか1ルートで） ---
+function getFirebaseCreds() {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+        return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    }
+    if (process.env.FIREBASE_CREDENTIALS_BASE64) {
+        return JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
+    }
+    try {
+        return require('./serviceAccountKey.json');
+    } catch {
+        throw new Error('Firebase資格情報が見つかりません（FIREBASE_SERVICE_ACCOUNT_KEY / FIREBASE_CREDENTIALS_BASE64 / serviceAccountKey.json）');
+    }
+}
 if (!firebaseAdmin.apps.length) {
     firebaseAdmin.initializeApp({
-        credential: firebaseAdmin.credential.cert(serviceAccount),
+        credential: firebaseAdmin.credential.cert(getFirebaseCreds()),
         databaseURL: process.env.FIREBASE_DATABASE_URL
     });
 }
-
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
+
 
 const normalizeFormUrl = s => {
     let v = String(s || '').trim();
@@ -96,25 +108,7 @@ const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENT
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
 const SEND_OFFICER_ALERTS = process.env.SEND_OFFICER_ALERTS !== 'false';
-let creds = null;
-if (process.env.FIREBASE_CREDENTIALS_BASE64) {
-    creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
-}
-if (!firebaseAdmin.apps.length) {
-    if (!creds) {
-        try {
-            creds = require("./serviceAccountKey.json");
-        } catch {
-            throw new Error("FIREBASE_CREDENTIALS_BASE64 か serviceAccountKey.json が必要です");
-        }
-    }
-    firebaseAdmin.initializeApp({
-        credential: firebaseAdmin.credential.cert(creds),
-    });
-    console.log("✅ Firebase initialized");
-}
-const db = firebaseAdmin.firestore();
-const Timestamp = firebaseAdmin.firestore.Timestamp;
+
 const client = new Client({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
@@ -714,7 +708,10 @@ const DANGER_WORDS = [
     "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "od", "オーバードーズ", "殴られる", "たたかれる", "暴力", "dv", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "つらい", "苦しい", "くるしい", "助けて", "たすけて", "死んでやる", "死んでしまいたい", "消えてしまいたい", "生きるのがつらい", "もう無理", "もういやだ", "誰かに相談したい", "相談したい", "相談に乗って", "助けてください"
 ];
 const SCAM_WORDS = [
-    "詐欺", "さぎ", "サギ", "ｻｷﾞ", "フィッシング", "架空請求", "ワンクリック詐欺", "特殊詐欺", "オレオレ詐欺", "当選", "高額当選", "宝くじ", "ロト", "ビットコイン", "投資", "バイナリー", "暗号資産", "未払い", "滞納", "訴訟", "裁判", "裁判所", "訴える", "副業", "在宅ワーク", "転売", "アフィリエイト", "mlm", "マルチ商法", "絶対儲かる", "簡単に稼げる", "今だけ", "限定", "無料", "クリック", "ログイン", "個人情報", "送って", "教えて", "有料サイト", "登録", "退会", "解約", "クレジットカード", "クレカ", "銀行口座", "口座番号", "パスワード"
+    // 典型的詐欺表現のみ。一般語は除外
+    "詐欺","さぎ","サギ","フィッシング","架空請求","ワンクリック詐欺","特殊詐欺","オレオレ詐欺",
+    "当選","高額当選","ビットコイン","暗号資産","未払い","滞納","訴訟","裁判","裁判所",
+    "MLM","マルチ商法","絶対儲かる","簡単に稼げる","今だけ","限定","クレジットカード","口座番号","パスワード"
 ];
 const INAPPROPRIATE_WORDS = [
     "セックス", "セフレ", "エッチ", "av", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精", "バイブ", "オナニー", "マスターベーション", "自慰", "淫行", "絶頂", "膣", "ペニス", "ちんちん", "おまんこ", "まんこ", "おっぱい", "おぱい", "ちんぽ", "性病", "中出し", "中だし", "妊娠", "堕胎", "レイプ", "強姦", "売春", "買春", "殺人", "ﾊｧﾊｧ", "はぁはぁ", "はあはあ"
@@ -822,12 +819,8 @@ async function callGenerativeAI(replyToken, userId, userMessage, membership) {
             });
             generatedText = completion.choices?.[0]?.message?.content || 'ごめんね、ちょっと上手く答えられなかったみたい💦';
         } else {
-            const gModel = genAI.getGenerativeModel({
-                model,
-                safetySettings,
-                systemInstruction: { role: 'system', content: promptWithContext },
-            });
-            const result = await gModel.generateContent(userMessage);
+            const gModel = genAI.getGenerativeModel({ model, safetySettings });
+            const result = await gModel.generateContent(promptWithContext);
             generatedText = result.response?.text() || 'ごめんね、ちょっと上手く答えられなかったみたい💦';
         }
 
@@ -842,7 +835,7 @@ async function callGenerativeAI(replyToken, userId, userMessage, membership) {
 }
 
 function containsKeywords(text) {
-    const SAFE_SHORT = /(会員登録|入会|メンバー登録|登録する|登録したい|見守り(?:サービス)?(?:登録|申込|申し込み)?|見守り)$/i;
+    const SAFE_SHORT = /(会員登録|入会|メンバー登録|登録(する|したい)|見守り(?:サービス)?(?:登録|申込|申し込み)?|見守り)/i;
     if (SAFE_SHORT.test(text.trim()) && toGraphemes(text.trim()).length <= 12) {
         return { isDanger: false, isScam: false, isInappropriate: false, isSwear: false };
     }
@@ -927,13 +920,21 @@ async function handleEvent(event) {
     const userDoc = await getUserData(userId);
     const userData = userDoc.data();
     const membership = userData?.membership || 'guest';
-
-    if (text.startsWith('相談')) {
-        console.log('相談モード開始');
-        await client.replyMessage(replyToken, { type: "text", text: "（相談モードを開始します）" });
+    
+    // 先にコマンド系（見守り / 会員登録）を確実に処理
+    const hasWatchService = await getWatchServiceInfo(userId);
+    if (/見守り/.test(text)) {
+        await sendWatchServiceFlex(replyToken, userId, hasWatchService);
+        await logEventToDb(userId, '固定応答', '見守り案内Flex送信', 'User');
+        return;
+    }
+    if (/会員登録|登録(する|したい)/.test(text)) {
+        console.log('会員登録Flexメッセージを送信');
+        await client.replyMessage(replyToken, { type: "text", text: "（会員登録メッセージ）" });
         return;
     }
 
+    // ここからキーワード安全チェック
     const { isDanger, isScam, isInappropriate, isSwear } = containsKeywords(text);
     if (isDanger || isScam || isInappropriate || isSwear) {
         await client.replyMessage(replyToken, {
@@ -945,20 +946,14 @@ async function handleEvent(event) {
         return;
     }
 
+    if (text.startsWith('相談')) {
+        console.log('相談モード開始');
+        await client.replyMessage(replyToken, { type: "text", text: "（相談モードを開始します）" });
+        return;
+    }
+
     const today = dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
     const currentCount = (userDoc.data()?.counts?.[today] || 0);
-    const hasWatchService = await getWatchServiceInfo(userId);
-
-    if (text === '見守り') {
-        await sendWatchServiceFlex(replyToken, userId, hasWatchService);
-        await logEventToDb(userId, '固定応答', '見守り案内Flex送信', 'User');
-        return;
-    }
-    if (text === '会員登録') {
-        console.log('会員登録Flexメッセージを送信');
-        await client.replyMessage(replyToken, { type: "text", text: "（会員登録メッセージ）" });
-        return;
-    }
 
     const isWithinLimit = await isWithinDailyLimit(userId, membership);
 
