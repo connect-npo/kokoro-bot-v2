@@ -983,12 +983,29 @@ function isDangerMessage(text) {
     const norm = normalizeJa(text);
     return DANGER_WORDS.some(word => norm.includes(normalizeJa(word)));
 }
-
 function isScamMessage(text) {
-    const norm = normalizeJa(text);
-    if (isHomepageIntent(text)) return false;
-    if (/(詐欺|さぎ)/.test(norm)) return true;
-    return SCAM_WORDS.some(word => norm.includes(normalizeJa(word)));
+  const t = normalizeJa(text);
+  // 内部の意図的なコマンドは常に除外
+  if (isHomepageIntent(text)) return false;
+  const REGISTRATION_INTENT = /(会員登録|入会|メンバー登録|登録したい)/i;
+  const WATCH_INTENT = /(見守り(?:サービス)?(?:登録|申込|申し込み)?|見守り)/i;
+  if (REGISTRATION_INTENT.test(text) || WATCH_INTENT.test(text)) return false;
+
+  // 明示ワード
+  if (/(詐欺|さぎ)/.test(t)) return true;
+
+  // 疑わしいURLや短縮URL
+  const hasUrl = /(https?:\/\/|t\.co\/|bit\.ly|tinyurl\.com|lnkd\.in|\.ru\/|\.cn\/|\.top\/|\.xyz\/)/i.test(text);
+  // 金銭・急かし・認証強要
+  const money = /(当選|高額|配当|振込|振り込み|送金|入金|手数料|ビットコイン|暗号資産|投資)/;
+  const urgency = /(至急|今すぐ|本日中|限定|緊急|アカウント停止|認証|ログイン)/;
+  const credAsk = /(ID|パスワード|ワンタイム|コード|口座番号|クレジット|カード番号|個人情報).{0,6}(入力|送信|教えて|提出)/;
+
+  if (hasUrl && (money.test(t) || urgency.test(t) || credAsk.test(t))) return true;
+  if (money.test(t) && urgency.test(t)) return true;
+  if (credAsk.test(t) && urgency.test(t)) return true;
+
+  return false;
 }
 
 function isInappropriateMessage(text) {
@@ -1013,6 +1030,41 @@ const handleEvent = async (event) => {
         await client.replyMessage(event.replyToken, {
             type: "text",
             text: "うん、あるよ🌸 コネクトのホームページはこちら✨ → https://connect-npo.org"
+        });
+        return;
+    }
+    // ★ ここから専用コマンド
+    const REGISTRATION_INTENT = /(会員登録|入会|メンバー登録|登録したい)/i;
+    const WATCH_INTENT = /(見守り(?:サービス)?(?:登録|申込|申し込み)?|見守り)/i;
+    if (REGISTRATION_INTENT.test(text)) {
+        await client.replyMessage(event.replyToken, {
+            type: 'flex',
+            altText: '会員登録メニュー',
+            contents: makeRegistrationButtonsFlex(userId)
+        });
+        return;
+    }
+    if (WATCH_INTENT.test(text)) {
+        await client.replyMessage(event.replyToken, {
+            type: 'flex',
+            altText: '見守りサービス登録',
+            contents: {
+                type: 'bubble',
+                body: { type:'box', layout:'vertical', contents:[
+                    { type:'text', text:'見守りサービス登録', weight:'bold', size:'xl' },
+                    { type:'text', text:'ボタンから登録フォームへ進んでね🌸', wrap:true, margin:'md' },
+                ]},
+                footer: { type:'box', layout:'vertical', spacing:'sm', contents:[
+                    {
+                        type:'button', style:'primary', action:{
+                            type:'uri', label:'見守りサービスに登録',
+                            uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
+                                [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                            })
+                        }
+                    }
+                ]}
+            }
         });
         return;
     }
@@ -1059,12 +1111,6 @@ const handleEvent = async (event) => {
         });
         return;
     }
-    await dailyQuotaRef.set({
-        date: today,
-        count
-    }, {
-        merge: true
-    });
     // 見守りサービス機能
     if (udoc.exists) {
         const ws = udoc.data()?.watchService || {};
@@ -1132,16 +1178,11 @@ const handleEvent = async (event) => {
         return;
     }
     // LLM応答生成
-    let llm;
-    if (modelName.startsWith('gemini')) {
-        llm = new GoogleGenerativeAI(GEMINI_API_KEY).getGenerativeModel({
-            model: modelName
-        });
-    } else {
-        llm = new OpenAI({
-            apiKey: OPENAI_API_KEY
-        });
-    }
+    let llmType = modelName.startsWith('gemini') ? 'gemini' : 'openai';if (llmType === 'gemini' && !GEMINI_API_KEY) {
+      console.warn('[WARN] GEMINI_API_KEY 未設定のため OpenAI にフォールバックします');
+      llmType = 'openai';
+      modelName = OPENAI_MODEL || 'gpt-4o-mini';
+    }let replyText = '';
     const messagesRef = db.collection('users').doc(userId).collection('messages').orderBy('timestamp', 'desc').limit(20);
     const history = (await messagesRef.get()).docs.reverse().map(doc => doc.data());
     let context = history.map(m => {
@@ -1151,55 +1192,55 @@ const handleEvent = async (event) => {
     if (toGraphemes(context).length > MAX_CONTEXT_LENGTH) {
         context = gTrunc(context, MAX_CONTEXT_LENGTH);
     }
+
     try {
-        const prompt = PROMPT_TEMPLATE(context, input);
-        console.log('[LLM_PROMPT]', prompt);
-        let content;
-        if (modelName.startsWith('gemini')) {
-            const res = await llm.generateContent(prompt);
-            content = res.response.text();
+        if (llmType === 'gemini') {
+            const llm = new GoogleGenerativeAI(GEMINI_API_KEY).getGenerativeModel({ model: modelName });
+            const res = await llm.generateContent(PROMPT_TEMPLATE(context, text));
+            replyText = (res.response.text() || '').trim();
         } else {
-            const res = await llm.chat.completions.create({
+            const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+            const res = await openai.chat.completions.create({
                 model: modelName,
-                messages: [{
-                    role: 'system',
-                    content: PROMPT_TEMPLATE('', '')
-                }, {
-                    role: 'user',
-                    content: prompt
-                }, ],
+                messages: [
+                    { role: 'system', content: PROMPT_TEMPLATE('', '') },
+                    { role: 'user', content: PROMPT_TEMPLATE(context, text) },
+                ],
                 max_tokens: 250,
                 temperature: 0.8,
             });
-            content = res.choices[0].message.content;
-        }
-        console.log('[LLM_RESPONSE]', content);
-        const replyText = content.trim();
-        await client.replyMessage(event.replyToken, {
-            type: "text",
-            text: replyText
-        });
-        await db.collection('users').doc(userId).collection('messages').add({
-            role: 'user',
-            text,
-            timestamp: Timestamp.now()
-        });
-        await db.collection('users').doc(userId).collection('messages').add({
-            role: 'model',
-            text: replyText,
-            timestamp: Timestamp.now()
-        });
-        const userRef = db.collection('users').doc(userId);
-        if (!(await userRef.get()).exists) {
-            await userRef.set({
-                membershipStatus: 'guest'
-            });
+            replyText = (res.choices?.[0]?.message?.content || '').trim();
         }
     } catch (e) {
-        console.error("LLMエラー:", e);
-        await client.replyMessage(event.replyToken, {
-            type: "text",
-            text: "ごめんね、ちょっと疲れてるみたい…。またあとでお話しようね💖"
+        console.error('LLMエラー:', e);
+        // ここで即終了せず、最後にテンプレ返信へフォールバック
+    }
+
+    if (!replyText) replyText = "ごめんね、ちょっと疲れてるみたい…。またあとでお話しようね💖";
+
+    await client.replyMessage(event.replyToken, { type: "text", text: replyText });
+
+    await dailyQuotaRef.set({
+        date: today,
+        count
+    }, {
+        merge: true
+    });
+    
+    await db.collection('users').doc(userId).collection('messages').add({
+        role: 'user',
+        text,
+        timestamp: Timestamp.now()
+    });
+    await db.collection('users').doc(userId).collection('messages').add({
+        role: 'model',
+        text: replyText,
+        timestamp: Timestamp.now()
+    });
+    const userRef = db.collection('users').doc(userId);
+    if (!(await userRef.get()).exists) {
+        await userRef.set({
+            membershipStatus: 'guest'
         });
     }
 };
@@ -1235,6 +1276,34 @@ const handlePostbackEvent = async (event, userId) => {
         return;
     }
     // その他のPostback
+    if (action === 'open:registration') {
+        await client.replyMessage(event.replyToken, {
+            type: 'flex', altText: '会員登録メニュー', contents: makeRegistrationButtonsFlex(userId)
+        });
+        return;
+    }
+    if (action === 'open:watch') {
+        await client.replyMessage(event.replyToken, {
+            type:'flex', altText:'見守りサービス登録', contents: {
+                type:'bubble',
+                body:{ type:'box', layout:'vertical', contents:[
+                    { type:'text', text:'見守りサービス登録', weight:'bold', size:'xl' },
+                    { type:'text', text:'ボタンから登録フォームへ進んでね🌸', wrap:true, margin:'md' },
+                ]},
+                footer:{ type:'box', layout:'vertical', spacing:'sm', contents:[
+                    {
+                        type:'button', style:'primary', action:{
+                            type:'uri', label:'見守りサービスに登録',
+                            uri: prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
+                                [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId
+                            })
+                        }
+                    }
+                ]}
+            }
+        });
+        return;
+    }
 };
 
 const handleFollowEvent = async (event) => {
