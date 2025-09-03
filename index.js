@@ -1026,6 +1026,8 @@ const handleEvent = async (event) => {
             });
             return;
         }
+        // グループ内の通常メッセージはここで終了（個別機能はユーザーのみ）
+        return;
     }
     auditIf(BOT_ADMIN_IDS.includes(userId), 'admin_event', {
         userId: userHash(userId),
@@ -1086,7 +1088,7 @@ const handleEvent = async (event) => {
             userId: userHash(userId),
             text: redact(text)
         });
-        await safePush(userId, DANGER_REPLY);
+        await client.replyMessage(event.replyToken, DANGER_REPLY);
         return;
     }
     // 詐欺ワード判定
@@ -1096,7 +1098,7 @@ const handleEvent = async (event) => {
             userId: userHash(userId),
             text: redact(text)
         });
-        await safePush(userId, SCAM_REPLY);
+        await client.replyMessage(event.replyToken, SCAM_REPLY);
         try {
             const WATCH_GROUP_ID = await getActiveWatchGroupId();
             if (SEND_OFFICER_ALERTS && WATCH_GROUP_ID) {
@@ -1126,7 +1128,7 @@ const handleEvent = async (event) => {
             userId: userHash(userId),
             text: redact(text)
         });
-        await safePush(userId, INAPPROPRIATE_REPLY);
+        await client.replyMessage(event.replyToken, INAPPROPRIATE_REPLY);
         return;
     }
     // LLM応答生成
@@ -1150,7 +1152,7 @@ const handleEvent = async (event) => {
         context = gTrunc(context, MAX_CONTEXT_LENGTH);
     }
     try {
-        const prompt = PROMPT_TEMPLATE(context, text);
+        const prompt = PROMPT_TEMPLATE(context, input);
         console.log('[LLM_PROMPT]', prompt);
         let content;
         if (modelName.startsWith('gemini')) {
@@ -1267,69 +1269,55 @@ const handleFollowEvent = async (event) => {
         console.error("ユーザープロファイルの取得に失敗しました:", err);
     }
     const welcomeMessage = {
-        type: "flex",
-        altText: "はじめまして！",
-        contents: {
+        "type": "flex",
+        "altText": "はじめまして！",
+        "contents": {
             "type": "bubble",
             "body": {
                 "type": "box",
                 "layout": "vertical",
-                "contents": [{
-                    "type": "text",
-                    "text": "はじめまして！💖",
-                    "weight": "bold",
-                    "size": "xl"
-                }, {
-                    "type": "text",
-                    "text": "こころだよ🌸",
-                    "margin": "md"
-                }, {
-                    "type": "text",
-                    "text": "友だち追加してくれてありがとう✨\nもしよかったら、どんな会員になるか選んでね💖",
-                    "wrap": true,
-                    "margin": "md"
-                }, ],
+                "contents": [
+                    { "type": "text", "text": "はじめまして！💖", "weight": "bold", "size": "xl" },
+                    { "type": "text", "text": "こころだよ🌸", "margin": "md" },
+                    { "type": "text", "text": "友だち追加してくれてありがとう✨\nもしよかったら、どんな会員になるか選んでね💖", "wrap": true, "margin": "md" }
+                ]
+            },
             "footer": {
                 "type": "box",
                 "layout": "vertical",
                 "spacing": "sm",
-                "contents": [{
-                    "type": "button",
-                    "style": "primary",
-                    "height": "sm",
-                    "action": {
-                        "type": "uri",
-                        "label": "学生（中学・高校・大学）",
-                        "uri": prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, {
-                            [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: event.source.userId
-                        })
+                "contents": [
+                    {
+                        "type": "button", "style": "primary", "height": "sm",
+                        "action": {
+                            "type": "uri", "label": "学生（中学・高校・大学）",
+                            "uri": prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, {
+                                [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: event.source.userId
+                            })
+                        },
+                        "color": "#ADD8E6"
                     },
-                    "color": "#ADD8E6"
-                }, {
-                    "type": "button",
-                    "style": "primary",
-                    "height": "sm",
-                    "action": {
-                        "type": "uri",
-                        "label": "大人（一般）",
-                        "uri": prefillUrl(ADULT_FORM_BASE_URL, {
-                            [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: event.source.userId
-                        })
+                    {
+                        "type": "button", "style": "primary", "height": "sm",
+                        "action": {
+                            "type": "uri", "label": "大人（一般）",
+                            "uri": prefillUrl(ADULT_FORM_BASE_URL, {
+                                [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: event.source.userId
+                            })
+                        },
+                        "color": "#87CEFA"
                     },
-                    "color": "#87CEFA"
-                }, {
-                    "type": "button",
-                    "style": "primary",
-                    "height": "sm",
-                    "action": {
-                        "type": "uri",
-                        "label": "見守りサービスに登録",
-                        "uri": prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
-                            [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: event.source.userId
-                        })
-                    },
-                    "color": "#D3D3D3"
-                }]
+                    {
+                        "type": "button", "style": "primary", "height": "sm",
+                        "action": {
+                            "type": "uri", "label": "見守りサービスに登録",
+                            "uri": prefillUrl(WATCH_SERVICE_FORM_BASE_URL, {
+                                [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: event.source.userId
+                            })
+                        },
+                        "color": "#D3D3D3"
+                    }
+                ]
             }
         }
     };
