@@ -742,7 +742,9 @@ const makeRegistrationButtonsFlex = (userId) => {
                 "action": {
                     "type": "uri",
                     "label": "学生（中高大）",
-                    "uri": `${STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL}?${STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
+                    "uri": STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL
+                        ? `${STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL}?${STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
+                        : "#"
                 },
                 "color": "#ADD8E6"
             }, {
@@ -752,7 +754,9 @@ const makeRegistrationButtonsFlex = (userId) => {
                 "action": {
                     "type": "uri",
                     "label": "大人（一般）",
-                    "uri": `${ADULT_FORM_BASE_URL}?${ADULT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
+                    "uri": ADULT_FORM_BASE_URL
+                        ? `${ADULT_FORM_BASE_URL}?${ADULT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
+                        : "#"
                 },
                 "color": "#87CEFA"
             }, {
@@ -926,36 +930,43 @@ async function handleEvent(event) {
     });
     // --- 危険/詐欺ワード検知 ---
     if (isDangerMessage(text)) {
-        console.log('[DETECT] DANGER');
+        console.log('[DETECT] DANGER for uid-tail:', userId.slice(-6));
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
         const resp = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: "あなたは14歳の優しい女の子『こころちゃん』です。心に寄り添い、安心させる返答をしてください。" },
-                { role: "user", content: text }
-            ],
+            model: OPENAI_MODEL || 'gpt-4o',
+            messages: [{
+                role: "system",
+                content: "あなたは14歳の優しい女の子『こころちゃん』です。心に寄り添い、安心させる返答をしてください。返答は2〜4文、絵文字も少し使ってOK。"
+            }, {
+                role: "user",
+                content: text
+            }],
             max_tokens: 200,
             temperature: 0.7
         });
-        const aiReply = resp.choices[0].message.content.trim();
+        const aiReplyRaw = resp.choices?.[0]?.message?.content ?? "";
+        const aiReply = aiReplyRaw.trim() || "つらかったね。ひとりじゃないよ。今すぐ助けが要るときは下の連絡先を使ってね🌸";
 
         await client.replyMessage(event.replyToken, [
             { type: "text", text: aiReply },
             { type: "flex", altText: "緊急連絡先", contents: EMERGENCY_FLEX_MESSAGE }
         ]);
 
-        if (SEND_OFFICER_ALERTS && OFFICER_GROUP_ID) {
+        const notifyTo = OFFICER_GROUP_ID || await getActiveWatchGroupId();
+        if (SEND_OFFICER_ALERTS && notifyTo) {
             const udoc = await db.collection('users').doc(userId).get();
             const u = udoc.exists ? (udoc.data() || {}) : {};
-            await safePush(OFFICER_GROUP_ID, {
+            const prof = u.profile || {};
+            const emerg = (u.emergency || {});
+            await safePush(notifyTo, {
                 type: 'flex',
                 altText: '危険ワード通知',
                 contents: buildWatcherFlex({
-                    name: u?.profile?.name || u?.profile?.displayName || "—",
-                    address: [u?.profile?.prefecture, u?.profile?.city, u?.profile?.line1].filter(Boolean).join(" "),
-                    selfPhone: u?.profile?.phone || "",
-                    kinName: u?.emergency?.contactName || "",
-                    kinPhone: u?.emergency?.contactPhone || "",
+                    name: prof.name || prof.displayName || '—',
+                    address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                    selfPhone: prof.phone || '',
+                    kinName: emerg.contactName || '',
+                    kinPhone: emerg.contactPhone || '',
                     userId
                 })
             });
@@ -963,32 +974,42 @@ async function handleEvent(event) {
         return;
     }
     if (isScamMessage(text)) {
-        console.log('[DETECT] SCAM');
+        console.log('[DETECT] SCAM for uid-tail:', userId.slice(-6));
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
         const resp = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [{ role: "system", content: "あなたは14歳の優しい女の子『こころちゃん』です。心に寄り添い、安心させる返答をしてください。" }, { role: "user", content: `以下の怪しい内容について、やさしく注意喚起してください: ${text}` }],
+            model: OPENAI_MODEL || 'gpt-4o',
+            messages: [{
+                role: "system",
+                content: "あなたは14歳の優しい女の子『こころちゃん』です。心に寄り添い、安心させる返答をしてください。返答は2〜4文、絵文字も少し使ってOK。"
+            }, {
+                role: "user",
+                content: `以下の怪しい内容について、やさしく注意喚起してください: ${text}`
+            }],
             max_tokens: 200,
             temperature: 0.7
         });
-        const aiReply = resp.choices[0].message.content.trim();
+        const aiReplyRaw = resp.choices?.[0]?.message?.content ?? "";
+        const aiReply = aiReplyRaw.trim() || "あやしい話かも。急がず確認しよ？困ったら下の窓口も使ってね🌸";
 
         await client.replyMessage(event.replyToken, [
             { type: "text", text: aiReply },
             { type: "flex", altText: "詐欺注意", contents: makeScamMessageFlex() }
         ]);
-        if (SEND_OFFICER_ALERTS && OFFICER_GROUP_ID) {
+        const notifyTo = OFFICER_GROUP_ID || await getActiveWatchGroupId();
+        if (SEND_OFFICER_ALERTS && notifyTo) {
             const udoc = await db.collection('users').doc(userId).get();
             const u = udoc.exists ? (udoc.data() || {}) : {};
-            await safePush(OFFICER_GROUP_ID, {
+            const prof = u.profile || {};
+            const emerg = (u.emergency || {});
+            await safePush(notifyTo, {
                 type: 'flex',
                 altText: '詐欺ワード通知',
                 contents: buildWatcherFlex({
-                    name: u?.profile?.name || u?.profile?.displayName || "—",
-                    address: [u?.profile?.prefecture, u?.profile?.city, u?.profile?.line1].filter(Boolean).join(" "),
-                    selfPhone: u?.profile?.phone || "",
-                    kinName: u?.emergency?.contactName || "",
-                    kinPhone: u?.emergency?.contactPhone || "",
+                    name: prof.name || prof.displayName || '—',
+                    address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                    selfPhone: prof.phone || '',
+                    kinName: emerg.contactName || '',
+                    kinPhone: emerg.contactPhone || '',
                     userId
                 })
             });
@@ -1030,6 +1051,7 @@ const PROMPT_TEMPLATE = (context, text) => {
 - 危険な言葉や不適切な言葉が検知された場合、それらには触れずに、ユーザーの安全を気遣うメッセージを返信します。
 - AIっぽい回答は禁止です。優しく寄り添って下さい。
 
+
 過去の会話:${context}
 
 ユーザーからのメッセージ:${text}
@@ -1062,7 +1084,10 @@ async function mainLoop(event) {
             const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
             const resp = await openai.chat.completions.create({
                 model: "gpt-4o-mini",
-                messages: [{ role: "system", content: "あなたは14歳の女の子『こころちゃん』です。常に優しく寄り添ってください。" }, { role: "user", content: prompt }],
+                messages: [
+                    { role: "system", content: "あなたは14歳の女の子『こころちゃん』です。常に優しく寄り添ってください。返答は2〜4文で、絵文字を自然に少し。" },
+                    { role: "user", content: prompt }
+                ],
                 max_tokens: 300,
                 temperature: 0.8
             });
@@ -1098,10 +1123,9 @@ async function handlePostbackEvent(event) {
                 awaitingReply: false,
                 lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
                 lastNotifiedAt: firebaseAdmin.firestore.FieldValue.delete(),
-                nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ)
-                    .add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
             }
         }, { merge: true });
+        await scheduleNextPing(uid, new Date()); // ← 共通化
 
         await client.replyMessage(event.replyToken, {
             type: 'text',
