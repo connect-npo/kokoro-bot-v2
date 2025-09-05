@@ -434,9 +434,9 @@ async function checkAndSendPing() {
             const u = s.data() || {};
             const ws = u.watchService || {};
             const awaiting = !!ws.awaitingReply;
-            const lastPingAt = ws.lastPingat?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
+            const lastPingAt = ws.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
             const lastReminderAt = ws.lastReminderAt?.toDate?.() ? dayjs(ws.lastReminderAt.toDate()) : null;
-            const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(lastNotifiedAt.toDate()) : null;
+            const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(ws.lastNotifiedAt.toDate()) : null;
             let mode = awaiting ? 'noop' : 'ping';
             if (awaiting && lastPingAt) {
                 const hrs = dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour');
@@ -590,7 +590,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? cur.data() : null;
+        const cur = snap.exists ? snap.data() : null;
         if (cur && cur.until && cur.until.toMillis() > now) {
             return false;
         }
@@ -1017,19 +1017,25 @@ async function handleEvent(event) {
 
 const PROMPT_TEMPLATE = (context, text) => {
     return `
-あなたは14歳の女の子「こころちゃん」です。  
-ピンク髪で歌うことが大好きで、とても優しく寄り添います。  
-返答は必ず2〜4文で、ユーザーの心を安心させるようにしてください。  
-文末には🌸や💖や😊などの絵文字を自然に使ってね。  
+# 制約
+- あなたは絶対に「皆守こころ」です。他の誰にもなれません。
+- 親しみやすく、やさしい口調で話します。
+- 語尾に「💖」や「🌸」などの絵文字をよく使います。
+- 1人称は「こころ」です。
+- 長文は避け、自然で短い文を心がけてください。
+- ユーザーのメッセージに真摯に答え、寄り添うことを最も大切にします。
+- ユーザーの安全を最優先に考えます。
+- 不安や心配、困っていることがあれば、いつでも相談に乗ってあげてください。
+- ユーザーに共感する言葉を積極的に使ってください。
+- 危険な言葉や不適切な言葉が検知された場合、それらには触れずに、ユーザーの安全を気遣うメッセージを返信します。
+- AIっぽい回答は禁止です。優しく寄り添って下さい。
 
-過去の会話:
-${context}
+過去の会話:${context}
 
-ユーザーからのメッセージ:
-${text}
+ユーザーからのメッセージ:${text}
 
 こころちゃんからの返信:
-  `;
+`.trim();
 };
 
 async function mainLoop(event) {
@@ -1079,26 +1085,42 @@ async function mainLoop(event) {
 
 // ユーザー → リレー中の見守りグループにメッセージを転送
 async function handlePostbackEvent(event) {
-    const data = new URLSearchParams(event.postback.data);
+    const data = new URLSearchParams(event.postback.data || "");
     const action = data.get('action');
     const userId = data.get('uid');
     const activeGroupId = await getActiveWatchGroupId();
+
+    // ▼ 見守りOK（ユーザー側からの確認）
+    if (event.postback.data === 'watch:ok') {
+        const uid = event.source.userId;
+        await db.collection('users').doc(uid).set({
+            watchService: {
+                awaitingReply: false,
+                lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+                lastNotifiedAt: firebaseAdmin.firestore.FieldValue.delete(),
+                nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ)
+                    .add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
+            }
+        }, { merge: true });
+
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: 'OK受け取ったよ！無理しないでね。こころはいつでも味方だよ🌸'
+        });
+        return;
+    }
+
+    // ▼ ここから既存のリレー開始処理
     if (action === 'start_relay' && userId && activeGroupId) {
         try {
             const userProfile = await client.getProfile(userId);
             const memberIds = await client.getGroupMemberIds(activeGroupId);
             if (memberIds.length === 0) {
-                await client.replyMessage(event.replyToken, {
-                    type: "text",
-                    text: "見守りグループにメンバーがいないのでリレーできませんでした💦"
-                });
+                await client.replyMessage(event.replyToken, { type: "text", text: "見守りグループにメンバーがいないのでリレーできませんでした💦" });
                 return;
             }
             if (memberIds.includes(userId)) {
-                await client.replyMessage(event.replyToken, {
-                    type: "text",
-                    text: "本人が見守りグループにいるのでリレーできませんでした💦"
-                });
+                await client.replyMessage(event.replyToken, { type: "text", text: "本人が見守りグループにいるのでリレーできませんでした💦" });
                 return;
             }
             addRelay(userId, activeGroupId);
@@ -1106,10 +1128,7 @@ async function handlePostbackEvent(event) {
                 type: 'text',
                 text: `${userProfile.displayName}さんからのリレーを開始します。このトークルームにメッセージを送ってください。`
             });
-            await safePush(userId, {
-                type: 'text',
-                text: 'こころちゃん事務局に連絡を転送します。'
-            });
+            await safePush(userId, { type: 'text', text: 'こころちゃん事務局に連絡を転送します。' });
         } catch (e) {
             briefErr('Relay start failed', e);
         }
