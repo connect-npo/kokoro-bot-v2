@@ -685,7 +685,6 @@ const makeScamMessageFlex = (tel = '') => {
     const contents = [{
         type: "button",
         style: "primary",
-        color: "#32CD32",
         action: {
             type: "uri",
             label: "国民生活センター",
@@ -694,7 +693,6 @@ const makeScamMessageFlex = (tel = '') => {
     }, {
         type: "button",
         style: "primary",
-        color: "#FF4500",
         action: {
             type: "uri",
             label: "警察 (110)",
@@ -703,7 +701,6 @@ const makeScamMessageFlex = (tel = '') => {
     }, {
         type: "button",
         style: "primary",
-        color: "#FFA500",
         action: {
             type: "uri",
             label: "消費者ホットライン (188)",
@@ -713,7 +710,6 @@ const makeScamMessageFlex = (tel = '') => {
     const officeBtn = EMERGENCY_CONTACT_PHONE_NUMBER ? ({
         type: "button",
         style: "primary",
-        color: "#000000",
         action: {
             type: "uri",
             label: "こころちゃん事務局",
@@ -776,8 +772,7 @@ const makeRegistrationButtonsFlex = (userId) => ({
                     "uri": prefillUrl(AGREEMENT_FORM_BASE_URL, {
                         [AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID]: userId
                     })
-                },
-                "color": "#90EE90"
+                }
             }, {
                 "type": "button",
                 "style": "primary",
@@ -788,8 +783,7 @@ const makeRegistrationButtonsFlex = (userId) => ({
                     "uri": prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, {
                         [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: userId
                     })
-                },
-                "color": "#ADD8E6"
+                }
             }, {
                 "type": "button",
                 "style": "primary",
@@ -800,8 +794,7 @@ const makeRegistrationButtonsFlex = (userId) => ({
                     "uri": prefillUrl(ADULT_FORM_BASE_URL, {
                         [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: userId
                     })
-                },
-                "color": "#87CEFA"
+                }
             }, {
                 "type": "button",
                 "style": "primary",
@@ -812,8 +805,7 @@ const makeRegistrationButtonsFlex = (userId) => ({
                     "uri": prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, {
                         [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId
                     })
-                },
-                "color": "#FFC0CB"
+                }
             }, {
                 "type": "button",
                 "style": "primary",
@@ -824,42 +816,9 @@ const makeRegistrationButtonsFlex = (userId) => ({
                     "uri": prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, {
                         [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId
                     })
-                },
-                "color": "#DDA0DD"
+                }
             }
         ]
-    }
-});
-
-const makeWatchToggleFlex = (enabled) => ({
-    type: 'bubble',
-    body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [{
-            type: 'text',
-            text: '見守りサービス',
-            weight: 'bold',
-            size: 'xl'
-        }, {
-            type: 'text',
-            text: enabled ? '現在：有効' : '現在：停止',
-            margin: 'md'
-        }]
-    },
-    footer: {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "sm",
-        "contents": [{
-            "type": "button",
-            "style": "primary",
-            "action": {
-                "type": "postback",
-                "label": enabled ? "見守りを停止する" : "見守りを有効にする",
-                "data": enabled ? "watch:disable" : "watch:enable"
-            }
-        }]
     }
 });
 
@@ -1082,8 +1041,7 @@ async function handleFollowEvent(event) {
                         "uri": prefillUrl(AGREEMENT_FORM_BASE_URL, {
                             [AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID]: userId
                         })
-                    },
-                    "color": "#90EE90"
+                    }
                 }, {
                     "type": "button",
                     "style": "primary",
@@ -1094,8 +1052,7 @@ async function handleFollowEvent(event) {
                         "uri": prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, {
                             [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: userId
                         })
-                    },
-                    "color": "#ADD8E6"
+                    }
                 }, {
                     "type": "button",
                     "style": "primary",
@@ -1106,8 +1063,7 @@ async function handleFollowEvent(event) {
                         "uri": prefillUrl(ADULT_FORM_BASE_URL, {
                             [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: userId
                         })
-                    },
-                    "color": "#87CEFA"
+                    }
                 }, ]
             }
         }
@@ -1307,7 +1263,7 @@ async function handleEvent(event) {
         await ref.set({
             watchService: {
                 awaitingReply: false,
-                lastReplyAt: Timestamp.now()
+                lastReplyAt: Timestamp.now(),
             }
         }, {
             merge: true
@@ -1388,8 +1344,15 @@ async function handleEvent(event) {
 
     if (isDangerMessage(text)) {
         await client.replyMessage(event.replyToken, DANGER_REPLY);
-        if (SEND_OFFICER_ALERTS && OFFICER_GROUP_ID) {
-            await safePush(OFFICER_GROUP_ID, {
+        
+        // 送信先を OFFICER_GROUP_ID → アクティブな見守りグループに変更
+        const targetGroupId =
+            (await getActiveWatchGroupId()) ||
+            process.env.WATCH_GROUP_ID ||
+            OFFICER_GROUP_ID;
+
+        if (SEND_OFFICER_ALERTS && targetGroupId) {
+            await safePush(targetGroupId, {
                 type: 'text',
                 text: `【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${sanitizeForLog(text)}`
             });
@@ -1409,7 +1372,7 @@ async function handleEvent(event) {
         return;
     }
     // 雑談機能（mainLoop）をコメントアウト
-    // await mainLoop(event);
+    await mainLoop(event);
     
     try {
       const WATCH_GROUP_ID = await getActiveWatchGroupId();
