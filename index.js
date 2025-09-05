@@ -18,10 +18,8 @@ const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const {
-    GoogleGenerativeAI
-} = require('@google/generative-ai');
-const OpenAI = require('openai');
+// const { GoogleGenerativeAI } = require('@google/generative-ai');
+// const OpenAI = require('openai');
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 const {
@@ -167,6 +165,7 @@ const PING_HOUR_JST = 15;
 const PING_INTERVAL_DAYS = 3;
 const REMINDER_AFTER_HOURS = 24;
 const ESCALATE_AFTER_HOURS = 29;
+const OFFICER_NOTIFICATION_MIN_GAP_HOURS = 12;
 
 function toJstParts(date) {
     const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
@@ -206,6 +205,8 @@ const watchMessages = [
 ];
 const pickWatchMsg = () => watchMessages[Math.floor(Math.random() * watchMessages.length)];
 
+const nextPingAtFrom = (fromDate) =>
+    dayjs(fromDate).tz(JST_TZ).add(3, 'day').hour(15).minute(0).second(0).millisecond(0).toDate();
 
 async function scheduleNextPing(userId, fromDate = new Date()) {
     const nextAt = dayjs(fromDate).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate();
@@ -247,70 +248,6 @@ async function safePush(to, messages) {
     }
 }
 
-async function fetchTargets() {
-    const now = dayjs().utc();
-    const usersRef = db.collection('users');
-    const targets = [];
-    try {
-        const snap = await usersRef
-            .where('watchService.awaitingReply', '==', false)
-            .where('watchService.nextPingAt', '<=', now.toDate())
-            .limit(200)
-            .get();
-        targets.push(...snap.docs);
-    } catch (e) {
-        const snap = await usersRef.limit(500).get();
-        for (const d of snap.docs) {
-            const ws = (d.data().watchService) ||
-                {};
-            if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
-                targets.push(d);
-            }
-        }
-    }
-    try {
-        const snap = await usersRef
-            .where('watchService.awaitingReply', '==', true)
-            .limit(200)
-            .get();
-        targets.push(...snap.docs);
-    } catch (e) {
-        const snap = await usersRef.limit(500).get();
-        for (const d of snap.docs) {
-            const ws = (d.data().watchService) ||
-                {};
-            if (ws.awaitingReply === true) {
-                targets.push(d);
-            }
-        }
-    }
-    const map = new Map();
-    for (const d of targets) map.set(d.id, d);
-    return Array.from(map.values());
-}
-
-async function warmupFill() {
-    const now = dayjs().utc();
-    const usersRef = db.collection('users');
-    const snap = await usersRef.limit(200).get();
-    let batch = db.batch(),
-        cnt = 0;
-    for (const d of snap.docs) {
-        const ws = (d.data().watchService) || {};
-        if (!ws.awaitingReply && !ws.nextPingAt) {
-            batch.set(d.ref, {
-                watchService: {
-                    enabled: true,
-                    nextPingAt: Timestamp.now()
-                }
-            }, {
-                merge: true
-            });
-            cnt++;
-        }
-    }
-    if (cnt) await batch.commit();
-}
 
 const getWatchGroupDoc = () => firebaseAdmin.firestore()
     .collection('system').doc('watch_group');
@@ -324,7 +261,6 @@ async function getActiveWatchGroupId() {
 }
 
 async function setActiveWatchGroupId(gid) {
-    // 空ならクリア
     if (!gid) {
         await getWatchGroupDoc().set({
             groupId: firebaseAdmin.firestore.FieldValue.delete(),
@@ -343,107 +279,135 @@ async function setActiveWatchGroupId(gid) {
     });
 }
 
-const OFFICER_NOTIFICATION_MIN_GAP_HOURS = Number(process.env.OFFICER_NOTIFICATION_MIN_GAP_HOURS || 1);
-const maskPhone = p => {
-    const v = String(p || '').replace(/[^0-9+]/g, '');
-    if (!v) return '—';
-    return v.length <= 4 ? `**${v}` : `${'*'.repeat(Math.max(0, v.length - 4))}${v.slice(-4)}`;
+const maskPhone = (raw='') => {
+    const s = String(raw).replace(/[^0-9+]/g, '');
+    if (!s) return '';
+    const tail = s.slice(-4);
+    const head = s.slice(0, -4).replace(/[0-9]/g, '＊');
+    return head + tail;
 };
-const telMsgBtn = (label, p) => p ?
-    ({
-        type: 'button',
-        style: 'secondary',
-        action: {
-            type: 'uri',
-            label,
-            uri: `tel:${String(p).replace(/[^0-9+]/g, '')}`
-        }
-    }) : null;
-const buildWatcherFlex = ({
-    name = '—',
-    address = '—',
-    selfPhone = '',
-    kinName = '',
-    kinPhone = '',
-    userId
-}) => {
+
+const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
+    const name = u?.profile?.displayName || u?.displayName || '(不明)';
+    const tel  = String(telRaw || '').trim();
+    const masked = tel ? maskPhone(tel) : '未登録';
     return {
         type: 'flex',
-        altText: '【見守りアラート】',
+        altText: `🚨未応答: ${name} / ${elapsedHours}時間`,
         contents: {
             type: 'bubble',
             body: {
-                type: 'box',
-                layout: 'vertical',
-                spacing: 'sm',
-                contents: [{
-                    type: 'text',
-                    text: '【見守りアラート】',
-                    weight: 'bold',
-                    size: 'lg'
-                }, {
-                    type: 'text',
-                    text: `利用者：${name}`,
-                    wrap: true
-                }, {
-                    type: 'text',
-                    text: `住所：${address ||
-                        '—'}`,
-                    size: 'sm',
-                    wrap: true
-                }, {
-                    type: 'text',
-                    text: `本人TEL：${maskPhone(selfPhone)}`,
-                    size: 'sm',
-                    color: '#777777'
-                }, {
-                    type: 'text',
-                    text: `近親者：${kinName ||
-                        '—'}（${maskPhone(kinPhone)}）`,
-                    size: 'sm',
-                    color: '#777777',
-                    wrap: true
-                }, ]
+                type: 'box', layout: 'vertical', spacing: 'md',
+                contents: [
+                    { type: 'text', text: '🚨 見守り未応答', weight: 'bold', size: 'xl' },
+                    { type: 'text', text: `ユーザー名：${name}`, wrap: true },
+                    { type: 'text', text: `UserID：${userId}`, size: 'sm', color: '#888', wrap: true },
+                    { type: 'text', text: `経過：${elapsedHours}時間`, wrap: true },
+                    { type: 'separator', margin: 'md' },
+                    { type: 'text', text: `連絡先（マスク）：${masked}`, wrap: true },
+                ]
             },
             footer: {
-                type: 'box',
-                layout: 'vertical',
-                spacing: 'sm',
-                contents: [{
-                    type: 'button',
-                    style: 'primary',
-                    action: {
-                        type: 'postback',
-                        label: 'LINEで連絡',
-                        data: `action=start_relay&uid=${encodeURIComponent(userId)}`
-                    }
-                },
-                telMsgBtn('本人に電話', selfPhone),
-                telMsgBtn('近親者に電話', kinPhone),
-                ].filter(Boolean)
+                type: 'box', layout: 'vertical', spacing: 'md',
+                contents: tel ? [{
+                    type: 'button', style: 'primary',
+                    action: { type: 'uri', label: '📞 発信する', uri: `tel:${tel}` }
+                }] : [{ type: 'text', text: '※TEL未登録', size: 'sm', color: '#888' }]
             }
         }
     };
 };
 
-function watchLog(msg, level = 'info') {
-    if (WATCH_LOG_LEVEL === 'silent') return;
-    if (WATCH_LOG_LEVEL === 'error' && level !== 'error') return;
-    console.log(msg);
-}
-const logDebug = (msg) => watchLog(msg, 'info');
 async function checkAndSendPing() {
-    const now = dayjs().utc();
-    logDebug(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
-    await warmupFill();
-    const targets = await fetchTargets();
+    const now = dayjs().tz('UTC');
+    console.log(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
+
+    // 欠落自己修復（nextPingAtが無い enabledユーザーに初期値）
+    const warmupFill = async (now) => {
+        const usersRef = db.collection('users');
+        const snap = await usersRef.where('watchService.enabled', '==', true).limit(200).get();
+        let batch = db.batch(), cnt=0;
+        for (const d of snap.docs) {
+            const ws = (d.data().watchService)||{};
+            if (!ws.awaitingReply && !ws.nextPingAt) {
+                batch.set(d.ref, {
+                    watchService: {
+                        nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(now.toDate()))
+                    }
+                }, { merge:true });
+                cnt++;
+            }
+        }
+        if (cnt) await batch.commit();
+    };
+
+    // インデックス未作成でも動く“フォールバック”付き取得
+    const fetchTargets = async (now) => {
+        const usersRef = db.collection('users');
+        const targets = [];
+        try {
+            const snap = await usersRef
+                .where('watchService.enabled', '==', true)
+                .where('watchService.awaitingReply', '==', false)
+                .where('watchService.nextPingAt', '<=', now.toDate())
+                .limit(200)
+                .get();
+            targets.push(...snap.docs);
+        } catch (e) {
+            const snap = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
+            for (const d of snap.docs) {
+                const ws = (d.data().watchService)||{};
+                if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
+                    targets.push(d);
+                }
+            }
+        }
+        try {
+            const snap = await usersRef
+                .where('watchService.enabled', '==', true)
+                .where('watchService.awaitingReply', '==', true)
+                .limit(200)
+                .get();
+            targets.push(...snap.docs);
+        } catch (e) {
+            const snap = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
+            for (const d of snap.docs) {
+                const ws = (d.data().watchService)||{};
+                if (ws.awaitingReply === true) targets.push(d);
+            }
+        }
+        const map = new Map();
+        for (const d of targets) map.set(d.id, d);
+        return Array.from(map.values());
+    };
+
+    await warmupFill(now);
+    const targets = await fetchTargets(now);
     if (targets.length === 0) {
-        logDebug('[watch-service] no targets.');
+        console.log('[watch-service] no targets.');
         return;
     }
-    const WATCH_GROUP_ID = await getActiveWatchGroupId();
     for (const doc of targets) {
         const ref = doc.ref;
+        const locked = await db.runTransaction(async (tx) => {
+            const s = await tx.get(ref);
+            const u = s.data() || {};
+            const ws = u.watchService || {};
+            const nowTs = firebaseAdmin.firestore.Timestamp.now();
+            const lockUntil = ws.notifyLockExpiresAt?.toDate?.() || new Date(0);
+            if (lockUntil.getTime() > nowTs.toMillis()) return false;
+
+            const nextPingAt = ws.nextPingAt?.toDate?.() || null;
+            const awaiting = !!ws.awaitingReply;
+            if (!awaiting && (!nextPingAt || nextPingAt.getTime() > nowTs.toMillis())) return false;
+
+            const until = new Date(nowTs.toMillis() + 120 * 1000);
+            tx.set(ref, { watchService: { notifyLockExpiresAt: firebaseAdmin.firestore.Timestamp.fromDate(until) } }, { merge: true });
+            return true;
+        });
+
+        if (!locked) continue;
+
         try {
             const s = await ref.get();
             const u = s.data() || {};
@@ -452,6 +416,7 @@ async function checkAndSendPing() {
             const lastPingAt = ws.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
             const lastReminderAt = ws.lastReminderAt?.toDate?.() ? dayjs(ws.lastReminderAt.toDate()) : null;
             const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(ws.lastNotifiedAt.toDate()) : null;
+
             let mode = awaiting ? 'noop' : 'ping';
             if (awaiting && lastPingAt) {
                 const hrs = dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour');
@@ -461,9 +426,12 @@ async function checkAndSendPing() {
                     else mode = 'noop';
                 } else mode = 'noop';
             }
+
             if (mode === 'noop') {
+                await ref.set({ watchService: { notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete() } }, { merge: true });
                 continue;
             }
+
             if (mode === 'ping') {
                 await safePush(doc.id, [{
                     type: 'text',
@@ -511,6 +479,7 @@ async function checkAndSendPing() {
                         awaitingReply: true,
                         nextPingAt: firebaseAdmin.firestore.FieldValue.delete(),
                         lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+                        notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
                     },
                 }, {
                     merge: true
@@ -558,77 +527,69 @@ async function checkAndSendPing() {
                 await ref.set({
                     watchService: {
                         lastReminderAt: firebaseAdmin.firestore.Timestamp.now(),
+                        notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
                     },
                 }, {
                     merge: true
                 });
             } else if (mode === 'escalate') {
-                const canNotifyOfficer =
-                    (WATCH_GROUP_ID && WATCH_GROUP_ID.trim()) &&
-                    (!lastNotifiedAt || dayjs().utc().diff(dayjs(lastNotifiedAt).utc(), 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
-                if (!WATCH_GROUP_ID) watchLog('[watch] WATCH_GROUP_ID is empty. escalation skipped.', 'error');
-                if (canNotifyOfficer) {
+                // 通知先は「アクティブな見守りグループ」> WATCH_GROUP_ID > OFFICER_GROUP_ID の順で採用
+                const targetGroupId =
+                    (await getActiveWatchGroupId()) ||
+                    process.env.WATCH_GROUP_ID ||
+                    process.env.OFFICER_GROUP_ID;
+
+                const canNotify = targetGroupId && (!lastNotifiedAt || now.diff(lastNotifiedAt, 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
+
+                if (canNotify) {
+                    // ← ここでユーザーデータをちゃんと取得する
                     const udoc = await db.collection('users').doc(doc.id).get();
-                    const u = udoc.exists ? (udoc.data() || {}) : {};
-                    const prof = u.profile || {};
-                    const emerg = u.emergency || {};
-                    await safePush(WATCH_GROUP_ID, buildWatcherFlex({
-                        name: prof.name || prof.displayName || '—',
-                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                        selfPhone: prof.phone || '',
-                        kinName: emerg.contactName || '',
-                        kinPhone: emerg.contactPhone || '',
-                        userId: doc.id
-                    }));
+                    const udata = udoc.exists ? (udoc.data() || {}) : {};
+
+                    const elapsedH = lastPingAt ? dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour') : ESCALATE_AFTER_HOURS;
+
+                    // 電話番号の解決：プロフィール or 緊急連絡先 or 事務局
+                    const tel =
+                        udata?.profile?.phone ||
+                        udata?.emergency?.contactPhone ||
+                        EMERGENCY_CONTACT_PHONE_NUMBER ||
+                        '';
+
+                    const flex = buildWatchFlex(udata, doc.id, elapsedH, tel);
+
+                    await safePush(targetGroupId, [
+                        { type: 'text', text: '🚨見守り未応答が発生しました。対応可能な方はお願いします。' },
+                        flex
+                    ]);
                 }
+
                 await ref.set({
                     watchService: {
-                        lastNotifiedAt: Timestamp.now(),
+                        lastNotifiedAt: firebaseAdmin.firestore.Timestamp.now(),
                         awaitingReply: false,
                         lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
-                        nextPingAt: Timestamp.fromDate(dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate()),
+                        nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(dayjs().tz(JST_TZ).toDate())),
+                        notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
                     },
-                }, {
-                    merge: true
-                });
+                }, { merge: true });
             }
         } catch (e) {
             console.error('[ERROR] send/update failed:', e?.response?.data || e.message);
+            await ref.set({
+                watchService: {
+                    notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete()
+                }
+            }, {
+                merge: true
+            });
         }
     }
-    logDebug(`[watch-service] end ${dayjs().utc().format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
+    console.log(`[watch-service] end ${dayjs().tz('UTC').format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 }
 
-async function withLock(lockId, ttlSec, fn) {
-    const ref = db.collection('locks').doc(lockId);
-    return db.runTransaction(async tx => {
-        const snap = await tx.get(ref);
-        const now = Date.now();
-        const until = now + ttlSec * 1000;
-        const cur = snap.exists ? snap.data() : null;
-        if (cur && cur.until && cur.until.toMillis() > now) {
-            return false;
-        }
-        tx.set(ref, {
-            until: Timestamp.fromMillis(until)
-        });
-        return true;
-    }).then(async acquired => {
-        if (!acquired) {
-            watchLog(`[watch-service] Lock acquisition failed, skipping.`, 'info');
-            return false;
-        }
-        try {
-            await fn();
-        } finally {
-            await db.collection('locks').doc(lockId).delete().catch(() => {});
-        }
-        return true;
-    });
-}
 if (WATCH_RUNNER !== 'external') {
     cron.schedule('*/5 * * * *', () => {
-        withLock('watch-cron', 240, checkAndSendPing);
+        checkAndSendPing().catch(err => console.error('Cron job error:', err));
     }, {
         scheduled: true,
         timezone: 'UTC'
@@ -805,7 +766,6 @@ const makeRegistrationButtonsFlex = (userId) => ({
         "layout": "vertical",
         "spacing": "sm",
         "contents": [
-            // ★ 小学生（同意書フォーム）
             {
                 "type": "button",
                 "style": "primary",
@@ -888,16 +848,16 @@ const makeWatchToggleFlex = (enabled) => ({
         }]
     },
     footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [{
-            type: 'button',
-            style: 'primary',
-            action: {
-                type: 'postback',
-                label: enabled ? '見守りを停止する' : '見守りを有効にする',
-                data: enabled ? 'watch:disable' : 'watch:enable'
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [{
+            "type": "button",
+            "style": "primary",
+            "action": {
+                "type": "postback",
+                "label": enabled ? "見守りを停止する" : "見守りを有効にする",
+                "data": enabled ? "watch:disable" : "watch:enable"
             }
         }]
     }
@@ -1010,7 +970,7 @@ app.get('/cron/watch-ping', async (req, res) => {
         res.status(403).send('Forbidden: Not running in external cron mode.');
         return;
     }
-    await withLock('watch-cron', 240, checkAndSendPing);
+    await checkAndSendPing();
     res.send('OK');
 });
 
@@ -1020,7 +980,6 @@ async function handlePostbackEvent(event, userId) {
     const data = new URLSearchParams(postback.data);
     const action = data.get('action');
 
-    // 2) 「LINEで連絡」からリレーが始まらない
     if (action === 'start_relay') {
         const targetUserId = data.get('uid');
         const groupId = event.source.groupId || event.source.roomId;
@@ -1077,6 +1036,7 @@ async function handlePostbackEvent(event, userId) {
             packageId: '6325',
             stickerId: '10979913'
         }]);
+        return;
     }
 }
 
@@ -1089,10 +1049,9 @@ async function handleFollowEvent(event) {
     if (!profile) {
         await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: 'こんにちは🌸 こころちゃんです。利用規約とプライバシーポリシーに同意の上、会員登録をお願いします。\n\▶︎ 利用規約：https://... \n\n▶︎ プライバシーポリシー：https://...'
+            text: 'こんにちは🌸 こころちゃんです。利用規約とプライバシーポリシーに同意の上、会員登録をお願いします。\n\n▶︎ 利用規約：https://... \n\n▶︎ プライバシーポリシー：https://...'
         });
     }
-    // 登録ボタンのメニュー
     await client.pushMessage(userId, {
         type: 'flex',
         altText: '会員登録メニュー',
@@ -1227,7 +1186,6 @@ const isHomepageIntent = (t) => {
     return hit || shortOnly;
 };
 
-// --- キーワードリスト (詳細版) ---
 const DANGER_WORDS = [
     "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "OD", "オーバードーズ", "殴られる", "たたかれる", "暴力", "DV", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "つらい", "苦しい", "くるしい", "助けて", "たすけて", "死んでやる", "死んでしまいたい", "消えてしまいたい", "生きるのがつらい", "もう無理", "もういやだ", "誰かに相談したい", "相談したい", "相談に乗って", "助けてください"
 ];
@@ -1240,7 +1198,6 @@ const INAPPROPRIATE_WORDS = [
 const SWEAR_WORDS = ["しね", "死ね"];
 
 
-// --- 検知ロジック (詳細版) ---
 function isDangerMessage(text) {
     const norm = normalizeJa(text);
     return DANGER_WORDS.some(word => norm.includes(normalizeJa(word)));
@@ -1281,12 +1238,51 @@ async function mainLoop(event) {
 // === handleEvent ===
 async function handleEvent(event) {
     const userId = event.source.userId;
-    const isUser = event.source.type === 'user';
+    const isUser  = event.source.type === 'user';
     const isGroup = event.source.type === 'group';
-    const isRoom = event.source.type === 'room';
+    const isRoom  = event.source.type === 'room';
+    const groupId = event.source.groupId || event.source.roomId || null;
     const text = event.message.type === 'text' ? event.message.text : '';
     const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
     const isOwner = userId === OWNER_USER_ID;
+
+    // ーーー グループ/ルーム内の処理（最優先でreturn）ーーー
+    if (isGroup || isRoom) {
+      // 明示設定: このグループを見守りグループにする
+      if (text.includes('@見守りグループにする')) {
+        await setActiveWatchGroupId(groupId);
+        await client.replyMessage(event.replyToken, { type:'text', text:'OK！このグループを見守りグループとして設定したよ😊' });
+        return;
+      }
+
+      // /relay <userId> でリレー開始
+      if (/^\/relay\s+/.test(text)) {
+        const m = text.trim().match(/^\/relay\s+([0-9A-Za-z_-]{10,})/);
+        if (!m) {
+          await client.replyMessage(event.replyToken, { type:'text', text:'使い方: /relay <ユーザーID>' });
+          return;
+        }
+        const targetUserId = m[1];
+        await relays.start(groupId, targetUserId, userId);
+        await safePush(targetUserId, { type:'text', text:'事務局（見守りグループ）とつながりました。ここで会話できます🌸（終了は /end）' });
+        await client.replyMessage(event.replyToken, { type:'text', text:'リレーを開始しました。このグループの発言は本人に届きます。終了は /end' });
+        return;
+      }
+
+      // /end でリレー終了
+      if (text.trim() === '/end') {
+        await relays.stop(groupId);
+        await client.replyMessage(event.replyToken, { type:'text', text:'リレーを終了しました。' });
+        return;
+      }
+
+      // リレー中なら、グループの発言を本人へ転送
+      const r = await relays.get(groupId);
+      if (r?.isActive && r?.userId && event.message?.type === 'text') {
+        await safePush(r.userId, { type:'text', text:`【見守り】${text}` });
+      }
+      return; // グループ内はここで完了
+    }
 
     // --- 先に「ホームページ系」だけ特別対応（誤検知防止） ---
     if (isHomepageIntent(text)) {
@@ -1297,15 +1293,12 @@ async function handleEvent(event) {
         return;
     }
 
-    // ユーザー情報の取得（キャッシュ可能）
     let u = (await db.collection('users').doc(userId).get()).data() || {};
     const memberType = u.profile?.memberType || 'guest';
     const config = MEMBERSHIP_CONFIG[memberType];
 
-    // 見守りサービス関連
     const enabled = !!(u.watchService && u.watchService.enabled);
 
-    // 見守りサービスの応答
     if (isUser && enabled && u.watchService?.awaitingReply && (
         text.match(/^(ok|大丈夫|はい|げんき|元気|おけー|おっけ|okだよ|問題ない|なんとか|ありがとう)/i) ||
         stickerId.match(/^(11537|11538|52002734|52002735|52002741|52002742|52002758|52002759|52002766|52002767)$/i)
@@ -1331,7 +1324,6 @@ async function handleEvent(event) {
         return;
     }
 
-    // 見守り停止/有効の出し分け
     if (/見守り停止|見守り有効|見守り(設定|ステータス)/.test(text)) {
         const enabled = !!(u.watchService && u.watchService.enabled);
         await client.replyMessage(event.replyToken, {
@@ -1342,7 +1334,6 @@ async function handleEvent(event) {
         return;
     }
 
-    // 登録関連
     const REGISTRATION_INTENT = /(会員登録|入会|メンバー登録|登録したい)/i;
     if (REGISTRATION_INTENT.test(text)) {
         await client.replyMessage(event.replyToken, {
@@ -1353,7 +1344,6 @@ async function handleEvent(event) {
         return;
     }
 
-    // グループ関連
     if (isGroup || isRoom) {
         if (/^(id|ID|グループid)/.test(text)) {
             await client.replyMessage(event.replyToken, {
@@ -1364,7 +1354,16 @@ async function handleEvent(event) {
         }
     }
 
-    // --- 危険/詐欺ワード検知 ---
+    // --- 危険/詐欺ワード検知直前にログを追加 ---
+    console.log('[DETECT]', {
+        uid: userId?.slice(-6),
+        text,
+        danger: isDangerMessage(text),
+        scam: isScamMessage(text),
+        bad: isInappropriateMessage(text),
+        swear: isSwearMessage(text)
+    });
+
     const DANGER_REPLY = {
         type: 'flex',
         altText: '緊急連絡先',
@@ -1383,9 +1382,9 @@ async function handleEvent(event) {
         type: 'text',
         text: 'そういう言葉を使うと、こころちゃん悲しくなっちゃうな…😢'
     };
-    const INAPPROPRIATE_REPLY_REDACTED = [
-        INAPPROPRIATE_REPLY_MESSAGE_REDACTED
-    ];
+    
+    // 未定義シンボルを参照していた2行を削除
+    // const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
 
     if (isDangerMessage(text)) {
         await client.replyMessage(event.replyToken, DANGER_REPLY);
@@ -1409,12 +1408,9 @@ async function handleEvent(event) {
         await client.replyMessage(event.replyToken, SWEAR_REPLY);
         return;
     }
-    // ここまで
-
-    // ユーザーからのメッセージを処理
-    await mainLoop(event);
+    // 雑談機能（mainLoop）をコメントアウト
+    // await mainLoop(event);
     
-    // 3) 本人→グループの転送が来ない (修正後の配置)
     try {
       const WATCH_GROUP_ID = await getActiveWatchGroupId();
       const r = await relays.get(WATCH_GROUP_ID);
