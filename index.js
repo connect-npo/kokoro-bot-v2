@@ -557,14 +557,18 @@ async function checkAndSendPing() {
                     const u = udoc.exists ? (udoc.data() || {}) : {};
                     const prof = u.profile || {};
                     const emerg = u.emergency || {};
-                    await safePush(WATCH_GROUP_ID, buildWatcherFlex({
-                        name: prof.name || prof.displayName || '—',
-                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                        selfPhone: prof.phone || '',
-                        kinName: emerg.contactName || '',
-                        kinPhone: emerg.contactPhone || '',
-                        userId: doc.id
-                    }));
+                    await safePush(WATCH_GROUP_ID, {
+                        type: 'flex',
+                        altText: '危険ワード通知',
+                        contents: buildWatcherFlex({
+                            name: prof.name || prof.displayName || '—',
+                            address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                            selfPhone: prof.phone || '',
+                            kinName: emerg.contactName || '',
+                            kinPhone: emerg.contactPhone || '',
+                            userId: doc.id
+                        })
+                    });
                 }
                 await ref.set({
                     watchService: {
@@ -878,6 +882,23 @@ async function handleEvent(event) {
     const activeGroupId = await getActiveWatchGroupId();
     const isWatchGroup = source.type === 'group' && source.groupId === activeGroupId;
 
+    // 特殊コマンド先出し
+    if (text === "会員登録") {
+        await client.replyMessage(replyToken, {
+            type: "flex",
+            altText: "会員登録メニュー",
+            contents: makeRegistrationButtonsFlex(userId)
+        });
+        return;
+    }
+    if (text === "見守り") {
+        await client.replyMessage(replyToken, {
+            type: "text",
+            text: "見守りサービスを利用できます🌸 ボタンや設定から登録してね！"
+        });
+        return;
+    }
+
     // リレー中の場合
     const relay = getRelay(userId);
     if (relay && !isWatchGroup) {
@@ -929,6 +950,21 @@ async function handleEvent(event) {
         merge: true
     });
     // --- 危険/詐欺ワード検知 ---
+    const systemPrompt = `
+# 制約
+- あなたは絶対に「皆守こころ」です。他の誰にもなれません。
+- 親しみやすく、やさしい口調で話します。
+- 語尾に「💖」や「🌸」などの絵文字をよく使います。
+- 1人称は「こころ」です。
+- 長文は避け、自然で短い文を心がけてください。
+- ユーザーのメッセージに真摯に答え、寄り添うことを最も大切にします。
+- ユーザーの安全を最優先に考えます。
+- 不安や心配、困っていることがあれば、いつでも相談に乗ってあげてください。
+- ユーザーに共感する言葉を積極的に使ってください。
+- 危険な言葉や不適切な言葉が検知された場合、それらには触れずに、ユーザーの安全を気遣うメッセージを返信します。
+- AIっぽい回答は禁止です。優しく寄り添って下さい。
+`.trim();
+
     if (isDangerMessage(text)) {
         console.log('[DETECT] DANGER for uid-tail:', userId.slice(-6));
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -936,7 +972,7 @@ async function handleEvent(event) {
             model: OPENAI_MODEL || 'gpt-4o',
             messages: [{
                 role: "system",
-                content: "あなたは14歳の優しい女の子『こころちゃん』です。心に寄り添い、安心させる返答をしてください。返答は2〜4文、絵文字も少し使ってOK。"
+                content: systemPrompt
             }, {
                 role: "user",
                 content: text
@@ -980,7 +1016,7 @@ async function handleEvent(event) {
             model: OPENAI_MODEL || 'gpt-4o',
             messages: [{
                 role: "system",
-                content: "あなたは14歳の優しい女の子『こころちゃん』です。心に寄り添い、安心させる返答をしてください。返答は2〜4文、絵文字も少し使ってOK。"
+                content: systemPrompt
             }, {
                 role: "user",
                 content: `以下の怪しい内容について、やさしく注意喚起してください: ${text}`
@@ -1038,19 +1074,17 @@ async function handleEvent(event) {
 
 const PROMPT_TEMPLATE = (context, text) => {
     return `
-# 制約
-- あなたは絶対に「皆守こころ」です。他の誰にもなれません。
-- 親しみやすく、やさしい口調で話します。
-- 語尾に「💖」や「🌸」などの絵文字をよく使います。
-- 1人称は「こころ」です。
-- 長文は避け、自然で短い文を心がけてください。
-- ユーザーのメッセージに真摯に答え、寄り添うことを最も大切にします。
-- ユーザーの安全を最優先に考えます。
-- 不安や心配、困っていることがあれば、いつでも相談に乗ってあげてください。
-- ユーザーに共感する言葉を積極的に使ってください。
-- 危険な言葉や不適切な言葉が検知された場合、それらには触れずに、ユーザーの安全を気遣うメッセージを返信します。
-- AIっぽい回答は禁止です。優しく寄り添って下さい。
-
+あなたは絶対に「皆守こころ」です。他の誰にもなれません。
+親しみやすく、やさしい口調で話します。
+語尾に「💖」や「🌸」などの絵文字をよく使います。
+1人称は「こころ」です。
+長文は避け、自然で短い文を心がけてください。
+ユーザーのメッセージに真摯に答え、寄り添うことを最も大切にします。
+ユーザーの安全を最優先に考えます。
+不安や心配、困っていることがあれば、いつでも相談に乗ってあげてください。
+ユーザーに共感する言葉を積極的に使ってください。
+危険な言葉や不適切な言葉が検知された場合、それらには触れずに、ユーザーの安全を気遣うメッセージを返信します。
+AIっぽい回答は禁止です。優しく寄り添って下さい。
 
 過去の会話:${context}
 
@@ -1085,7 +1119,7 @@ async function mainLoop(event) {
             const resp = await openai.chat.completions.create({
                 model: "gpt-4o-mini",
                 messages: [
-                    { role: "system", content: "あなたは14歳の女の子『こころちゃん』です。常に優しく寄り添ってください。返答は2〜4文で、絵文字を自然に少し。" },
+                    { role: "system", content: "あなたは14歳の女の子『皆守こころ』です。親しみやすく、やさしい口調で話します。絵文字を自然に使い、長文は避けてください。ユーザーの安全を第一に考え、真摯に寄り添ってください。AIっぽい回答は禁止です。危険な言葉が検知されても、それに触れずに安全を気遣うメッセージを返信します。" },
                     { role: "user", content: prompt }
                 ],
                 max_tokens: 300,
@@ -1112,7 +1146,7 @@ async function mainLoop(event) {
 async function handlePostbackEvent(event) {
     const data = new URLSearchParams(event.postback.data || "");
     const action = data.get('action');
-    const userId = data.get('uid');
+    const userId = event.source.userId;
     const activeGroupId = await getActiveWatchGroupId();
 
     // ▼ 見守りOK（ユーザー側からの確認）
@@ -1250,7 +1284,7 @@ app.post('/webhook', lineMiddleware, async (req, res) => {
                 if (event.type === 'message') {
                     await handleEvent(event);
                 } else if (event.type === 'postback') {
-                    await handlePostbackEvent(event, event.source.userId);
+                    await handlePostbackEvent(event);
                 } else if (event.type === 'follow') {
                     await handleFollowEvent(event);
                 } else if (event.type === 'unfollow') {
