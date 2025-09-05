@@ -533,17 +533,36 @@ async function checkAndSendPing() {
                     merge: true
                 });
             } else if (mode === 'escalate') {
-                const targetGroupId = process.env.WATCH_GROUP_ID || process.env.OFFICER_GROUP_ID;
+                // 通知先は「アクティブな見守りグループ」> WATCH_GROUP_ID > OFFICER_GROUP_ID の順で採用
+                const targetGroupId =
+                    (await getActiveWatchGroupId()) ||
+                    process.env.WATCH_GROUP_ID ||
+                    process.env.OFFICER_GROUP_ID;
+
                 const canNotify = targetGroupId && (!lastNotifiedAt || now.diff(lastNotifiedAt, 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
+
                 if (canNotify) {
+                    // ← ここでユーザーデータをちゃんと取得する
+                    const udoc = await db.collection('users').doc(doc.id).get();
+                    const udata = udoc.exists ? (udoc.data() || {}) : {};
+
                     const elapsedH = lastPingAt ? dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour') : ESCALATE_AFTER_HOURS;
-                    const tel = u?.profile?.emergencyPhone || u?.emergencyPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
-                    const flex = buildWatchFlex(u, doc.id, elapsedH, tel);
-                    await safePush(targetGroupId, [{
-                        type: 'text',
-                        text: '🚨見守り未応答が発生しました。対応可能な方はお願いします。'
-                    }, flex]);
+
+                    // 電話番号の解決：プロフィール or 緊急連絡先 or 事務局
+                    const tel =
+                        udata?.profile?.phone ||
+                        udata?.emergency?.contactPhone ||
+                        EMERGENCY_CONTACT_PHONE_NUMBER ||
+                        '';
+
+                    const flex = buildWatchFlex(udata, doc.id, elapsedH, tel);
+
+                    await safePush(targetGroupId, [
+                        { type: 'text', text: '🚨見守り未応答が発生しました。対応可能な方はお願いします。' },
+                        flex
+                    ]);
                 }
+
                 await ref.set({
                     watchService: {
                         lastNotifiedAt: firebaseAdmin.firestore.Timestamp.now(),
@@ -552,9 +571,7 @@ async function checkAndSendPing() {
                         nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(dayjs().tz(JST_TZ).toDate())),
                         notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
                     },
-                }, {
-                    merge: true
-                });
+                }, { merge: true });
             }
         } catch (e) {
             console.error('[ERROR] send/update failed:', e?.response?.data || e.message);
