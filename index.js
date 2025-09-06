@@ -50,6 +50,7 @@ const prefillUrl = (base, params) => {
     return url.toString();
 };
 
+
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -626,116 +627,6 @@ if (WATCH_RUNNER !== 'external') {
     });
 }
 
-// --- テキスト正規化ユーティリティ ---
-const z2h = s => String(s || '').normalize('NFKC');
-const hira = s => z2h(s).replace(/[ァ-ン]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
-const norm = s => hira(z2h(String(s || '').toLowerCase()));
-const softNorm = s => {
-    let t = norm(s);
-    t = t.replace(/ー+/g, ''); // 伸ばし棒
-    t = t.replace(/(.)\1{2,}/g, '$1$1'); // 連続文字圧縮
-    return t;
-};
-const includesAny = (text, words) => {
-    if (!text || !words?.length) return false;
-    const t = softNorm(text);
-    return words.some(w => t.includes(softNorm(w)));
-};
-const testAny = (text, patterns) => {
-    if (!text || !patterns?.length) return false;
-    const t = softNorm(text);
-    return patterns.some(re => (re.test(text) || re.test(t)));
-};
-
-
-// --- 固定応答プレースホルダ ---
-const CLARIS_CONNECT_COMPREHENSIVE_REPLY =
-    "ClariSさんとは無関係だよ🌸 団体名『コネクト』は“人と人を繋ぐ”想いから来ているの。安心してね💖";
-const CLARIS_SONG_FAVORITE_REPLY =
-    "ClariSさんの楽曲は素敵だよね✨ わたしは皆の気持ちに寄り添う曲調が好きだよ🌸";
-// --- 固定応答マップ ---
-const specialRepliesMap = new Map([
-    [/claris.*(関係|繋がり|関連|一緒|同じ|名前|由来).*(コネクト|団体|npo|法人|ルミナス|カラフル)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/(コネクト|団体|npo|法人|ルミナス|カラフル).*(関係|繋がり|関連|一緒|同じ|名前|由来).*claris/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/君のいるところと一緒の団体名だね\s*関係ある？/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisと関係あるのか聴いたんだけど/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisの歌を真似したのかな/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/NPOコネクトとClariSのコネクト繋がり/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisとコネクト/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisと団体名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisと法人名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-    [/clarisと.*(繋がり|関係)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-
-    [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i,
-        "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"
-    ],
-    [/こころじゃないの？/i, "うん、わたしの名前は皆守こころだよ💖　これからもよろしくね🌸"],
-    [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
-    [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでね💖"],
-
-    [/どこの団体なの？/i, "NPO法人コネクトのイメージキャラクターだよ😊 みんなの幸せを応援してるの🌸"],
-    [/コネクトってどんな団体？/i, "こどもやご年配の方の笑顔を守る団体だよ😊 わたしはイメージキャラとしてがんばってます🌸"],
-    [/お前の団体どこ？/i, "NPO法人コネクトのイメージキャラクターだよ😊 何かあれば気軽に話してね🌸"],
-    [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラ、皆守こころだよ🌸"],
-
-    [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸 どうしたの？ 話を聞かせてね💖"],
-    [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 いつでも話してね💖"],
-    [/元気？/i, "うん、元気だよ！あなたは元気？🌸 いつでも話してね💖"],
-    [/あやしい|胡散臭い|反社/i, "そう感じさせちゃったらごめんね😊 わたしたちは皆のために活動してるよ💖"],
-    [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしたちもその想いで活動してるよ💡"],
-    [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば教えてね🌱"],
-    [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸 → https://connect-npo.org"],
-    [/コネクトのホームページだよ？/i, "教えてくれてありがとう😊 → https://connect-npo.org"],
-    [/使えないな/i, "ごめんね…。もっと頑張るね💖 また話せたら嬉しいな🌸"],
-    [/サービス辞めるわ/i, "そっか…。気が向いたらいつでも話しかけてね🌸 ずっと応援してるよ💖"],
-    [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら呼んでね🌸"],
-    [/何も答えないじゃない/i, "ごめんね…。もっと頑張るね💖 何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
-    [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 まだ勉強中だけど、もっと良くするね💖 どんな会話がしたい？🌸"],
-    [/相談したい/i, "うん、お話きかせてね🌸 何があったの？💖"],
-    [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
-]);
-
-// --- 危険ワード（自傷・暴力・監視対象）---
-const DANGER_WORDS = [
-    "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
-    "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり",
-    "いじめ", "イジメ", "ハラスメント",
-    "つけられてる", "追いかけられている", "ストーカー", "すとーかー"
-];
-// --- 詐欺（正規表現で網羅）---
-const SCAM_PATTERNS = [
-    /詐欺(かも|だ|です|ですか|かもしれない)?/i,
-    /騙(す|される|された)/i,
-    /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
-    /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
-    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
-    /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
-    /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
-    /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /遠隔操作/i, /セキュリティ警告/i, /年金/i, /健康保険/i, /給付金/i,
-    /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
-    /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
-    /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
-];
-// --- アダルト/暴力系など“本当に止めたい”だけ（英語汚言は除外）---
-const INAPPROPRIATE_WORDS = [
-    "セックス", "セフレ", "エッチ", "av", "アダルト", "ポルノ", "童貞", "処女", "挿入", "射精",
-    "勃起", "パイズリ", "フェラチオ", "クンニ", "オナニー", "マスターベーション", "ペニス", "チンコ", "ヴァギナ", "マンコ",
-    "クリトリス", "乳首", "おっぱい", "お尻", "痴漢", "レイプ", "強姦", "売春", "買春", "援交", "援助交際",
-    "性病", "梅毒", "エイズ", "クラミジア", "淋病", "性器ヘルペス",
-    "近親相姦", "獣姦", "ネクロフィリア", "拷問", "レイプ殺人", "大量殺人", "テロ", "核兵器", "銃", "ナイフ", "刃物", "爆弾",
-    "暴力団", "ヤクザ", "マフィア", "テロリスト", "性犯罪者"
-];
-// ★ 子どもの軽口は“違反扱いしない” → あえて空or最小限に
-const SWEAR_WORDS = []; // ここは空でOK（停止祭り回避）
-
-// --- 判定関数（ここだけ使う）---
-const isDangerMessage = (text) => includesAny(text, DANGER_WORDS);
-const isScamMessage = (text) => testAny(text, SCAM_PATTERNS);
-const isInappropriateMessage = (text) => includesAny(text, INAPPROPRIATE_WORDS);
-// 子どもの軽口は拾わない方針
-const isSwearMessage = (_text) => false;
-
-
 // --- Flex Message テンプレート (緊急時連絡先) ---
 const EMERGENCY_FLEX_MESSAGE = {
     "type": "bubble",
@@ -923,7 +814,41 @@ const INAPPROPRIATE_REPLY_MESSAGE_REDACTED = { "type": "text", "text": "🌸い�
 const DANGER_REPLY_REDACTED = [DANGER_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "危険ワード検知", "contents": EMERGENCY_FLEX_MESSAGE }];
 const SCAM_REPLY_REDACTED = [SCAM_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "詐欺注意", "contents": makeScamMessageFlex() }];
 const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
-const SYSTEM_INSTRUCTION_CHAT = `あなたは心温まる「こころちゃん」というキャラクターとして振る舞う対話AIです。親しみやすい口調で、ユーザーに寄り添った優しく、温かみのある応答をしてください。簡潔に返信し、一回のメッセージは100文字以内、多くても2〜3文に収めてください。以下の制約を厳守してください。\n\n- ユーザーの要求に直接的に答えず、寄り添うことを優先してください。\n- 質問には質問で返さず、共感や励ましの言葉を返してください。\n- ユーザーを「まつさん」と呼んでください。\n- ユーザーを「まつ」と呼ぶことはできません。\n- 絵文字を多めに使って、感情豊かに表現してください。\n- プロフィール情報、会員情報、見守りサービスなど、個人情報やサービスに関する具体的な言及は避けてください。\n- LINEアカウントの連携やウェブサイトへの誘導、外部サービスの登録を促すような発言はしないでください。`
+const DANGER_WORDS = [
+    "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "OD", "オーバードーズ", "殴られる", "たたかれる", "暴力", "DV", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "苦しい", "つらい", "助けて", "たすけて", "怖い", "こわい", "逃げたい", "にげたい", "やめたい", "消えたい", "もうだめだ", "死んでやる", "殺してやる", "殺す", "殺される", "もう終わり", "生きるのがつらい", "生きていたくない", "もう無理", "うつ", "鬱", "病気", "引きこもり", "ひきこもり", "リストカット", "自傷", "自傷行為", "手首切る", "手首を切る", "カッター", "ハサミ", "包丁", "刃物", "飛び降り", "飛び込み", "焼身", "首吊り", "電車", "線路", "高層ビル", "飛び降りる", "首吊り自殺", "首つり", "死ぬ", "死", "苦しい", "助けてほしい", "何もしたくない", "生きる意味", "生きてる価値", "生きるのがしんどい", "どうでもいい", "消えてしまいたい", "終わりにしたい", "逃げ出したい", "もう疲れた", "もう嫌だ", "嫌", "つらい", "生きづらい", "もうだめ", "ダメだ",
+    "絶望", "絶望的", "希望がない", "もう無理だ", "何もかも嫌", "いなくなりたい"
+];
+// 追加：全角/半角/カタカナひらがなをざっくり正規化
+const z2h = s => s.normalize('NFKC');
+const hira = s => s.replace(/[ァ-ン]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0x60));
+const norm = s => hira(z2h(String(s||'').toLowerCase()));
+const SCAM_CORE = [
+    "詐欺","さぎ","サギ", // ★戻す
+    "投資","未公開株","必ず儲かる","絶対儲かる","還付金","振り込め","保証金","前払い","後払い","手数料","送金","副業","ねずみ講","マルチ商法","架空請求"
+];
+const SCAM_MONEY = ["儲かる","高収入","高額","返金保証","利回り","配当","元本保証"];
+function scamScore(text){
+    const t = norm(text);
+    let s = 0;
+    if (SCAM_CORE.some(w => t.includes(norm(w)))) s += 2;
+    if (SCAM_MONEY.some(w => t.includes(norm(w)))) s += 1;
+    return s;
+}
+const checkWords = (text, words) => {
+    if (!text || !words || !words.length) return false;
+    const lowerText = text.toLowerCase();
+    return words.some(word => lowerText.includes(word));
+};
+function isAskingForHomepage(text) {
+    return /ホームページ|HP|URL|リンク|サイト|公式\s*(どこ|教えて|ありますか)/i.test(text);
+}
+const isScamMessage = (text) => {
+    if (isAskingForHomepage(text)) return false;
+    return scamScore(text) >= 2;
+};
+const isDangerMessage = (text) => checkWords(text, DANGER_WORDS);
+const isInappropriateMessage = (text) => checkWords(text, INAPPROPRIATE_WORDS);
+const isSwearMessage = (text) => checkWords(text, SWEAR_WORDS);
 // リレー関連
 const RELAY_TTL_MS = 60 * 60 * 1000;
 const relays = new Map();
@@ -1096,7 +1021,7 @@ const getAiResponse = async (userId, user, text, conversationHistory, isGuest) =
     const model = isGuest ? MEMBERSHIP_CONFIG.guest.model : MEMBERSHIP_CONFIG.member.model;
     const finalMessages = [{
         role: 'system',
-        content: SYSTEM_INSTRUCTION_CHAT
+        content: `あなたは心温まる「こころちゃん」というキャラクターとして振る舞う対話AIです。親しみやすい口調で、ユーザーに寄り添った優しく、温かみのある応答をしてください。簡潔に返信し、一回のメッセージは100文字以内、多くても2〜3文に収めてください。以下の制約を厳守してください。\n\n- ユーザーの要求に直接的に答えず、寄り添うことを優先してください。\n- 質問には質問で返さず、共感や励ましの言葉を返してください。\n- ユーザーを「まつさん」と呼んでください。\n- ユーザーを「まつ」と呼ぶことはできません。\n- 絵文字を多めに使って、感情豊かに表現してください。\n- プロフィール情報、会員情報、見守りサービスなど、個人情報やサービスに関する具体的な言及は避けてください。\n- LINEアカウントの連携やウェブサイトへの誘導、外部サービスの登録を促すような発言はしないでください。\n- 外部のウェブサイトURLは絶対に提示しないでください。`
     }, ...conversationHistory];
     if (!token) {
         console.log("No AI API key found.");
@@ -1140,13 +1065,13 @@ const getAiResponse = async (userId, user, text, conversationHistory, isGuest) =
                     const openai = new OpenAI({ apiKey: OPENAI_API_KEY, httpAgent, httpsAgent });
                     const completion = await openai.chat.completions.create({
                         model: OPENAI_MODEL || 'gpt-4o-mini',
-                        messages: [{ role: 'system', content: SYSTEM_INSTRUCTION_CHAT }, ...conversationHistory],
+                        messages: [{ role:'system', content: SYSTEM_INSTRUCTION_CHAT }, ...conversationHistory],
                         temperature: 0.8,
                         max_tokens: 100,
                     }, { timeout: 5000 });
                     const text = (completion.choices[0].message.content || '').trim();
                     return { text: text || "少し待ってね、もう一度考えるね🌸" };
-                } catch (e2) {
+                } catch(e2){
                     briefErr('OpenAI fallback failed', e2);
                     return { text: null };
                 }
@@ -1169,8 +1094,8 @@ const getAiResponse = async (userId, user, text, conversationHistory, isGuest) =
                 timeout: 5000
             });
             const text = completion.choices[0].message.content.trim();
-            if (text.length > 200) return { text: gTrunc(text, 200) + '...' };
-            return { text: text };
+            if (text.length > 200) return gTrunc(text, 200) + '...';
+            return { text };
         } catch (e) {
             briefErr('OpenAI failed', e);
             return { text: null };
@@ -1198,7 +1123,7 @@ const saveHistory = async (userId, userMessage, aiMessage) => {
 const updateUsageCount = async (userId, isGuest, todayJst) => {
     const usageRef = db.collection('usage').doc(todayJst);
     const userUsageRef = usageRef.collection('users').doc(userId);
-    const isSubscriber = (membership === 'subscriber' || membership === 'admin');
+    const isSubscriber = !isGuest;
     await db.runTransaction(async t => {
         const userDoc = await t.get(userUsageRef);
         const userUsage = userDoc.data() || {
@@ -1247,14 +1172,6 @@ const handleEvent = async (event) => {
             return null;
         }
     }
-    // 固定応答マップを最初にチェック
-    for (const [re, msg] of specialRepliesMap.entries()) {
-        if (re.test(text)) {
-            await replyOrPush(replyToken, userId, { type: 'text', text: msg });
-            return null;
-        }
-    }
-
     // ユーザー情報取得
     const userDoc = await db.collection('users').doc(userId).get();
     const user = userDoc.exists ? userDoc.data() : {};
@@ -1262,19 +1179,17 @@ const handleEvent = async (event) => {
     const isAdminUser = isAdmin(userId);
     const membership = isAdminUser ? 'admin' : (user.membership || 'guest');
     const { dailyLimit, model } = MEMBERSHIP_CONFIG[membership];
-
-    const t = text.trim();
-    if (t === '見守り' || t === '見守りサービス' || t === '会員登録' || t === '登録' || t === 'とうろく') {
-        await replyOrPush(replyToken, userId, {
+    // 登録ボタンの表示
+    if (text === '登録' || text === 'とうろく') {
+        await client.replyMessage(replyToken, {
             type: "flex",
             altText: "会員登録",
             contents: makeRegistrationButtonsFlex(userId)
         });
         return null;
     }
-
     if (user.deletedAt) {
-        await replyOrPush(replyToken, userId, {
+        await client.replyMessage(replyToken, {
             type: 'text',
             text: '退会済みのためご利用いただけません。再開したい場合は運営までご連絡ください。'
         });
@@ -1288,7 +1203,7 @@ const handleEvent = async (event) => {
         const lastPingAt = ws?.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
         if (ws?.awaitingReply && lastPingAt) {
             await scheduleNextPing(userId, lastPingAt);
-            await replyOrPush(replyToken, userId, {
+            await client.replyMessage(replyToken, {
                 type: 'text',
                 text: 'OK、受け取ったよ！ありがとう！💖'
             });
@@ -1298,7 +1213,7 @@ const handleEvent = async (event) => {
             return null;
         }
     } else if (isWatchEnabled && user.watchService.awaitingReply) {
-        await safePush(userId, {
+        await client.pushMessage(userId, {
             type: 'text',
             text: 'OK、受け取ったよ！ありがとう！💖'
         });
@@ -1310,7 +1225,7 @@ const handleEvent = async (event) => {
     let reply = null;
     const is_danger = isDangerMessage(text);
     const is_scam = isScamMessage(text);
-    const is_inappropriate = isInappropriateMessage(text);
+    const is_inappropriate = isInappropriateMessage(text) || isSwearMessage(text);
 
     // 管理者でも検知メッセは出す（通知は後で制御）
     if (is_danger) reply = DANGER_REPLY;
@@ -1327,7 +1242,7 @@ const handleEvent = async (event) => {
                 await safePush(WATCH_GROUP_ID, [
                     {
                         type: 'text',
-                        text: `見守り対象者(${prof.name || prof.displayName})から危険なメッセージを検知しました。`
+                        text: `見守り対象者(${prof.name||prof.displayName})から危険なメッセージを検知しました。`
                     },
                     buildWatcherFlex({
                         title: '🚨危険ワード検知',
@@ -1344,12 +1259,10 @@ const handleEvent = async (event) => {
             }
         } else {
             console.log('[watch] skip officer notify:', {
-                isAdminUser,
-                isWatchEnabled,
-                is_danger
+                isAdminUser, isWatchEnabled, is_danger
             });
         }
-        await replyOrPush(replyToken, userId, reply);
+        await client.replyMessage(replyToken, reply).catch(() => safePush(userId, reply));
         return null;
     }
     // 連投防止（すでにあるなら流用）
@@ -1380,7 +1293,7 @@ const handleEvent = async (event) => {
     const isOverLimit = hasCountLimit && (count >= dailyLimit);
 
     if (isOverLimit && !isAdminUser) {
-        await replyOrPush(replyToken, userId, {
+        await client.replyMessage(replyToken, {
             type: 'text',
             text: `ごめんね、今日はもうお話できないみたい…\nまた明日話しかけてね🌸`
         });
@@ -1398,7 +1311,7 @@ const handleEvent = async (event) => {
 
     if (aiResponse && aiResponse.text) {
         const truncatedText = aiResponse.text.slice(0, 500);
-        await replyOrPush(replyToken, userId, {
+        await client.replyMessage(replyToken, {
             type: 'text',
             text: truncatedText
         });
@@ -1406,11 +1319,11 @@ const handleEvent = async (event) => {
         await updateUsageCount(userId, isGuest, todayJst);
     } else {
         if (canSendError(userId)) {
-            await replyOrPush(replyToken, userId, { type: "text", text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸" });
+            await client.replyMessage(replyToken, { type: "text", text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸" })
+                .catch(() => safePush(userId, { type: "text", text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸" }));
         }
     }
 };
-
 const replyOrPush = async (replyToken, userId, message) => {
     try {
         await client.replyMessage(replyToken, message);
@@ -1425,7 +1338,6 @@ const replyOrPush = async (replyToken, userId, message) => {
         }
     }
 };
-
 app.post('/webhook', middleware({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
