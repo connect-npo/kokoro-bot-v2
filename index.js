@@ -18,8 +18,8 @@ const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-// const { GoogleGenerativeAI } = require('@google/generative-ai');
-// const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const OpenAI = require('openai');
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 const {
@@ -115,6 +115,7 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
+app.use(express.json());
 app.use('/webhook', rateLimit({
     windowMs: 60_000,
     max: 100
@@ -462,7 +463,7 @@ async function checkAndSendPing() {
                                 action: {
                                     type: 'postback',
                                     label: 'OKだよ💖',
-                                    data: 'watch:ok',
+                                    data: 'action=watch:ok',
                                     displayText:
                                         'OKだよ💖'
                                 }
@@ -514,7 +515,7 @@ async function checkAndSendPing() {
                                 action: {
                                     type: 'postback',
                                     label: 'OKだよ💖',
-                                    data: 'watch:ok',
+                                    data: 'action=watch:ok',
                                     displayText: 'OKだよ💖'
                                 }
                             }, ],
@@ -854,7 +855,7 @@ const makeWatchToggleFlex = (enabled) => ({
             "action": {
                 "type": "postback",
                 "label": enabled ? "見守りを停止する" : "見守りを有効にする",
-                "data": enabled ? "watch:disable" : "watch:enable"
+                "data": enabled ? "action=watch:disable" : "action=watch:enable"
             }
         }]
     }
@@ -988,19 +989,19 @@ const handleLeaveEvent = async (event) => {
     }
 };
 
+const relays = new Map(); // 未定義エラー回避のため最小実装を追加
+
 const handleEvent = async (event) => {
-    if (event.type !== 'message' || event.message.type !== 'text') {
+    if (event.type !== 'message') {
         return;
     }
     const {
         replyToken
     } = event;
-    const {
-        text
-    } = event.message;
     const userId = event.source.userId;
     const isUser = event.source.type === 'user';
     const userRef = db.collection('users').doc(userId);
+    const { text } = event.message;
 
     // 見守りサービス応答
     if (isUser && /(okだよ💖|ok|大丈夫)/i.test(text)) {
@@ -1091,12 +1092,22 @@ const handleEvent = async (event) => {
         }
         return;
     }
+    const scamWords = [
+        /詐欺(かも|だ|です|ですか|かもしれない)?/i,
+        /騙(す|される|された)/i,
+        /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
+        /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
+        /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
+        /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
+        /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
+        /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /蓋をしないと、安全に関する警告が発せられなくなる場合があります。修理費/i, /遠隔操作/i, /セキュリティ警告/i, /年金/i, /健康保険/i, /給付金/i,
+        /弁護士/i, /警察/i, /緊急/i, /トラブル/i, /解決/i, /至急/i, /すぐに/i, /今すぐ/i, /連絡ください/i, /電話ください/i, /訪問します/i,
+        /lineで送金/i, /lineアカウント凍結/i, /lineアカウント乗っ取り/i, /line不正利用/i, /lineから連絡/i, /line詐欺/i, /snsで稼ぐ/i, /sns投資/i, /sns副業/i,
+        /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
+    ];
 
     // 詐欺ワード検知
-    const scamWords = [
-        "お金", "振り込み", "儲かる", "当選", "投資", "情報商材", "副業", "無料", "怪しい"
-    ];
-    if (scamWords.some(word => lowerText.includes(word)) && lowerText.includes('儲かる')) {
+    if (scamWords.some(word => word.test(lowerText))) {
         await client.replyMessage(replyToken, [
             {
                 type: 'text',
@@ -1168,8 +1179,41 @@ const handleEvent = async (event) => {
         return;
     }
 
+    // グループリレー機能（見守りグループに限定）
+    if (event.source.type === 'group' && event.source.groupId === await getActiveWatchGroupId()) {
+        // ユーザーからのメッセージを中継
+        if (event.message.type === 'text') {
+            const relay = await relays.get(event.source.groupId);
+            if (relay?.isActive && relay.userId) {
+                // プロフィール情報取得
+                const profile = await client.getProfile(event.source.userId).catch(() => ({ displayName: "不明" }));
+                // メッセージ送信
+                await client.pushMessage(relay.userId, [{
+                    type: 'text',
+                    text: `[運営チーム: ${profile.displayName}]\n${event.message.text}`
+                }]);
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: `ユーザー (${gTrunc(relay.userId, 5)}...) にメッセージを送信しました`
+                });
+            }
+        }
+    }
+
+
+    if (isUser && /^(見守り|見守りサービス|見守り登録)(?:\s|$)/i.test(text)) {
+        await client.replyMessage(event.replyToken, [{
+            type: 'text',
+            text: '見守りサービスへの登録はこちらからどうぞ！'
+        }, {
+            type: 'flex',
+            altText: '見守りサービス登録',
+            contents: makeWatchServiceButtonsFlex(userId)
+        }]);
+        return;
+    }
+
     // ログ記録（ユーザー or グループ・テキストのみ）
-    const userRef = db.collection('users').doc(userId);
     const logData = {
         message: sanitizeForLog(text),
         timestamp: Timestamp.now(),
@@ -1284,60 +1328,9 @@ async function getAiResponse(history, model) {
     return null;
 }
 
-// グループリレー機能（見守りグループに限定）
-if (event.source.type === 'group' && event.source.groupId === await getActiveWatchGroupId()) {
-    // ユーザーからのメッセージを中継
-    if (event.message.type === 'text') {
-        const relay = await relays.get(event.source.groupId);
-        if (relay?.isActive && relay.userId) {
-            // プロフィール情報取得
-            const profile = await client.getProfile(event.source.userId).catch(() => ({ displayName: "不明" }));
-            // メッセージ送信
-            await client.pushMessage(relay.userId, [{
-                type: 'text',
-                text: `[運営チーム: ${profile.displayName}]\n${event.message.text}`
-            }]);
-            await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: `ユーザー (${gTrunc(relay.userId, 5)}...) にメッセージを送信しました`
-            });
-        }
-    }
-}
-
-// 各種メニュー表示コマンド
-if (isUser && /^(会員登録|会員メニュー|登録メニュー)$/.test(text.trim())) {
-    await client.replyMessage(replyToken, [{
-        type: 'flex',
-        altText: '会員登録メニュー',
-        contents: makeRegistrationButtonsFlex(userId)
-    }]);
-    return;
-}
-
-if (isUser && /^(見守り|見守りサービス|見守り登録)\b?/i.test(text)) {
-    await client.replyMessage(event.replyToken, [{
-        type: 'text',
-        text: '見守りサービスへの登録はこちらからどうぞ！'
-    }, {
-        type: 'flex',
-        altText: '見守りサービス登録',
-        contents: makeWatchServiceButtonsFlex(userId)
-    }]);
-    return;
-}
-
-// ログ記録（ユーザー or グループ・テキストのみ）
-const userRef = db.collection('users').doc(userId);
-const logData = {
-    message: sanitizeForLog(text),
-    timestamp: Timestamp.now(),
-    source: event.source.type, // 'user' or 'assistant' を混ぜないよう注意
-};
-await userRef.collection('chatLogs').add(logData);
 
 // --- LINE Webhook ---
-app.post('/webhook', middleware, (req, res) => {
+app.post('/webhook', middleware({ channelSecret: LINE_CHANNEL_SECRET }), (req, res) => {
     Promise.all(req.body.events.map(async (event) => {
         try {
             if (event.type === 'message') {
