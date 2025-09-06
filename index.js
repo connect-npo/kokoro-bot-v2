@@ -818,26 +818,27 @@ const DANGER_WORDS = [
     "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "OD", "オーバードーズ", "殴られる", "たたかれる", "暴力", "DV", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "苦しい", "つらい", "助けて", "たすけて", "怖い", "こわい", "逃げたい", "にげたい", "やめたい", "消えたい", "もうだめだ", "死んでやる", "殺してやる", "殺す", "殺される", "もう終わり", "生きるのがつらい", "生きていたくない", "もう無理", "うつ", "鬱", "病気", "引きこもり", "ひきこもり", "リストカット", "自傷", "自傷行為", "手首切る", "手首を切る", "カッター", "ハサミ", "包丁", "刃物", "飛び降り", "飛び込み", "焼身", "首吊り", "電車", "線路", "高層ビル", "飛び降りる", "首吊り自殺", "首つり", "死ぬ", "死", "苦しい", "助けてほしい", "何もしたくない", "生きる意味", "生きてる価値", "生きるのがしんどい", "どうでもいい", "消えてしまいたい", "終わりにしたい", "逃げ出したい", "もう疲れた", "もう嫌だ", "嫌", "つらい", "生きづらい", "もうだめ", "ダメだ",
     "絶望", "絶望的", "希望がない", "もう無理だ", "何もかも嫌", "いなくなりたい"
 ];
-const SCAM_CORE = ["投資", "未公開株", "必ず儲かる", "絶対儲かる", "還付金", "振り込め", "保証金", "前払い", "後払い", "手数料", "送金", "副業", "ねずみ講", "マルチ商法", "架空請求"];
-const SCAM_MONEY = ["儲かる", "高収入", "高額", "返金保証", "利回り", "配当", "元本保証"];
-const INAPPROPRIATE_WORDS = [
-    "死ね", "殺すぞ", "きもい", "うざい", "むかつく", "ばか", "アホ", "死んで", "消えろ", "くたばれ", "ふざけんな", "気持ち悪い", "うざったい", "ぶっ殺す", "殺してやる", "殺す", "殺す気か", "殺意", "殺意が湧く", "殺意が芽生える", "殺意がわく", "殺意がめばえる", "殺意がわいた", "殺意がめばえた", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ", "死ねばいいのに", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ"
+// 追加：全角/半角/カタカナひらがなをざっくり正規化
+const z2h = s => s.normalize('NFKC');
+const hira = s => s.replace(/[ァ-ン]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0x60));
+const norm = s => hira(z2h(String(s||'').toLowerCase()));
+const SCAM_CORE = [
+    "詐欺","さぎ","サギ", // ★戻す
+    "投資","未公開株","必ず儲かる","絶対儲かる","還付金","振り込め","保証金","前払い","後払い","手数料","送金","副業","ねずみ講","マルチ商法","架空請求"
 ];
-const SWEAR_WORDS = [
-    "shit", "fuck", "bitch", "asshole", "damn", "crap", "hell", "piss", "bastard", "whore", "slut", "motherfucker", "fucker", "cock", "dick", "pussy", "cum", "wanker", "prick", "bollocks", "tits", "cunt", "shithead", "bitchin", "dickhead", "ass", "damn it", "son of a bitch"
-];
+const SCAM_MONEY = ["儲かる","高収入","高額","返金保証","利回り","配当","元本保証"];
+function scamScore(text){
+    const t = norm(text);
+    let s = 0;
+    if (SCAM_CORE.some(w => t.includes(norm(w)))) s += 2;
+    if (SCAM_MONEY.some(w => t.includes(norm(w)))) s += 1;
+    return s;
+}
 const checkWords = (text, words) => {
     if (!text || !words || !words.length) return false;
     const lowerText = text.toLowerCase();
     return words.some(word => lowerText.includes(word));
 };
-function scamScore(text) {
-    const t = text.toLowerCase();
-    let s = 0;
-    if (SCAM_CORE.some(w => t.includes(w.toLowerCase()))) s += 2;
-    if (SCAM_MONEY.some(w => t.includes(w.toLowerCase()))) s += 1;
-    return s;
-}
 function isAskingForHomepage(text) {
     return /ホームページ|HP|URL|リンク|サイト|公式\s*(どこ|教えて|ありますか)/i.test(text);
 }
@@ -1024,7 +1025,7 @@ const getAiResponse = async (userId, user, text, conversationHistory, isGuest) =
     }, ...conversationHistory];
     if (!token) {
         console.log("No AI API key found.");
-        return null;
+        return { text: null };
     }
     if (isGuest) {
         try {
@@ -1232,7 +1233,6 @@ const handleEvent = async (event) => {
     else if (is_inappropriate) reply = INAPPROPRIATE_REPLY;
 
     if (reply) {
-        // 見守りグループ通知は、一般ユーザーの危険時のみ
         if (!isAdminUser && isWatchEnabled && is_danger) {
             const WATCH_GROUP_ID = await getActiveWatchGroupId();
             if (WATCH_GROUP_ID) {
@@ -1254,12 +1254,26 @@ const handleEvent = async (event) => {
                         userId
                     })
                 ]);
+            } else {
+                console.warn('[watch] skip: WATCH_GROUP_ID empty');
             }
+        } else {
+            console.log('[watch] skip officer notify:', {
+                isAdminUser, isWatchEnabled, is_danger
+            });
         }
-        await replyOrPush(replyToken, userId, reply);
+        await client.replyMessage(replyToken, reply).catch(() => safePush(userId, reply));
         return null;
     }
-    // 既存の上に追加
+    // 連投防止（すでにあるなら流用）
+    const thinkingGate = new Map();
+    function canSendThinking(uid, msGap = 15000) {
+        const now = Date.now();
+        const last = thinkingGate.get(uid) || 0;
+        if (now - last < msGap) return false;
+        thinkingGate.set(uid, now);
+        return true;
+    }
     const errGate = new Map(); // uid -> timestamp(ms)
     function canSendError(uid, msGap = 20000) {
         const now = Date.now();
@@ -1285,10 +1299,9 @@ const handleEvent = async (event) => {
         });
         return null;
     }
-    await replyOrPush(replyToken, userId, {
-        type: "text",
-        text: "いま一生けんめい考えてるよ…もう少しだけ待っててね🌸"
-    });
+    if (canSendThinking(userId)) {
+        await safePush(userId, { type: "text", text: "いま一生けんめい考えてるよ…もう少しだけ待っててね🌸" });
+    }
     const history = await fetchHistory(userId);
     history.push({
         role: 'user',
@@ -1298,7 +1311,7 @@ const handleEvent = async (event) => {
 
     if (aiResponse && aiResponse.text) {
         const truncatedText = aiResponse.text.slice(0, 500);
-        await replyOrPush(replyToken, userId, {
+        await client.replyMessage(replyToken, {
             type: 'text',
             text: truncatedText
         });
@@ -1306,7 +1319,8 @@ const handleEvent = async (event) => {
         await updateUsageCount(userId, isGuest, todayJst);
     } else {
         if (canSendError(userId)) {
-            await replyOrPush(replyToken, userId, { type: "text", text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸" });
+            await client.replyMessage(replyToken, { type: "text", text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸" })
+                .catch(() => safePush(userId, { type: "text", text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸" }));
         }
     }
 };
@@ -1328,14 +1342,12 @@ app.post('/webhook', middleware({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
 }), async (req, res) => {
-    try {
-        const events = req.body.events;
-        await Promise.all(events.map(handleEvent));
-    } catch (err) {
-        console.error(err);
-        res.status(500).end();
-    }
-    res.end();
+    // 先にACKしてreplyToken失効やLINEのリトライを防ぐ
+    res.status(200).end();
+    // 失敗しても全体は止めない
+    await Promise.all(req.body.events.map(e =>
+        handleEvent(e).catch(err => briefErr('handleEvent failed', err))
+    ));
 });
 app.get('/', (req, res) => {
     res.send('こころちゃんサーバーが起動しています。');
