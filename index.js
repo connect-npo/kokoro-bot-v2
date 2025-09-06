@@ -115,7 +115,7 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
-app.use(express.json());
+app.use('/api', express.json()); // JSONパーサーを特定のパスに限定
 app.use('/webhook', rateLimit({
     windowMs: 60_000,
     max: 100
@@ -222,6 +222,35 @@ async function scheduleNextPing(userId, fromDate = new Date()) {
     });
 }
 
+async function setWatchEnabled(userId, enabled) {
+    const userRef = db.collection('users').doc(userId);
+    const base = { watchService: { enabled: !!enabled, awaitingReply: false } };
+    
+    if (enabled) {
+      const nextAt = dayjs().tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day')
+        .hour(PING_HOUR_JST).minute(0).second(0).millisecond(0).toDate();
+      await userRef.set({
+        ...base,
+        watchService: {
+          ...base.watchService,
+          nextPingAt: Timestamp.fromDate(nextAt),
+          lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+          notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
+        }
+      }, { merge: true });
+    } else {
+      await userRef.set({
+        ...base,
+        watchService: {
+          ...base.watchService,
+          nextPingAt: firebaseAdmin.firestore.FieldValue.delete(),
+          lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+          notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
+        }
+      }, { merge: true });
+    }
+  }
+
 
 async function safePush(to, messages) {
     const arr = Array.isArray(messages) ? messages : [messages];
@@ -320,7 +349,6 @@ async function checkAndSendPing() {
     const now = dayjs().tz('UTC');
     console.log(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 
-    // 欠落自己修復（nextPingAtが無い enabledユーザーに初期値）
     const warmupFill = async (now) => {
         const usersRef = db.collection('users');
         const snap = await usersRef.where('watchService.enabled', '==', true).limit(200).get();
@@ -339,7 +367,6 @@ async function checkAndSendPing() {
         if (cnt) await batch.commit();
     };
 
-    // インデックス未作成でも動く“フォールバック”付き取得
     const fetchTargets = async (now) => {
         const usersRef = db.collection('users');
         const targets = [];
@@ -531,7 +558,6 @@ async function checkAndSendPing() {
                     merge: true
                 });
             } else if (mode === 'escalate') {
-                // 通知先は「アクティブな見守りグループ」> WATCH_GROUP_ID > OFFICER_GROUP_ID の順で採用
                 const targetGroupId =
                     (await getActiveWatchGroupId()) ||
                     process.env.WATCH_GROUP_ID ||
@@ -540,13 +566,11 @@ async function checkAndSendPing() {
                 const canNotify = targetGroupId && (!lastNotifiedAt || now.diff(lastNotifiedAt, 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
 
                 if (canNotify) {
-                    // ← ここでユーザーデータをちゃんと取得する
                     const udoc = await db.collection('users').doc(doc.id).get();
                     const udata = udoc.exists ? (udoc.data() || {}) : {};
 
                     const elapsedH = lastPingAt ? dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour') : ESCALATE_AFTER_HOURS;
 
-                    // 電話番号の解決：プロフィール or 緊急連絡先 or 事務局
                     const tel =
                         udata?.profile?.phone ||
                         udata?.emergency?.contactPhone ||
@@ -593,7 +617,6 @@ if (WATCH_RUNNER !== 'external') {
         timezone: 'UTC'
     });
 }
-// --- Flex Message テンプレート (緊急時連絡先) ---
 const EMERGENCY_FLEX_MESSAGE = {
     "type": "bubble",
     "body": {
@@ -976,7 +999,6 @@ const handleJoinEvent = async (event) => {
         text: 'こんにちは！こころです。グループ見守りモードが有効になりました。\n' +
             '「@こころ リレー開始」と入力すると、運営へのリレーを開始します。'
     });
-    // 新しいグループIDをアクティブな見守りグループに設定
     await setActiveWatchGroupId(groupId);
 };
 
@@ -989,7 +1011,7 @@ const handleLeaveEvent = async (event) => {
     }
 };
 
-const relays = new Map(); // 未定義エラー回避のため最小実装を追加
+const relays = new Map();
 
 const handleEvent = async (event) => {
     if (event.type !== 'message') {
@@ -1003,7 +1025,6 @@ const handleEvent = async (event) => {
     const userRef = db.collection('users').doc(userId);
     const { text } = event.message;
 
-    // 見守りサービス応答
     if (isUser && /(okだよ💖|ok|大丈夫)/i.test(text)) {
         const doc = await userRef.get();
         if (doc.exists) {
@@ -1027,7 +1048,6 @@ const handleEvent = async (event) => {
         }
     }
 
-    // --- 各種メニュー表示コマンド ---
     if (isUser && /^(会員登録|会員メニュー|登録メニュー)$/.test(text.trim())) {
         await client.replyMessage(replyToken, [{
             type: 'flex',
@@ -1037,11 +1057,10 @@ const handleEvent = async (event) => {
         return;
     }
 
-    // 会員登録ボタントリガー（見守りは含めない・先に見守り判定を通してから）
     if (
       isUser
       && /(登録|会員|会員メニュー|登録メニュー)/i.test(text)
-      && !/見守り/.test(text)   // 念のための保険
+      && !/見守り/.test(text)
     ) {
          await client.replyMessage(event.replyToken, [
              {
@@ -1056,7 +1075,6 @@ const handleEvent = async (event) => {
          return;
     }
 
-    // 見守りサービス有効/無効切り替えメニュー
     if (isUser && /^(見守りサービス設定)$/i.test(text.trim())) {
         const doc = await userRef.get();
         const enabled = doc.exists && doc.data()?.watchService?.enabled;
@@ -1071,7 +1089,6 @@ const handleEvent = async (event) => {
         return;
     }
 
-    // 危険ワード検知
     const dangerWords = [
         "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
         "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり",
@@ -1106,7 +1123,6 @@ const handleEvent = async (event) => {
         /urlをクリック/i, /クリックしてください/i, /通知からアクセス/i, /メールに添付/i, /個人情報要求/i, /認証コード/i, /電話番号を教えて/i, /lineのidを教えて/i, /パスワードを教えて/i
     ];
 
-    // 詐欺ワード検知
     if (scamWords.some(word => word.test(lowerText))) {
         await client.replyMessage(replyToken, [
             {
@@ -1122,7 +1138,6 @@ const handleEvent = async (event) => {
         return;
     }
 
-    // AI応答
     if (isUser && text) {
         let membership = 'guest';
         const doc = await userRef.get();
@@ -1164,33 +1179,28 @@ const handleEvent = async (event) => {
         const aiResponse = aiResponseRaw ? limitEmojis(aiResponseRaw).trim() : '';
         if (aiResponse) {
             await client.replyMessage(event.replyToken, { type: 'text', text: aiResponse });
-            // 履歴保存（assistant）
             await userRef.collection('chatLogs').add({
               message: aiResponse,
               timestamp: Timestamp.now(),
               source: 'assistant',
             });
-            return; // ★ 二重返信を防止
+            return;
         }
     }
-    // ここまでで返信できなかった場合のみデフォルト応答
     if (event.source.type === 'user') {
         await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんね、うまく理解できなかったよ。' });
         return;
     }
 
-    // グループリレー機能（見守りグループに限定）
     if (event.source.type === 'group' && event.source.groupId === await getActiveWatchGroupId()) {
-        // ユーザーからのメッセージを中継
         if (event.message.type === 'text') {
             const relay = await relays.get(event.source.groupId);
             if (relay?.isActive && relay.userId) {
-                // プロフィール情報取得
                 const profile = await client.getProfile(event.source.userId).catch(() => ({ displayName: "不明" }));
-                // メッセージ送信
+                const messageToOfficer = `[運営チーム: ${profile.displayName}]\n${event.message.text}`;
                 await client.pushMessage(relay.userId, [{
                     type: 'text',
-                    text: `[運営チーム: ${profile.displayName}]\n${event.message.text}`
+                    text: messageToOfficer
                 }]);
                 await client.replyMessage(event.replyToken, {
                     type: 'text',
@@ -1199,7 +1209,6 @@ const handleEvent = async (event) => {
             }
         }
     }
-
 
     if (isUser && /^(見守り|見守りサービス|見守り登録)(?:\s|$)/i.test(text)) {
         await client.replyMessage(event.replyToken, [{
@@ -1213,11 +1222,10 @@ const handleEvent = async (event) => {
         return;
     }
 
-    // ログ記録（ユーザー or グループ・テキストのみ）
     const logData = {
         message: sanitizeForLog(text),
         timestamp: Timestamp.now(),
-        source: event.source.type, // 'user' or 'assistant' を混ぜないよう注意
+        source: event.source.type,
     };
     await userRef.collection('chatLogs').add(logData);
 };
@@ -1225,17 +1233,17 @@ const handleEvent = async (event) => {
 const limitEmojis = (text) => {
     const emojis = toGraphemes(text).filter(char => {
         const code = char.codePointAt(0);
-        return (code >= 0x1F600 && code <= 0x1F64F) || // Emoticons
-               (code >= 0x1F300 && code <= 0x1F5FF) || // Misc Symbols and Pictographs
-               (code >= 0x1F680 && code <= 0x1F6FF) || // Transport and Map Symbols
-               (code >= 0x1F700 && code <= 0x1F77F) || // Alchemical Symbols
-               (code >= 0x1F780 && code <= 0x1F7FF) || // Geometric Shapes
-               (code >= 0x1F800 && code <= 0x1F8FF) || // Supplemental Arrows-C
-               (code >= 0x1F900 && code <= 0x1F9FF) || // Supplemental Symbols and Pictographs
-               (code >= 0x1FA00 && code <= 0x1FA6F) || // Chess Symbols
-               (code >= 0x1FA70 && code <= 0x1FAFF) || // Symbols and Pictographs Extended-A
-               (code >= 0x2600 && code <= 0x26FF) ||   // Misc Symbols
-               (code >= 0x2700 && code <= 0x27BF);     // Dingbats
+        return (code >= 0x1F600 && code <= 0x1F64F) ||
+               (code >= 0x1F300 && code <= 0x1F5FF) ||
+               (code >= 0x1F680 && code <= 0x1F6FF) ||
+               (code >= 0x1F700 && code <= 0x1F77F) ||
+               (code >= 0x1F780 && code <= 0x1F7FF) ||
+               (code >= 0x1F800 && code <= 0x1F8FF) ||
+               (code >= 0x1F900 && code <= 0x1F9FF) ||
+               (code >= 0x1FA00 && code <= 0x1FA6F) ||
+               (code >= 0x1FA70 && code <= 0x1FAFF) ||
+               (code >= 0x2600 && code <= 0x26FF) ||
+               (code >= 0x2700 && code <= 0x27BF);
     });
     if (emojis.length > 2) {
         let count = 0;
@@ -1261,7 +1269,6 @@ const limitEmojis = (text) => {
     return text;
 };
 
-// awaitを含む関数なのでasyncにする
 async function getAiResponse(history, model) {
     const token = model.includes('gpt') ? OPENAI_API_KEY : GEMINI_API_KEY;
     if (!token) {
@@ -1272,9 +1279,10 @@ async function getAiResponse(history, model) {
       { role: 'system', content: `
 あなたはユーザーを優しく見守るAI「こころちゃん」です。
 - 寄り添い、肯定し、100文字以内で簡潔に。
-- 絵文字は1〜2個まで。
+- 絵文字を2個ていど使い優しく返信してください。
 - 見守り登録の押し売りはしない。
 - 安全を最優先し、危険時は専門窓口につなげる表現を心がける。
+-AIっぽい言い回しは禁止です。
       `.trim() },
       ...history.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
     ];
@@ -1282,7 +1290,6 @@ async function getAiResponse(history, model) {
         const genAI = new GoogleGenerativeAI(token);
         const geminiModel = genAI.getGenerativeModel({
             model,
-            // system prompt（GeminiのsystemInstructionが使える版）
             systemInstruction: finalMessages[0].content,
         });
         const geminiHistory = finalMessages.slice(1).map(msg => (
@@ -1328,8 +1335,8 @@ async function getAiResponse(history, model) {
     return null;
 }
 
+app.get('/', (_req, res) => res.send('ok'));
 
-// --- LINE Webhook ---
 app.post('/webhook', middleware({ channelSecret: LINE_CHANNEL_SECRET }), (req, res) => {
     Promise.all(req.body.events.map(async (event) => {
         try {
@@ -1355,4 +1362,8 @@ app.post('/webhook', middleware({ channelSecret: LINE_CHANNEL_SECRET }), (req, r
         console.error(err);
         res.status(500).end();
     });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`こころちゃんBOTはポート ${PORT} で稼働中です`);
 });
