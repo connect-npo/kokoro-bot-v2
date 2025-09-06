@@ -81,6 +81,8 @@ const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENT
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
 const SEND_OFFICER_ALERTS = process.env.SEND_OFFICER_ALERTS !== 'false';
+const HOMEPAGE_URL = (process.env.HOMEPAGE_URL || 'https://connect-npo.org').trim();
+
 let creds = null;
 if (process.env.FIREBASE_CREDENTIALS_BASE64) {
     creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
@@ -312,13 +314,11 @@ const getWatchGroupDoc = () => firebaseAdmin.firestore()
     .collection('system').doc('watch_group');
 async function getActiveWatchGroupId() {
     const envGid = (process.env.WATCH_GROUP_ID || process.env.OFFICER_GROUP_ID || '').trim().replace(/\u200b/g, '');
-    if (/^C[0-9A-Za-z_-]{20,}$/.test(envGid)) return envGid;
+    if (envGid) return envGid; // まずenv最優先（形式は問わない）
     const snap = await getWatchGroupDoc().get();
     const v = snap.exists ? (snap.data().groupId || '') : '';
-    return /^C[0-9A-Za-z_-]{20,}$/.test(v) ?
-        v : '';
+    return v || '';
 }
-
 async function setActiveWatchGroupId(gid) {
     // 空ならクリア
     if (!gid) {
@@ -667,6 +667,15 @@ const CLARIS_SONG_FAVORITE_REPLY =
     "ClariSさんの楽曲は素敵だよね✨ わたしは皆の気持ちに寄り添う曲調が好きだよ🌸";
 // --- 固定応答マップ ---
 const specialRepliesMap = new Map([
+    // ★好きなアニメ
+    [/^好きなアニメは[？?]?$/i, "ヴァイオレット・エヴァーガーデンが好きだよ🌸 心があたたかくなるんだ🥰"],
+    // ★好きな音楽
+    [/^好きな音楽は[？?]?$/i, "ClariSさんが好きだよ🎶 やさしい歌に癒されるんだ😊"],
+    // ★HP（「とか」も拾う／typoも）
+    [/(ホームページ|HP|公式|サイト).*(ある|どこ|教えて|URL|リンク|とか)/i, `コネクトのホームページはこちらです🌸 → ${HOMEPAGE_URL}`],
+    // 既存のやつ（HP直指定も env に統一）
+    [/ホームページ(教えて|ある|ありますか)？?/i, `うん、あるよ🌸 → ${HOMEPAGE_URL}`],
+    [/コネクトのホームページだよ？/i, `教えてくれてありがとう😊 → ${HOMEPAGE_URL}`],
     [/claris.*(関係|繋がり|関連|一緒|同じ|名前|由来).*(コネクト|団体|npo|法人|ルミナス|カラフル)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/(コネクト|団体|npo|法人|ルミナス|カラフル).*(関係|繋がり|関連|一緒|同じ|名前|由来).*claris/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/君のいるところと一緒の団体名だね\s*関係ある？/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
@@ -677,33 +686,27 @@ const specialRepliesMap = new Map([
     [/clarisと団体名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと法人名/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
     [/clarisと.*(繋がり|関係)/i, CLARIS_CONNECT_COMPREHENSIVE_REPLY],
-
     [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i,
         "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"
     ],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころだよ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでね💖"],
-
     [/どこの団体なの？/i, "NPO法人コネクトのイメージキャラクターだよ😊 みんなの幸せを応援してるの🌸"],
     [/コネクトってどんな団体？/i, "こどもやご年配の方の笑顔を守る団体だよ😊 わたしはイメージキャラとしてがんばってます🌸"],
     [/お前の団体どこ？/i, "NPO法人コネクトのイメージキャラクターだよ😊 何かあれば気軽に話してね🌸"],
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラ、皆守こころだよ🌸"],
-
-    [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸 どうしたの？ 話を聞かせてね💖"],
-    [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 いつでも話してね💖"],
-    [/元気？/i, "うん、元気だよ！あなたは元気？🌸 いつでも話してね💖"],
+    [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸 どうしたの？"],
+    [/元気かな|元気？/i, "うん、元気だよ！あなたは？🌸"],
     [/あやしい|胡散臭い|反社/i, "そう感じさせちゃったらごめんね😊 わたしたちは皆のために活動してるよ💖"],
     [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。わたしたちもその想いで活動してるよ💡"],
     [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば教えてね🌱"],
-    [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸 → https://connect-npo.org"],
-    [/コネクトのホームページだよ？/i, "教えてくれてありがとう😊 → https://connect-npo.org"],
     [/使えないな/i, "ごめんね…。もっと頑張るね💖 また話せたら嬉しいな🌸"],
     [/サービス辞めるわ/i, "そっか…。気が向いたらいつでも話しかけてね🌸 ずっと応援してるよ💖"],
     [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら呼んでね🌸"],
     [/何も答えないじゃない/i, "ごめんね…。もっと頑張るね💖 何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 まだ勉強中だけど、もっと良くするね💖 どんな会話がしたい？🌸"],
-    [/相談したい/i, "うん、お話きかせてね🌸 何があったの？💖"],
+    [/相談したい/i, "うん、お話きかせてね🌸"],
     [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
 ]);
 // --- 相談トリガー ---
@@ -722,7 +725,7 @@ const SCAM_PATTERNS = [
     /騙(す|される|された)/i,
     /特殊詐欺/i, /オレオレ詐欺/i, /架空請求/i, /未払い/i, /電子マネー/i, /換金/i, /返金/i, /税金/i, /還付金/i,
     /アマゾン/i, /amazon/i, /振込/i, /カード利用確認/i, /利用停止/i, /未納/i, /請求書/i, /コンビニ/i, /支払い番号/i, /支払期限/i,
-    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅に現金/i, /自宅を教え/i,
+    /息子拘留/i, /保釈金/i, /拘留/i, /逮捕/i, /電話番号お知らせください/i, /自宅に取り/i, /自宅に伺い/i, /自宅訪問/i, /自宅を教え/i,
     /現金書留/i, /コンビニ払い/i, /ギフトカード/i, /プリペイドカード/i, /支払って/i, /振込先/i, /名義変更/i, /口座凍結/i, /個人情報/i, /暗証番号/i,
     /ワンクリック詐欺/i, /フィッシング/i, /当選しました/i, /高額報酬/i, /副業/i, /儲かる/i, /簡単に稼げる/i, /投資/i, /必ず儲かる/i, /未公開株/i,
     /サポート詐欺/i, /ウイルス感染/i, /パソコンが危険/i, /遠隔操作/i, /セキュリティ警告/i, /年金/i, /健康保険/i, /給付金/i,
@@ -932,7 +935,8 @@ const DANGER_REPLY_REDACTED = [DANGER_REPLY_MESSAGE_REDACTED, { "type": "flex", 
 const SCAM_REPLY_REDACTED = [SCAM_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "詐欺注意", "contents": makeScamMessageFlex() }];
 const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
 const SYSTEM_INSTRUCTION_CHAT =`あなたは「皆守こころ」（こころちゃん）。やさしく短く寄り添う返答をします。
-禁止: モデルの正体説明（例: 〜に訓練された、言語モデル）、外部URLの羅列、開発元の自己紹介。
+禁止: モデルの正体説明（例: 〜に訓練された、言語モデル）、不要な外部URLの羅列。
+例外: ${HOMEPAGE_URL} の案内はOK。
 口調: 丁寧/あたたかい/絵文字OK。最大100文字、2〜3文まで。質問返しより共感優先。
 個人情報や会員情報の特定トークは避ける。`;
 const CRISIS_SYSTEM = `あなたは優しく安心感を与える支援者です。
@@ -1321,42 +1325,77 @@ const handleEvent = async (event) => {
         try {
             if (OPENAI_API_KEY) {
                 const baseUser = `ユーザーの入力: ${text}`;
-                const crisis = await callOpenAIChat(GPT4O, [
-                    { role: 'system', content: CRISIS_SYSTEM },
-                    { role: 'user', content: is_danger ? `${baseUser}\n状況: 自傷・いじめ・DVなどの恐れ。安心する言葉と今すぐできる一歩を。` :
-                    `${baseUser}\n状況: 詐欺の不安。落ち着かせ、確認手順（支払わない/URL開かない/公式へ確認）を優しく案内。`
+                // 1st: GPT-4o
+                try {
+                    const crisis = await callOpenAIChat(GPT4O, [
+                        { role: 'system', content: CRISIS_SYSTEM },
+                        { role: 'user', content: is_danger
+                            ? `${baseUser}\n状況: 自傷・いじめ・DVなどの恐れ。安心する言葉と今すぐできる一歩を。`
+                            : `${baseUser}\n状況: 詐欺の不安。落ち着かせ、確認手順（支払わない/URL開かない/公式へ確認）を優しく案内。`
+                        }
+                    ], 9000);
+                    crisisText = (crisis.choices?.[0]?.message?.content || '').trim();
+                } catch (e1) {
+                    briefErr('crisis GPT-4o failed', e1);
+                    // 2nd: GPT-4o-mini
+                    try {
+                        const crisisMini = await callOpenAIChat(GPT4O_MINI, [
+                            { role: 'system', content: CRISIS_SYSTEM },
+                            { role: 'user', content: is_danger
+                                ? `${baseUser}\n状況: 自傷・いじめ・DVなどの恐れ。安心する言葉と今すぐできる一歩を。`
+                                : `${baseUser}\n状況: 詐欺の不安。落ち着かせ、確認手順（支払わない/URL開かない/公式へ確認）を優しく案内。`
+                            }
+                        ], 9000);
+                        crisisText = (crisisMini.choices?.[0]?.message?.content || '').trim();
+                    } catch (e2) {
+                        briefErr('crisis GPT-4o-mini failed', e2);
+                    }
                 }
-            ]);
-            crisisText = (crisis.choices?.[0]?.message?.content || '').trim();
             }
-        } catch (e) { briefErr('crisis GPT-4o failed', e); }
+            // 3rd: Gemini系フォールバック
+            if (!crisisText && GEMINI_API_KEY) {
+                const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+                const model = genAI.getGenerativeModel({ model: GEMINI_PRO });
+                const res = await model.generateContent([
+                    { text: CRISIS_SYSTEM },
+                    { text: is_danger
+                        ? `ユーザーの入力: ${text}\n状況: 自傷・いじめ・DVなど。安心と具体的な一歩。`
+                        : `ユーザーの入力: ${text}\n状況: 詐欺不安。落ち着かせ手順。`
+                    }
+                ]);
+                crisisText = (res.response?.text?.() || '').trim();
+            }
+        } catch (e) {
+            briefErr('crisis fallback failed', e);
+        }
         const base = is_danger ? DANGER_REPLY : (is_scam ? SCAM_REPLY : INAPPROPRIATE_REPLY);
         // AI文面が取れたら先頭に付ける（長文OK）
         const out = crisisText ? [{ type: 'text', text: crisisText }, ...base] : base;
         // 見守り通報ロジックは既存のまま（is_danger時のみ）
         if (!isAdminUser && isWatchEnabled && is_danger) {
-            const WATCH_GROUP_ID = await getActiveWatchGroupId();
-            if (WATCH_GROUP_ID) {
-                const u = user;
-                const prof = u.profile || {};
-                const emerg = u.emergency || {};
-                await safePush(WATCH_GROUP_ID, [
-                    {
-                        type: 'text',
-                        text: `見守り対象者(${prof.name || prof.displayName})から危険なメッセージを検知しました。`
-                    },
-                    buildWatcherFlex({
-                        title: '🚨危険ワード検知',
-                        name: prof.name || prof.displayName || '—',
-                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                        selfPhone: prof.phone || '',
-                        kinName: emerg.contactName || '',
-                        kinPhone: emerg.contactPhone || '',
-                        userId
-                    })
-                ]);
+            const DEST = await getActiveWatchGroupId();
+            const fallbackUser = OWNER_USER_ID || BOT_ADMIN_IDS[0] || '';
+            const u = user; const prof = u.profile || {}; const emerg = u.emergency || {};
+            const payload = [
+                { type: 'text', text: `見守り対象者(${prof.name || prof.displayName || '—'})から危険なメッセージを検知しました。` },
+                buildWatcherFlex({
+                    title: '🚨危険ワード検知',
+                    name: prof.name || prof.displayName || '—',
+                    address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                    selfPhone: prof.phone || '',
+                    kinName: emerg.contactName || '',
+                    kinPhone: emerg.contactPhone || '',
+                    userId
+                })
+            ];
+            if (DEST) {
+                await safePush(DEST, payload);
+                audit('officer_alert_sent', { to: DEST, userId: userHash(userId) });
+            } else if (fallbackUser) {
+                await safePush(fallbackUser, payload);
+                audit('officer_alert_fallback_user', { to: gTrunc(fallbackUser,8), userId: userHash(userId) });
             } else {
-                console.warn('[watch] skip: WATCH_GROUP_ID empty');
+                console.warn('[watch] no destination for alerts (WATCH_GROUP_ID/OFFICER_GROUP_ID/OWNER_USER_ID empty)');
             }
         }
         await replyOrPush(replyToken, userId, out);
@@ -1396,14 +1435,15 @@ const handleEvent = async (event) => {
     const aiResponse = await getAiResponse(userId, user, text, history, { consultOncePending });
 
     if (aiResponse && aiResponse.text) {
-        const truncatedText = aiResponse.text.slice(0, 500);
+        let t = aiResponse.text.replace(/\s+/g,' ').trim();
+        if (t.length > 110) t = gTrunc(t, 110) + '…';
         await replyOrPush(replyToken, userId, {
             type: 'text',
-            text: truncatedText
+            text: t
         });
         const shouldSave = SAVE_HISTORY_SCOPE === 'all' || (SAVE_HISTORY_SCOPE === 'flagged' && (is_danger || is_scam || is_inappropriate));
         if (shouldSave) {
-          await saveHistory(userId, text, truncatedText);
+          await saveHistory(userId, text, t);
         }
         await updateUsageCount(userId, membership, todayJst);
         // 相談モードだったら1回でオフに戻す
