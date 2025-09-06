@@ -444,7 +444,7 @@ async function checkAndSendPing() {
             const awaiting = !!ws.awaitingReply;
             const lastPingAt = ws.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
             const lastReminderAt = ws.lastReminderAt?.toDate?.() ? dayjs(ws.lastReminderAt.toDate()) : null;
-            const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(ws.lastNotifiedAt.toDate()) : null;
+            const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(lastNotifiedAt.toDate()) : null;
             let mode = awaiting ? 'noop' : 'ping';
             if (awaiting && lastPingAt) {
                 const hrs = dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour');
@@ -1290,15 +1290,12 @@ async function handleEvent(event) {
 
             const aiResponseText = await getAiResponse(userConfig.model, userConfig.dailyLimit, conversationHistory, text);
             clearTimeout(thinkingTimer);
-
-            const SUGGEST_NEXT =
-                '（よければ「見守り」って送ってね。登録メニューを開くよ🌸 / もう少し話すなら、そのまま続けてね）';
-
+            const SUGGEST_NEXT = '（よければ「見守り」って送ってね。登録メニューを開くよ🌸 / もう少し話すなら、そのまま続けてね）';
             if (aiResponseText) {
-                const text = thinkingNotified ? `お待たせしちゃった…ごめんね💦\n${aiResponseText}` : aiResponseText;
-                await client.replyMessage(replyToken, { type:'text', text: `${text}\n${SUGGEST_NEXT}` });
+                 const text = thinkingNotified ? `お待たせしちゃった…ごめんね💦\n${aiResponseText}` : aiResponseText;
+                 await client.replyMessage(replyToken, { type: 'text', text: `${text}\n${SUGGEST_NEXT}` });
             } else {
-                await client.replyMessage(replyToken, {
+                 await client.replyMessage(replyToken, {
                     type:'text',
                     text:`うまく返せなかったみたい…ごめんね💦 もう一度だけ教えてもらえる？\n${SUGGEST_NEXT}`
                 });
