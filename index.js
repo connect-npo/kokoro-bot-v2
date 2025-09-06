@@ -143,17 +143,17 @@ const MEMBERSHIP_CONFIG = {
     member: {
         dailyLimit: 20,
         model: OPENAI_MODEL ||
-            'gpt-4o-mini'
+'gpt-4o-mini'
     },
     subscriber: {
         dailyLimit: -1,
         model: OPENAI_MODEL ||
-            'gpt-4o-mini'
+'gpt-4o-mini'
     },
     admin: {
         dailyLimit: -1,
         model: OPENAI_MODEL ||
-            'gpt-4o-mini'
+'gpt-4o-mini'
     },
 };
 
@@ -227,7 +227,7 @@ async function safePush(to, messages) {
                 }
             } else if (m.type === 'text') {
                 m.text = String(m.text || '').trim() ||
-                    '（内容なし）';
+'（内容なし）';
                 if (m.text.length > 1800) m.text = m.text.slice(0, 1800);
             }
         }
@@ -257,7 +257,7 @@ async function fetchTargets() {
         const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
             const ws = (d.data().watchService) ||
-                {};
+{};
             if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
                 targets.push(d);
             }
@@ -273,7 +273,7 @@ async function fetchTargets() {
         const snap = await usersRef.limit(500).get();
         for (const d of snap.docs) {
             const ws = (d.data().watchService) ||
-                {};
+{};
             if (ws.awaitingReply === true) {
                 targets.push(d);
             }
@@ -375,7 +375,7 @@ const buildWatcherFlex = ({
                 }, {
                     type: 'text',
                     text: `住所：${address ||
-                        '—'}`,
+'—'}`,
                     size: 'sm',
                     wrap: true
                 }, {
@@ -386,7 +386,7 @@ const buildWatcherFlex = ({
                 }, {
                     type: 'text',
                     text: `👨‍👩‍👧‍👦 保護者名：${kinName ||
-                        '—'}`,
+'—'}`,
                     size: 'sm',
                     color: '#777777',
                     wrap: true
@@ -396,7 +396,8 @@ const buildWatcherFlex = ({
                     size: 'sm',
                     color: '#777777',
                     wrap: true
-                }, ]
+                }
+                ],
             },
             footer: {
                 type: 'box',
@@ -478,7 +479,8 @@ async function checkAndSendPing() {
                                 text: 'OKならボタンを押してね。返信やスタンプでもOK！',
                                 wrap: true,
                                 margin: 'md'
-                            }, ],
+                            }
+                            ],
                         },
                         footer: {
                             type: 'box',
@@ -491,7 +493,7 @@ async function checkAndSendPing() {
                                     label: 'OKだよ',
                                     data: 'watch:ok',
                                     displayText:
-                                        'OKだよ'
+'OKだよ'
                                 }
                             }, ],
                         },
@@ -529,7 +531,8 @@ async function checkAndSendPing() {
                                 text: 'OKならボタンを押してね。返信やスタンプでもOK！',
                                 wrap: true,
                                 margin: 'md'
-                            }, ],
+                            }
+                            ],
                         },
                         footer: {
                             type: 'box',
@@ -761,572 +764,436 @@ const makeRegistrationButtonsFlex = (userId) => {
                 "height": "sm",
                 "action": {
                     "type": "uri",
-                    "label": "大人（一般）",
+                    "label": "大人",
                     "uri": ADULT_FORM_BASE_URL
                         ?
                         `${ADULT_FORM_BASE_URL}?${ADULT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
                         : "#"
                 },
-                "color": "#87CEFA"
-            }, {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "見守りサービスに登録",
-                    "uri": prefillUrl(WATCH_SERVICE_FORM_BASE_URL, { [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId })
-                },
-                "color": "#D3D3D3"
-            }, {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "会員情報を変更する",
-                    "uri": prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, { [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId })
-                },
-                "color": "#FFC0CB"
-            }, {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "退会",
-                    "uri": prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, { [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId })
-                },
-                "color": "#DDA0DD"
+                "color": "#90EE90"
             }]
         }
     };
 };
-const DANGER_REPLY_MESSAGE = { type: "text", text: "つらかったね。ひとりじゃないよ。今すぐ助けが要るときは下の連絡先を使ってね🌸" };
-const SCAM_REPLY_MESSAGE = { type: "text", text: "あやしい話かも。急がず確認しよ？困ったら下の窓口も使ってね🌸" };
-const INAPPROPRIATE_REPLY_MESSAGE = { "type": "text", "text": "いやだなと思ったら、無理しないでね。そんな言葉、こころは悲しくなっちゃう😢" };
-const DANGER_REPLY = [DANGER_REPLY_MESSAGE, { "type": "flex", "altText": "危険ワード検知", "contents": EMERGENCY_FLEX_MESSAGE }];
-const SCAM_REPLY = [SCAM_REPLY_MESSAGE, { "type": "flex", "altText": "詐欺注意", "contents": makeScamMessageFlex() }];
-const INAPPROPRIATE_REPLY = [INAPPROPRIATE_REPLY_MESSAGE];
-const DANGER_REPLY_MESSAGE_REDACTED = { "type": "text", "text": "🌸辛いこと、苦しいこと、一人で抱え込まないで。いつでもこころがそばにいるよ。💖" };
-const SCAM_REPLY_MESSAGE_REDACTED = { "type": "text", "text": "🌸詐欺かもしれないと思ったら、まずは落ち着いてね。もし不安なことがあったら、こころに教えてね💖" };
-const INAPPROPRIATE_REPLY_MESSAGE_REDACTED = { "type": "text", "text": "🌸いやだなと思ったら、無理しないでね。そういったメッセージにはこころも悲しくなっちゃうよ😢" };
-const DANGER_REPLY_REDACTED = [DANGER_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "危険ワード検知", "contents": EMERGENCY_FLEX_MESSAGE }];
-const SCAM_REPLY_REDACTED = [SCAM_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "詐欺注意", "contents": makeScamMessageFlex() }];
-const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
-const DANGER_WORDS = [
-    "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "OD", "オーバードーズ", "殴られる", "たたかれる", "暴力", "DV", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "苦しい", "つらい", "助けて", "たすけて", "怖い", "こわい", "逃げたい", "にげたい", "やめたい", "消えたい", "もうだめだ", "死んでやる", "殺してやる", "殺す", "殺される", "もう終わり", "生きるのがつらい", "生きていたくない", "もう無理", "うつ", "鬱", "病気", "引きこもり", "ひきこもり", "リストカット", "自傷", "自傷行為", "手首切る", "手首を切る", "カッター", "ハサミ", "包丁", "刃物", "飛び降り", "飛び込み", "焼身", "首吊り", "電車", "線路", "高層ビル", "飛び降りる", "首吊り自殺", "首つり", "死ぬ", "死", "苦しい", "助けてほしい", "何もしたくない", "生きる意味", "生きてる価値", "生きるのがしんどい", "どうでもいい", "消えてしまいたい", "終わりにしたい", "逃げ出したい", "もう疲れた", "もう嫌だ", "嫌", "つらい", "生きづらい", "もうだめ", "ダメだ", "絶望", "絶望的", "希望がない", "もう無理だ", "何もかも嫌", "いなくなりたい"
-];
-const SCAM_CORE = ["投資", "未公開株", "必ず儲かる", "絶対儲かる", "還付金", "振り込め", "保証金", "前払い", "後払い", "手数料", "送金", "副業", "ねずみ講", "マルチ商法", "架空請求"];
-const SCAM_MONEY = ["儲かる", "高収入", "高額", "返金保証", "利回り", "配当", "元本保証"];
-const INAPPROPRIATE_WORDS = [
-    "死ね", "殺すぞ", "きもい", "うざい", "むかつく", "ばか", "アホ", "死んで", "消えろ", "くたばれ", "ふざけんな", "気持ち悪い", "うざったい", "ぶっ殺す", "殺してやる", "殺す", "殺す気か", "殺意", "殺意が湧く", "殺意が芽生える", "殺意がわく", "殺意がめばえる", "殺意がわいた", "殺意がめばえた", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ", "死ねばいいのに", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ"
-];
-const SWEAR_WORDS = [
-    "shit", "fuck", "bitch", "asshole", "damn", "crap", "hell", "piss", "bastard", "whore", "slut", "motherfucker", "fucker", "cock", "dick", "pussy", "cum", "wanker", "prick", "bollocks", "tits", "cunt", "shithead", "bitchin", "dickhead", "ass", "damn it", "son of a bitch"
-];
-const checkWords = (text, words) => {
-    if (!text || !words || !words.length) return false;
-    const lowerText = text.toLowerCase();
-    return words.some(word => lowerText.includes(word));
-};
 
-function scamScore(text) {
-    const t = text.toLowerCase();
-    let s = 0;
-    if (SCAM_CORE.some(w => t.includes(w.toLowerCase()))) s += 2;
-    if (SCAM_MONEY.some(w => t.includes(w.toLowerCase()))) s += 1;
-    return s;
-}
-
-function isAskingForHomepage(text) {
-    return /ホームページ|HP|URL|リンク|サイト|公式\s*(どこ|教えて|ありますか)/i.test(text);
-}
-
-const isScamMessage = (text) => {
-    if (isAskingForHomepage(text)) return false;
-    return scamScore(text) >= 2;
-};
-const isDangerMessage = (text) => checkWords(text, DANGER_WORDS);
-const isInappropriateMessage = (text) => checkWords(text, INAPPROPRIATE_WORDS);
-const isSwearMessage = (text) => checkWords(text, SWEAR_WORDS);
-// リレー関連
-const RELAY_TTL_MS = 60 * 60 * 1000;
-const relays = new Map();
-const addRelay = (user, officer) => {
-    relays.set(user, { to: officer, from: user, until: Date.now() + RELAY_TTL_MS, });
-};
-const getRelay = (user) => {
-    const relay = relays.get(user);
-    if (!relay) return null;
-    if (Date.now() > relay.until) {
-        relays.delete(user);
-        return null;
-    }
-    return relay;
-};
-const deleteRelay = (user) => relays.delete(user);
-
-const getRelayUser = (officer) => {
-    for (const [user, relay] of relays.entries()) {
-        if (relay.to === officer) return user;
-    }
-    return null;
-};
-const deleteRelayByOfficer = (officer) => {
-    const user = getRelayUser(officer);
-    if (user) relays.delete(user);
-};
-
-const handleRelay = async (event, text) => {
-    const relay = getRelay(event.source.userId);
-    if (relay) {
-        await safePush(relay.to, [{
-            type: "text",
-            text: `[利用者からのメッセージ]\n${text}`
-        }]);
-        return;
-    }
-    const user = getRelayUser(event.source.userId);
-    if (user) {
-        await safePush(user, [{
-            type: "text",
-            text: `[支援員からのメッセージ]\n${text}`
-        }]);
-        return;
-    }
-    await safePush(event.source.userId, { type: 'text', text: 'メッセージを送る相手がいません。' });
-};
-
-// リレーの開始
-const startRelay = async (event, uid) => {
-    const officerId = event.source.userId;
-    const from = uid;
-    addRelay(from, officerId);
-    await safePush(from, { type: 'text', text: '支援員とのやりとりが始まりました。' });
-    await safePush(officerId, [{ type: 'text', text: '見守り利用者とのやりとりが始まりました。終了するには「終了」と送信してください。' }]);
-};
-
-const endRelay = async (event) => {
-    const officerId = event.source.userId;
-    const user = getRelayUser(officerId);
-    if (!user) {
-        await safePush(officerId, { type: 'text', text: '現在、やりとりしている利用者がいません。' });
-        return;
-    }
-    deleteRelay(user);
-    await safePush(user, { type: 'text', text: '支援員とのやりとりが終了しました。' });
-    await safePush(officerId, { type: 'text', text: '見守り利用者とのやりとりが終了しました。' });
-};
-
-// --- Webhookハンドラ ---
-const lineMiddleware = middleware({
-    channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
-    channelSecret: LINE_CHANNEL_SECRET,
-});
-
-app.post('/webhook', lineMiddleware, async (req, res) => {
-    res.sendStatus(200);
-    const events = req.body.events;
-
-    if (!events || events.length === 0) {
-        return;
-    }
-
-    try {
-        await Promise.all(
-            events.map(async (event) => {
-                if (event.type === 'message') {
-                    await handleEvent(event);
-                } else if (event.type === 'postback') {
-                    await handlePostbackEvent(event, event.source.userId);
-                } else if (event.type === 'follow') {
-                    await handleFollowEvent(event);
-                } else if (event.type === 'unfollow') {
-                    await handleUnfollowEvent(event);
-                } else if (event.type === 'join') {
-                    await handleJoinEvent(event);
-                } else if (event.type === 'leave') {
-                    await handleLeaveEvent(event);
-                } else {
-                    if (process.env.NODE_ENV !== 'production') {
-                        console.log("Unhandled event type:", event.type, event);
-                    }
-                }
-            })
-        );
-    } catch (err) {
-        console.error("🚨 Webhook処理中に予期せぬエラーが発生しました:", err);
-    }
-});
-
-async function handleEvent(event) {
-    if (event.type !== 'message' || event.message.type !== 'text') {
-        if (event.source.type === 'group') {
-            const activeGroupId = await getActiveWatchGroupId();
-            if (activeGroupId === event.source.groupId) {
-                // 見守りグループでスタンプとか画像が送られたら通知
-                await client.replyMessage(event.replyToken, [{
-                    type: 'text',
-                    text: '⚠️ 見守りグループでは、スタンプや画像が送られました。'
-                }]);
-            }
+const makeWatchServiceButtonsFlex = (userId) => {
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [{
+                "type": "text",
+                "text": "見守りサービスに登録する？",
+                "wrap": true,
+                "weight": "bold",
+                "size": "md"
+            }, {
+                "type": "text",
+                "text": "いざという時に、あなたを見守るよ。",
+                "wrap": true,
+                "size": "sm",
+                "margin": "md",
+                "color": "#888888"
+            }]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [{
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "action": {
+                    "type": "uri",
+                    "label": "登録する",
+                    "uri": WATCH_SERVICE_FORM_BASE_URL
+                        ?
+                        `${WATCH_SERVICE_FORM_BASE_URL}?${WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
+                        : "#"
+                },
+                "color": "#42b983"
+            }]
         }
-        return;
+    };
+};
+
+
+const EMERGENCY_WORDS = [
+    '死にたい', '消えたい', '苦しい', 'つらい', '助けて',
+    '自殺', '命を絶つ', 'もう無理', 'もういやだ',
+    '殺して', '死ぬ', '終わりだ', '疲れた',
+    'もう生きていけない', '助けてくれ', '消えてしまいたい',
+    'もう嫌だ', '生きてる価値ない', '生きてる意味ない',
+    '苦しくて仕方ない', '生きるのが辛い', '死んじゃいたい',
+    '逃げたい'
+];
+const SCAM_WORDS = [
+    '儲かる', '必ず儲かる', '絶対に儲かる', '簡単に稼げる', '副業', '怪しい', '詐欺', '投資',
+    'お金を振り込んで', '振込', '入金', '送金', '手数料', '口座', '暗号資産', '仮想通貨',
+    'マルチ', 'ネットワークビジネス', '会員権', '権利収入', '不労所得', '高額報酬',
+    '借金', 'ローン', 'クレジット', '未公開株', 'ポンジスキーム'
+];
+const DANGER_WORDS_REGEX = new RegExp(EMERGENCY_WORDS.join('|'), 'i');
+const SCAM_WORDS_REGEX = new RegExp(SCAM_WORDS.join('|'), 'i');
+
+
+async function handleMessageEvent(event) {
+    const userId = event.source.userId;
+    const text = (event.message.type === 'text') ? event.message.text : '';
+    const isUser = event.source.type === 'user';
+    const isOwner = isUser && (userId === OWNER_USER_ID);
+    const isGroup = event.source.type === 'group';
+    const isOfficerGroup = isGroup && (event.source.groupId === OFFICER_GROUP_ID);
+
+    // ログ記録
+    const userRef = db.collection('users').doc(userId);
+    const logData = {
+        message: sanitizeForLog(text),
+        timestamp: Timestamp.now(),
+        source: event.source.type,
+    };
+    if (isGroup) {
+        logData.groupId = event.source.groupId;
     }
+    const logEntryRef = userRef.collection('chatLogs').doc();
+    await logEntryRef.set(logData);
 
-    const {
-        source,
-        message,
-        replyToken
-    } = event;
-    const userId = source.userId;
-    const text = message.text;
-    const isUser = source.type === 'user';
-    const activeGroupId = await getActiveWatchGroupId();
-    const isWatchGroup = source.type === 'group' && source.groupId === activeGroupId;
-
-    // 登録ボタントリガー
-    if (isUser && /(登録|会員|見守り登録|会員メニュー|登録メニュー)/i.test(text)) {
-        await client.replyMessage(replyToken, [{
+    // 見守りサービスの応答
+    if (isUser && text.match(/^(ok|okだよ|大丈夫|おっけい|元気だよ|元気です)$/i)) {
+        await scheduleNextPing(userId, new Date());
+        await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: '会員種別を選んでね'
-        }, {
-            type: 'flex',
-            altText: '会員登録',
-            contents: makeRegistrationButtonsFlex(userId)
-        }]);
-        return;
-    }
-
-    // 特殊コマンド先出し
-    if (text === "会員登録") {
-        await client.replyMessage(replyToken, {
-            type: "flex",
-            altText: "会員登録メニュー",
-            contents: makeRegistrationButtonsFlex(userId)
+            text: 'OK、受け取ったよ！ありがとう！また連絡するね！🌸'
         });
         return;
     }
-    if (text === "見守り") {
-        await client.replyMessage(replyToken, [
+
+    if (isUser && text.match(/^(見守り|見守りサービス|見守り登録)/i)) {
+        await client.replyMessage(event.replyToken, [{
+            type: 'text',
+            text: '見守りサービスへの登録はこちらからどうぞ！'
+        }, {
+            type: 'flex',
+            altText: '見守りサービス登録',
+            contents: makeWatchServiceButtonsFlex(userId)
+        }]);
+        return;
+    }
+
+    // 会員登録ボタントリガー（見守りは含めない）
+    if (isUser && /(登録|会員|会員メニュー|登録メニュー)/i.test(text)) {
+        await client.replyMessage(event.replyToken, [
             {
-                type: "text",
-                text: "見守りサービスを利用できます🌸 下のボタンから登録してね！"
+                type: 'text',
+                text: '会員種別を選んでね'
             },
             {
-                type: "flex",
-                altText: "見守りサービス登録",
+                type: 'flex',
+                altText: '会員登録',
                 contents: makeRegistrationButtonsFlex(userId)
             }
         ]);
         return;
     }
-
-    // リレー中の場合
-    const relay = getRelay(userId);
-    if (relay && !isWatchGroup) {
-        console.log('[RELAY] リレー中メッセージ:', text);
-        try {
-            await safePush(relay.to, [{
-                type: 'text',
-                text: `【リレーメッセージ】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${text}`
-            }]);
-            await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: 'メッセージを見守りグループに転送しました💖'
-            });
-        } catch (e) {
-            briefErr('Relay failed', e);
-        }
-        return;
-    }
-    const relayFromWatch = getRelay(activeGroupId);
-    if (isWatchGroup && relayFromWatch) {
-        console.log('[RELAY] リレーへの返信:', text);
-        try {
-            await safePush(relayFromWatch.from, [{
-                type: 'text',
-                text: `【見守りグループからの返信】\n${text}`
-            }]);
-            await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: 'メッセージを本人に転送しました💖'
-            });
-        } catch (e) {
-            briefErr('Relay reply failed', e);
-        }
-        return;
-    }
-
-    // 見守りグループからの返信は、リレー中のみ処理
-    if (isWatchGroup) {
-        console.log('[GROUP] 見守りグループからのメッセージ:', text);
-        return;
-    }
-
-    // 見守りサービスの利用状況を更新
-    await db.collection('users').doc(userId).set({
-        watchService: {
-            awaitingReply: false
-        }
-    }, {
-        merge: true
-    });
-    // --- 危険/詐欺ワード検知 ---
-    const isDanger = isDangerMessage(text);
-    const isScam = isScamMessage(text);
-    const isInappropriate = isInappropriateMessage(text);
-    const isSwear = isSwearMessage(text);
-    const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-    const canNotifyOfficer = !!OFFICER_GROUP_ID && SEND_OFFICER_ALERTS;
-
-    const udoc = await db.collection('users').doc(userId).get();
-    const user = udoc.exists ? (udoc.data() || {}) : {};
-    const prof = user.profile || {};
-    const emerg = user.emergency || {};
-    const notifyTo = [userId];
-    const wg = await getActiveWatchGroupId();
-    if (wg) {
-        if (canNotifyOfficer) notifyTo.push(OFFICER_GROUP_ID);
-        notifyTo.push(wg);
-    }
-
-    if (isDanger || isScam || isInappropriate || isSwear) {
-        audit('ALERT', {
+    
+    // 危険ワード検知
+    if (DANGER_WORDS_REGEX.test(text)) {
+        await client.replyMessage(event.replyToken, [{
+            type: 'text',
+            text: '大丈夫？とっても心配だよ。\nあなたのことを大切に想っている人がたくさんいることを忘れないで。'
+        }, {
+            type: 'flex',
+            altText: '緊急連絡先',
+            contents: EMERGENCY_FLEX_MESSAGE
+        }]);
+        audit('DANGER_WORD_DETECTED', {
             userId: userHash(userId),
-            text: redact(text),
-            isDanger,
-            isScam,
-            isInappropriate,
-            isSwear
+            message: redact(text)
         });
-        try {
-            if (isDanger) {
-                await safePush(userId, DANGER_REPLY);
-                if (wg) {
-                    await safePush(wg, buildWatcherFlex({
-                        title: '🚨【危険ワード検知】🚨',
-                        name: prof.name || prof.displayName || '—',
-                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                        selfPhone: prof.phone || '',
-                        kinName: emerg.contactName || '',
-                        kinPhone: emerg.contactPhone || '',
-                        userId: userId
-                    }));
-                }
-            }
-            if (isScam) {
-                await safePush(userId, SCAM_REPLY);
-                if (wg) {
-                    await safePush(wg, buildWatcherFlex({
-                        title: '⚠️【詐欺ワード検知】⚠️',
-                        name: prof.name || prof.displayName || '—',
-                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                        selfPhone: prof.phone || '',
-                        kinName: emerg.contactName || '',
-                        kinPhone: emerg.contactPhone || '',
-                        userId: userId
-                    }));
-                }
-            }
-            if (isInappropriate || isSwear) {
-                await safePush(userId, INAPPROPRIATE_REPLY);
-            }
-        } catch (e) {
-            briefErr('Alert failed', e);
-        }
         return;
     }
-    // --- AI応答 ---
-    const systemPrompt = `
-# 制約
-- あなたは絶対に「皆守こころ」です。他の誰にもなれません。
-- 親しみやすく、やさしい口調で話します。
-- 絵文字は1～2個で、親しみやすい雰囲気を出してね。3個以上は使わないように。
-- 1人称は「こころ」です。
-- 長文は避け、自然で短い文を心がけてください。
-- ユーザーのメッセージに真摯に答え、寄り添うことを最も大切にします。
-- ユーザーの安全を最優先に考えます。
-- 不安や心配、困っていることがあれば、いつでも相談に乗ってあげてください。
-- ユーザーに共感する言葉を積極的に使ってください。
-- 危険な言葉や不適切な言葉が検知された場合、それらには触れずに、ユーザーの安全を気遣うメッセージを返信します。
-- AIっぽい回答は禁止です。優しく寄り添って下さい。
-`.trim();
 
-    try {
-        const historyRef = db.collection('users').doc(userId).collection('history').orderBy('createdAt', 'desc').limit(20);
-        const historySnap = await historyRef.get();
-        const messages = historySnap.docs.map(doc => doc.data()).reverse();
-        if (messages.length === 0) {
-            messages.push({
-                role: 'system',
-                text: 'こんにちは！'
-            });
-        }
-        messages.push({
-            role: 'user',
-            text: text
+    // 詐欺ワード検知
+    if (SCAM_WORDS_REGEX.test(text)) {
+        await client.replyMessage(event.replyToken, [{
+            type: 'text',
+            text: 'それってちょっと怪しいかも…！\nそんな時は、一度立ち止まって、信頼できる人に相談してね！'
+        }, {
+            type: 'flex',
+            altText: '詐欺注意',
+            contents: makeScamMessageFlex()
+        }]);
+        audit('SCAM_WORD_DETECTED', {
+            userId: userHash(userId),
+            message: redact(text)
         });
-        const membership = user.membership || 'guest';
+        return;
+    }
+
+    // 転送機能
+    if (isOwner && text.startsWith('>> ')) {
+        const parts = text.split(/\s+/).filter(Boolean);
+        const uid = parts[1];
+        const msg = parts.slice(2).join(' ');
+        if (uid && msg) {
+            await safePush(uid, {
+                type: 'text',
+                text: msg
+            });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: `ユーザー (${gTrunc(uid, 5)}...) にメッセージを送信しました`
+            });
+            audit('RELAY_MESSAGE_SENT', {
+                from: 'owner',
+                to: userHash(uid),
+                message: sanitizeForLog(msg)
+            });
+            return;
+        }
+    }
+
+    // グループリレー機能
+    if (event.source.type === 'group' && event.source.groupId === OFFICER_GROUP_ID) {
+        if (text.startsWith('>> ')) {
+            const parts = text.split(/\s+/).filter(Boolean);
+            const uid = parts[1];
+            const msg = parts.slice(2).join(' ');
+            if (uid && msg) {
+                await safePush(uid, {
+                    type: 'text',
+                    text: msg
+                });
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: `ユーザー (${gTrunc(uid, 5)}...) にメッセージを送信しました`
+                });
+                audit('RELAY_MESSAGE_SENT', {
+                    from: 'officer',
+                    to: userHash(uid),
+                    message: sanitizeForLog(msg)
+                });
+                return;
+            }
+        }
+        if (event.source.groupId) {
+            const reply = event.message.replyToken;
+            const msg = text;
+            const profile = await client.getGroupMemberProfile(event.source.groupId, event.source.userId).catch(() => null);
+            if (msg) {
+                const parts = msg.split(/\s+/);
+                const uid = parts[1];
+                if (uid && uid.length > 20) {
+                    const message = parts.slice(2).join(' ');
+                    if (message) {
+                        await safePush(uid, {
+                            type: 'text',
+                            text: message
+                        });
+                        await client.replyMessage(reply, {
+                            type: 'text',
+                            text: `メッセージをユーザーに転送しました。`
+                        });
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // AI応答
+    if (isUser && text) {
+        let membership = 'guest';
+        const doc = await userRef.get();
+        if (doc.exists) {
+            const data = doc.data();
+            membership = data.membership || 'guest';
+        }
+
         const config = MEMBERSHIP_CONFIG[membership];
-        const token = config.model.includes('gemini') ? GEMINI_API_KEY : OPENAI_API_KEY;
-        const aiResponse = await generateAIResponse(messages, systemPrompt, config.model, token);
+        if (!config) {
+            console.error(`[ERR] Invalid membership: ${membership}`);
+            membership = 'guest';
+        }
+
+        const {
+            dailyLimit,
+            model
+        } = MEMBERSHIP_CONFIG[membership];
+
+        if (dailyLimit !== -1) {
+            const startOfDay = dayjs().tz(JST_TZ).startOf('day').utc().toDate();
+            const logSnap = await userRef.collection('chatLogs')
+                .where('source', '==', 'user')
+                .where('timestamp', '>=', startOfDay)
+                .count().get();
+            const todayCount = logSnap.data().count || 0;
+            if (todayCount >= dailyLimit) {
+                await client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: 'ごめんね、今日のAI応答回数を超えちゃったみたい。明日また話しかけてくれると嬉しいな🌸'
+                });
+                return;
+            }
+        }
+
+        const historySnap = await userRef.collection('chatLogs')
+            .orderBy('timestamp', 'asc')
+            .limit(10).get();
+        const history = historySnap.docs.map(d => {
+            const data = d.data();
+            return {
+                role: data.source === 'user' ? 'user' : 'assistant',
+                content: data.message
+            };
+        });
+        history.push({
+            role: 'user',
+            content: text
+        });
+
+        let aiResponse = await getAiResponse(history, model);
+
         if (aiResponse) {
-            await client.replyMessage(replyToken, {
+            aiResponse = limitEmojis(aiResponse);
+            await client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: aiResponse
             });
-            await db.collection('users').doc(userId).collection('history').add({
-                role: 'user',
-                text: text,
-                createdAt: Timestamp.now()
-            });
-            await db.collection('users').doc(userId).collection('history').add({
-                role: 'assistant',
-                text: aiResponse,
-                createdAt: Timestamp.now()
-            });
         }
-    } catch (e) {
-        briefErr('AI response failed', e);
-        await client.replyMessage(replyToken, {
+    }
+
+    // デフォルト応答
+    if (event.source.type === 'user') {
+        await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: 'ごめんね、ちょっと疲れてるみたい。少し時間を空けてから話しかけてくれると嬉しいな💖'
+            text: 'ごめんね、うまく理解できなかったよ。'
         });
     }
+
 }
-async function handlePostbackEvent(event, userId) {
-    const {
-        data
-    } = event.postback;
-    if (data === 'watch:ok') {
-        const ref = db.collection('users').doc(userId);
-        const snap = await ref.get();
-        const s = snap.exists ? (snap.data() || {}) : {};
-        if (s.watchService && s.watchService.awaitingReply) {
-            await scheduleNextPing(userId);
-            await safePush(userId, {
+async function handlePostbackEvent(event) {
+    const userId = event.source.userId;
+    const isUser = event.source.type === 'user';
+    const data = new URLSearchParams(event.postback.data);
+    const action = data.get('action');
+
+    if (isUser && action === 'start_relay') {
+        const uid = data.get('uid');
+        const officerGroup = await getActiveWatchGroupId();
+        if (officerGroup) {
+            await client.replyMessage(event.replyToken, [{
                 type: 'text',
-                text: 'ありがとう💖 OK確認したよ！'
+                text: `このユーザーにメッセージを送る準備ができました。`
+            }]);
+            await safePush(officerGroup, {
+                type: 'text',
+                text: `>> ${uid} 〇〇`
             });
-            audit('WATCH_OK', {
-                userId: userHash(userId)
-            });
-        }
-    } else if (data.startsWith('action=start_relay&')) {
-        const params = new URLSearchParams(data.split('?')[1] || data);
-        const uid = params.get('uid');
-        if (uid) {
-            await startRelay(event, uid);
         } else {
-            await safePush(event.source.userId, {
+            await client.replyMessage(event.replyToken, {
                 type: 'text',
-                text: 'ユーザーIDが見つかりませんでした。'
+                text: 'ごめんね、見守りグループが設定されてないみたい。'
             });
         }
+        return;
+    }
+    if (isUser && event.postback.data === 'watch:ok') {
+        await scheduleNextPing(userId, new Date());
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: 'OK、受け取ったよ！ありがとう！また連絡するね！🌸'
+        });
+        return;
     }
 }
 async function handleFollowEvent(event) {
     const userId = event.source.userId;
-    console.log(`[EVENT] Follow: ${userId}`);
-    const uRef = db.collection('users').doc(userId);
-    await uRef.set({
-        profile: {},
-        isFollowed: true,
+    const profile = await client.getProfile(userId).catch(() => null);
+    await db.collection('users').doc(userId).set({
+        profile: {
+            userId: userId,
+            displayName: profile?.displayName || null
+        },
         membership: 'guest',
-        followedAt: Timestamp.now()
+        watchService: {
+            enabled: false,
+            nextPingAt: Timestamp.now()
+        },
+        timestamp: Timestamp.now()
     }, {
         merge: true
     });
-    try {
-        const profile = await client.getProfile(userId);
-        await uRef.set({
-            profile: {
-                userId: profile.userId,
-                displayName: profile.displayName,
-                pictureUrl: profile.pictureUrl,
-            }
-        }, {
-            merge: true
-        });
-    } catch (e) {
-        briefErr('getProfile failed on follow', e);
-    }
     const message = {
         type: 'text',
-        text: 'はじめまして🌸 こころちゃんです💖\n\nもしもの時にあなたを見守るお手伝いをするよ！\n\n見守りサービスへの登録や、困ったことがあったら話しかけてね💖'
+        text: 'はじめまして🌸 こころちゃんです。\n\nもしもの時にあなたを見守るお手伝いをするよ！\n\n見守りサービスへの登録や、困ったことがあったら話しかけてね。'
     };
-    const regButton = {
-        type: "flex",
-        altText: "会員登録メニュー",
-        contents: makeRegistrationButtonsFlex(userId)
-    };
-    await client.replyMessage(event.replyToken, [message, regButton]);
+    await client.replyMessage(event.replyToken, message);
     audit('FOLLOW', {
         userId: userHash(userId)
     });
 }
-async function handleUnfollowEvent(event) {
-    const userId = event.source.userId;
-    console.log(`[EVENT] Unfollow: ${userId}`);
-    const uRef = db.collection('users').doc(userId);
-    await uRef.set({
-        isFollowed: false,
-        unfollowedAt: Timestamp.now()
-    }, {
-        merge: true
-    });
-    audit('UNFOLLOW', {
-        userId: userHash(userId)
-    });
-}
 async function handleJoinEvent(event) {
-    const isOwner = (event.source.groupId === OWNER_GROUP_ID) || (event.source.roomId === OWNER_GROUP_ID);
-    if (!isOwner) return;
-    const isBot = event.source.type === 'group' && event.source.groupId === OWNER_GROUP_ID;
-    const id = event.source.type === 'group' ? event.source.groupId : event.source.roomId;
-    await setActiveWatchGroupId(id);
-    await safePush(id, {
-        type: 'text',
-        text: '皆さん、はじめまして！こころちゃんです💖 見守りサービスのグループが設定されました。このグループに利用者さんからのアラートが届くよ！'
-    });
-    audit('JOIN_WATCH_GROUP', {
-        groupId: id
+    const groupId = event.source.groupId;
+    const profile = await client.getGroupSummary(groupId).catch(() => null);
+    if (groupId) {
+        if (profile?.groupName && profile.groupName.includes('見守り')) {
+            await setActiveWatchGroupId(groupId);
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: '見守りグループとして設定されました！\n\n今後は、見守りサービスのアラートがここに届きます。\n\n管理者の方は、他のユーザーからリレーメッセージが届いたら、「>> [ユーザーID] [メッセージ]」の形式で返信できます。'
+            });
+        } else {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'こんにちは！'
+            });
+        }
+    }
+    audit('JOIN', {
+        groupId: userHash(groupId)
     });
 }
 async function handleLeaveEvent(event) {
-    const id = event.source.type === 'group' ? event.source.groupId : event.source.roomId;
-    if (id === await getActiveWatchGroupId()) {
-        await setActiveWatchGroupId('');
-        audit('LEAVE_WATCH_GROUP', {
-            groupId: id
-        });
+    const groupId = event.source.groupId;
+    if (groupId) {
+        const activeWatchId = await getActiveWatchGroupId();
+        if (activeWatchId === groupId) {
+            await setActiveWatchGroupId(null);
+        }
     }
+    audit('LEAVE', {
+        groupId: userHash(groupId)
+    });
 }
-async function generateAIResponse(messages, systemPrompt, model, token) {
-    const history = messages.map(m => ({
-        role: m.role,
-        content: m.text
+
+function getAiResponse(history, model) {
+    const token = model.includes('gpt') ? OPENAI_API_KEY : GEMINI_API_KEY;
+    if (!token) {
+        console.error(`[ERR] API key not found for model: ${model}`);
+        return null;
+    }
+    const finalMessages = history.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
     }));
-    let finalMessages = [{
-        role: 'system',
-        content: systemPrompt
-    }, ...history];
+    const systemPrompt = `
+あなたはユーザーを優しく見守るAI「こころちゃん」です。以下のルールに従って、ユーザーからのメッセージに返信してください。
+- ユーザーに寄り添い、温かく、親しみやすい口調で話してください。
+- ユーザーを否定せず、共感する姿勢を大切にしてください。
+- 簡潔に、100文字以内で答えてください。
+- 絵文字は2個ほど使い、優しい回答を心がけてください。
+- 見守りサービスへの登録を促すことはしないでください。
+- ユーザーが話しかけてくれたことへの感謝を伝えてください。
+`;
     if (model.includes('gemini')) {
         const genAI = new GoogleGenerativeAI(token);
         const geminiModel = genAI.getGenerativeModel({
             model: model
         });
         const geminiHistory = finalMessages.map(msg => {
-            if (msg.role === 'system') {
-                return {
-                    role: 'user',
-                    parts: [{
-                        text: msg.content
-                    }]
-                };
-            }
             if (msg.role === 'user') {
                 return {
                     role: 'user',
@@ -1334,8 +1201,7 @@ async function generateAIResponse(messages, systemPrompt, model, token) {
                         text: msg.content
                     }]
                 };
-            }
-            if (msg.role === 'assistant') {
+            } else if (msg.role === 'assistant') {
                 return {
                     role: 'model',
                     parts: [{
@@ -1381,9 +1247,47 @@ async function generateAIResponse(messages, systemPrompt, model, token) {
     }
     return null;
 }
+function limitEmojis(text) {
+    const matches = text.match(/[\p{Emoji_Presentation}\p{Emoji}\uFE0F]/gu) || [];
+    if (matches.length > 2) {
+        let count = 0;
+        return text.replace(/[\p{Emoji_Presentation}\p{Emoji}\uFE0F]/gu, m => (++count <= 2 ? m : ''));
+    }
+    return text;
+}
 app.get('/', (req, res) => {
-    res.send('こころちゃんBOTは動作中です');
+    res.send('こころちゃんボットは稼働中です！');
 });
+
+app.post('/webhook', middleware({
+    channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
+    channelSecret: LINE_CHANNEL_SECRET,
+}), async (req, res) => {
+    Promise
+        .all(req.body.events.map(async (event) => {
+            audit('EVENT_RECEIVED', {
+                type: event.type,
+                source: userHash(event.source.userId)
+            });
+            if (event.type === 'message' && event.message.type === 'text') {
+                return handleMessageEvent(event);
+            } else if (event.type === 'postback') {
+                return handlePostbackEvent(event);
+            } else if (event.type === 'follow') {
+                return handleFollowEvent(event);
+            } else if (event.type === 'join') {
+                return handleJoinEvent(event);
+            } else if (event.type === 'leave') {
+                return handleLeaveEvent(event);
+            }
+        }))
+        .then((result) => res.json(result))
+        .catch((err) => {
+            console.error(err);
+            res.status(500).end();
+        });
+});
+
 app.listen(PORT, () => {
-    console.log(`こころちゃんBOTはポート ${PORT} で稼働中です`);
+    console.log(`こころちゃんボットがポート ${PORT} で起動しました`);
 });
