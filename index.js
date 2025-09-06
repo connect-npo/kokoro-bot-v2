@@ -15,6 +15,7 @@ const {
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
+const dns = require('dns');
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -106,14 +107,15 @@ const client = new Client({
     channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: LINE_CHANNEL_SECRET,
 });
+const lookupIPv4 = (hostname, options, cb) => dns.lookup(hostname, { family: 4, hints: dns.ADDRCONFIG | dns.V4MAPPED }, cb);
 const httpAgent = new require('http').Agent({
-    keepAlive: true
+    keepAlive: true, keepAliveMsecs: 15000, maxSockets: 64, maxFreeSockets: 16, lookup: lookupIPv4
 });
 const httpsAgent = new require('https').Agent({
-    keepAlive: true
+    keepAlive: true, keepAliveMsecs: 15000, maxSockets: 64, maxFreeSockets: 16, lookup: lookupIPv4
 });
 const httpInstance = axios.create({
-    timeout: 6000,
+    timeout: 12000,
     httpAgent,
     httpsAgent
 });
@@ -603,7 +605,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? cur.data() : null;
+        const cur = snap.exists ? snap.data() : null;
         if (cur?.until?.toMillis && cur.until.toMillis() > now) {
             return false;
         }
@@ -704,7 +706,7 @@ const specialRepliesMap = new Map([
     ],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころだよ💖　これからもよろしくね🌸"],
     [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
-    [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでね💖"],
+    [/名前も言えないの?|名前も言えんのか？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでね💖"],
     [/どこの団体なの？/i, "NPO法人コネクトのイメージキャラクターだよ😊 みんなの幸せを応援してるの🌸"],
     [/コネクトってどんな団体？/i, "こどもやご年配の方の笑顔を守る団体だよ😊 わたしはイメージキャラとしてがんばってるの🌸"],
     [/お前の団体どこ？/i, "NPO法人コネクトのイメージキャラクターだよ😊 何かあれば気軽に話してね🌸"],
@@ -762,8 +764,8 @@ function isBenignCommerce(text) {
     if (!hasAmazon) return false;
 
     const safeHints = [
-        /買(い物|った)/, /購入/, /注文/, /届(いた|く)/, /配送/, /配達/, /出荷/, /セール/, /プライム/,
-        /返品/, /レビュー/, /カート/, /ポイント/
+        /買(い物|った)/, /購入/, /注文/, /届(いた|く)/, /配送/, /配達/, /出荷/, /到着/, /セール/, /プライム/,
+        /返品/, /交換/, /レビュー/, /評価/, /カート/, /ポイント/, /領収書/, /請求額/, /注文番号/
     ];
     const dangerHints = [
         /ギフトカード|プリペイド|コード|支払い番号|支払番号|口座|振込|至急|今すぐ|リンク|クリック|ログイン|認証|停止|凍結/i
@@ -1155,25 +1157,59 @@ const fetchHistory = async (userId) => {
         .orderBy('timestamp', 'desc').limit(20).get();
     return history.docs.map(d => d.data()).reverse();
 };
+// --- Circuit Breaker for GPT crisis calls ---
+const gptBreaker = { open: false, until: 0, fails: 0 };
+const BREAKER_OPEN_MS = 5 * 60 * 1000; // 5分
+function breakerShouldSkip() { return gptBreaker.open && Date.now() < gptBreaker.until; }
+function breakerOnSuccess() { gptBreaker.fails = 0; gptBreaker.open = false; }
+function breakerOnFail() {
+    gptBreaker.fails++;
+    if (gptBreaker.fails >= 3) {
+        gptBreaker.open = true;
+        gptBreaker.until = Date.now() + BREAKER_OPEN_MS;
+        console.error('[CRISIS] breaker opened for 5min due to repeated connection errors');
+    }
+}
+// --- SDK(undici) で失敗したら IPv4/KeepAlive の axios 直叩きに切替 ---
 async function callOpenAIChat(model, messages, timeoutMs = 12000, options = {}) {
-    const openai = new OpenAI({ apiKey: OPENAI_API_KEY, httpAgent, httpsAgent });
     const { maxRetries = 0, baseDelayMs = 0 } = options;
-    const req = async (attempt = 0) => {
-        try {
-            return await openai.chat.completions.create({
-                model, messages, temperature: 0.7, max_tokens: 500
-            }, { timeout: timeoutMs });
-        } catch (e) {
-            if (attempt < maxRetries) {
-                const delay = baseDelayMs * Math.pow(2, attempt) + (Math.random() * baseDelayMs);
-                console.log(`[RETRY] Attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
-                await new Promise(res => setTimeout(res, delay));
-                return req(attempt + 1);
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY, maxRetries: 2, timeout: timeoutMs });
+
+    const backoff = async (fn, label) => {
+        let lastErr;
+        for (let i = 0; i <= maxRetries; i++) {
+            try { return await fn(); } catch (e) {
+                lastErr = e;
+                if (i < maxRetries) {
+                    const delay = baseDelayMs * Math.pow(2, i) + Math.random() * baseDelayMs;
+                    console.log(`[RETRY] ${label} Attempt ${i + 1}/${maxRetries} after ${delay}ms`);
+                    await new Promise(r => setTimeout(r, delay));
+                }
             }
-            throw e;
         }
+        throw lastErr;
     };
-    return req();
+
+    // 1) SDK経由
+    try {
+        return await backoff(
+            () => openai.chat.completions.create({ model, messages, temperature: 0.7, max_tokens: 500 }),
+            'SDK'
+        );
+    } catch (e1) {
+        briefErr('OpenAI SDK failed', e1);
+    }
+
+    // 2) axiosで直HTTP (IPv4/KeepAlive/lookup強制)
+    const httpCall = async () => {
+        const resp = await httpInstance.post(
+            'https://api.openai.com/v1/chat/completions',
+            { model, messages, temperature: 0.7, max_tokens: 500 },
+            { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
+        );
+        return resp.data;
+    };
+    return await backoff(httpCall, 'HTTP');
 }
 
 async function getCrisisResponse(text, is_danger, is_scam) {
@@ -1181,8 +1217,7 @@ async function getCrisisResponse(text, is_danger, is_scam) {
         ? `ユーザー: ${text}\n状況: 自傷・いじめ・DVなどの恐れ。安心する言葉と今すぐできる一歩を。`
         : `ユーザー: ${text}\n状況: 詐欺の不安。落ち着かせ、支払わない/URL開かない/公式確認を優しく案内。`;
     let crisisText = '';
-
-    if (OPENAI_API_KEY) {
+    if (OPENAI_API_KEY && !breakerShouldSkip()) {
         try {
             const crisis = await callOpenAIChat(
                 GPT4O,
@@ -1190,12 +1225,15 @@ async function getCrisisResponse(text, is_danger, is_scam) {
                     { role: 'system', content: CRISIS_SYSTEM },
                     { role: 'user', content: promptUser }
                 ],
-                12000,
-                { maxRetries: 3, baseDelayMs: 500 }
+                20000,
+                { maxRetries: 3, baseDelayMs: 600 }
             );
-            crisisText = (crisis.choices?.[0]?.message?.content || '').trim();
+            const msg = (crisis.choices?.[0]?.message?.content || '').trim();
+            crisisText = msg;
+            breakerOnSuccess();
         } catch (e) {
             briefErr('crisis GPT-4o failed', e);
+            breakerOnFail();
         }
     }
 
