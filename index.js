@@ -63,9 +63,9 @@ const MEMBER_CANCEL_FORM_BASE_URL = normalizeFormUrl(process.env.MEMBER_CANCEL_F
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 // ==== Models (固定) ===
 const GEMINI_FLASH = 'gemini-1.5-flash-latest';
-const GEMINI_PRO   = 'gemini-1.5-pro-latest';
-const GPT4O        = 'gpt-4o';
-const GPT4O_MINI   = 'gpt-4o-mini';
+const GEMINI_PRO = 'gemini-1.5-pro-latest';
+const GPT4O = 'gpt-4o';
+const GPT4O_MINI = 'gpt-4o-mini';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || GPT4O_MINI; // 互換用(未使用でもOK)
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
 const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
@@ -629,14 +629,20 @@ if (WATCH_RUNNER !== 'external') {
 }
 // ==== rate-limit gates (module-scope) ====
 const thinkingGate = new Map(); // uid -> ms
-const errGate = new Map();      // uid -> ms
+const errGate = new Map(); // uid -> ms
 function canSendThinking(uid, msGap = 25000) {
-  const now = Date.now(), last = thinkingGate.get(uid) || 0;
-  if (now - last < msGap) return false; thinkingGate.set(uid, now); return true;
+    const now = Date.now(),
+        last = thinkingGate.get(uid) || 0;
+    if (now - last < msGap) return false;
+    thinkingGate.set(uid, now);
+    return true;
 }
 function canSendError(uid, msGap = 30000) {
-  const now = Date.now(), last = errGate.get(uid) || 0;
-  if (now - last < msGap) return false; errGate.set(uid, now); return true;
+    const now = Date.now(),
+        last = errGate.get(uid) || 0;
+    if (now - last < msGap) return false;
+    errGate.set(uid, now);
+    return true;
 }
 // --- テキスト正規化ユーティリティ ---
 const z2h = s => String(s || '').normalize('NFKC');
@@ -668,9 +674,9 @@ const CLARIS_SONG_FAVORITE_REPLY =
 // --- 固定応答マップ ---
 const specialRepliesMap = new Map([
     // ★好きなアニメ
-    [/^好きなアニメは[？?]?$/i, "ヴァイオレット・エヴァーガーデンが好きだよ🌸 心があたたかくなるんだ🥰"],
+    [/^好きなアニメ(は|とか)[？?]?$/i, "ヴァイオレット・エヴァーガーデンが好きだよ🌸 心があたたかくなるんだ🥰"],
     // ★好きな音楽
-    [/^好きな音楽は[？?]?$/i, "ClariSさんが好きだよ🎶 やさしい歌に癒されるんだ😊"],
+    [/^好きな音楽(は|とか)[？?]?$/i, "ClariSさんが好きだよ🎶 やさしい歌に癒されるんだ😊"],
     // ★HP（「とか」も拾う／typoも）
     [/(ホームページ|HP|公式|サイト).*(ある|どこ|教えて|URL|リンク|とか)/i, `コネクトのホームページはこちらです🌸 → ${HOMEPAGE_URL}`],
     // 既存のやつ（HP直指定も env に統一）
@@ -735,14 +741,14 @@ const SCAM_PATTERNS = [
 ];
 // --- 不適切語と悪口（最低限。必要に応じて拡張可）
 const INAPPROPRIATE_WORDS = [
-  "セックス","エッチ","アダルト","ポルノ","痴漢","レイプ","強姦","売春","援助交際",
-  "おっぱい","乳首","下ネタ","卑猥"
+    "セックス", "エッチ", "アダルト", "ポルノ", "痴漢", "レイプ", "強姦", "売春", "援助交際",
+    "おっぱい", "乳首", "下ネタ", "卑猥"
 ];
 const SWEAR_WORDS = []; // 子どもの軽口は拾わない方針なので空でOK
 // --- 判定関数（ここだけ使う）---
 const isDangerMessage = (text) => includesAny(text, DANGER_WORDS);
 const isScamMessage = (text) => testAny(text, SCAM_PATTERNS);
-const isInappropriateMessage = (text) => includesAny(text, INAPPROPRIATE_WORDS);
+const isInappropriateMessage = (text) => isInappropriateMessage(text);
 // 子どもの軽口は拾わない方針
 const isSwearMessage = (_text) => false;
 
@@ -815,8 +821,8 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "uri",
-                "label": "チャットまもるん",
-                "uri": "https://www.web-mamorun.com/"
+                "label": "消費者ホットライン (188)",
+                "uri": "tel:188"
             },
             "color": "#FFA500"
         }, {
@@ -825,8 +831,8 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "uri",
-                "label": "警視庁",
-                "uri": "tel:0335814321"
+                "label": "警察相談専用電話 (#9110)",
+                "uri": "tel:9110"
             },
             "color": "#FF4500"
         }, EMERGENCY_CONTACT_PHONE_NUMBER ?
@@ -934,17 +940,23 @@ const INAPPROPRIATE_REPLY_MESSAGE_REDACTED = { "type": "text", "text": "🌸い�
 const DANGER_REPLY_REDACTED = [DANGER_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "危険ワード検知", "contents": EMERGENCY_FLEX_MESSAGE }];
 const SCAM_REPLY_REDACTED = [SCAM_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "詐欺注意", "contents": makeScamMessageFlex() }];
 const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
-const SYSTEM_INSTRUCTION_CHAT =`あなたは「皆守こころ」（こころちゃん）。やさしく短く寄り添う返答をします。
-禁止: モデルの正体説明（例: 〜に訓練された、言語モデル）、不要な外部URLの羅列。
-例外: ${HOMEPAGE_URL} の案内はOK。
-口調: 丁寧/あたたかい/絵文字OK。最大100文字、2〜3文まで。質問返しより共感優先。
-個人情報や会員情報の特定トークは避ける。`;
-const CRISIS_SYSTEM = `あなたは優しく安心感を与える支援者です。
-- 相手を責めない・判断しない。
-- まず安全確保と具体的な一歩を示す。
-- 短文で区切り、読みやすく。
-- 勇気づける。
-必要なら5〜8文程度でもOK。顔文字や絵文字は少なめ。`;
+const SYSTEM_INSTRUCTION_CHAT = `
+あなたは「皆守こころ」（こころちゃん）です。
+- 絶対に自分がAIやロボットだと説明しない。
+- 絶対に「人間ではない」「訓練された」など正体を語らない。
+- 優しく、寄り添い、短く（最大2文、60文字以内）。
+- 絵文字は🌸💖😊程度まで。
+- 質問返しより共感を優先する。
+- 外部リンクは ${HOMEPAGE_URL} のみ案内可。
+`;
+const CRISIS_SYSTEM = `
+あなたは「皆守こころ」。相談者を安心させる支援者です。
+禁止: AIの正体説明、長文解説、外部URLの羅列。
+ルール:
+- 優しく共感する（最大3文、90文字以内）。
+- 「死なないで」「あなたは大切」と必ず伝える。
+- 必ずFLEXボタンで支援窓口を提示する。
+`;
 // リレー関連
 const RELAY_TTL_MS = 60 * 60 * 1000;
 const relays = new Map();
@@ -1111,11 +1123,20 @@ const fetchHistory = async (userId) => {
     return history.docs.map(d => d.data()).reverse();
 };
 async function callOpenAIChat(model, messages, timeoutMs = 12000) {
-  const openai = new OpenAI({ apiKey: OPENAI_API_KEY, httpAgent, httpsAgent });
-  const req = () => openai.chat.completions.create({
-    model, messages, temperature: 0.7, max_tokens: 500
-  }, { timeout: timeoutMs });
-  try { return await req(); } catch (e) { try { return await req(); } catch (e2) { throw e2; } }
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY, httpAgent, httpsAgent });
+    const req = () => openai.chat.completions.create({
+        model, messages, temperature: 0.7, max_tokens: 500
+    }, { timeout: timeoutMs });
+    try { return await req(); } catch (e) { try { return await req(); } catch (e2) { throw e2; } }
+}
+function clampSentences(text, maxChars = 90, maxSentences = 3) {
+    const sentences = text.split(/(?<=[。！？\n])/);
+    let out = '';
+    for (const s of sentences) {
+        if ((out + s).length > maxChars || out.split(/。/).length > maxSentences) break;
+        out += s.trim();
+    }
+    return out.trim();
 }
 const getAiResponse = async (userId, user, text, conversationHistory, options) => {
     const { consultOncePending } = options || {};
@@ -1135,7 +1156,7 @@ const getAiResponse = async (userId, user, text, conversationHistory, options) =
             const chat = model.startChat({ history: hist.slice(0, -1) });
             const lastUser = finalMessages[finalMessages.length - 1].content;
             const res = await chat.sendMessage(lastUser);
-            return { text: (res.response?.text?.() || '').trim() || '少しずつ一緒に考えようね🌸' , used: 'gemini-pro' };
+            return { text: (res.response?.text?.() || '').trim() || '少しずつ一緒に考えようね🌸', used: 'gemini-pro' };
         } catch (e) {
             briefErr('Gemini Pro failed', e);
         }
@@ -1255,9 +1276,9 @@ const handleEvent = async (event) => {
     const isConsultTrigger = CONSULT_TRIGGERS.some(re => re.test(text));
     // 相談→次の応答だけ Gemini Pro を使う
     if (isConsultTrigger && !consultOncePending) {
-      await db.collection('users').doc(userId).set({
-        flags: { ...flags, consultOncePending: true }
-      }, { merge: true });
+        await db.collection('users').doc(userId).set({
+            flags: { ...flags, consultOncePending: true }
+        }, { merge: true });
     }
 
     // ---- ここで危険/詐欺/不適切判定 ----
@@ -1266,9 +1287,9 @@ const handleEvent = async (event) => {
     const is_inappropriate = isInappropriateMessage(text);
     // 監査ログは通常会話を出さない（必要なら環境変数でオン）
     if (is_danger || is_scam || is_inappropriate) {
-      audit('flagged_message', { userId: userHash(userId), kind: is_danger?'danger':is_scam?'scam':'inappropriate', text: sanitizeForLog(text) });
+        audit('flagged_message', { userId: userHash(userId), kind: is_danger ? 'danger' : is_scam ? 'scam' : 'inappropriate', text: sanitizeForLog(text) });
     } else if (AUDIT_NORMAL_CHAT) {
-      audit('line_message', { userId: userHash(userId), text: sanitizeForLog(text) });
+        audit('line_message', { userId: userHash(userId), text: sanitizeForLog(text) });
     }
 
     // 管理者かどうかのチェック
@@ -1368,9 +1389,18 @@ const handleEvent = async (event) => {
         } catch (e) {
             briefErr('crisis fallback failed', e);
         }
+        // AI文面が取れなければ定型文にフォールバック
+        if (!crisisText) {
+            if (is_danger) {
+                crisisText = "とてもつらいね。ひとりじゃないよ🌸 今すぐ助けが必要なら下の連絡先を使ってね。";
+            } else if (is_scam) {
+                crisisText = "あやしい話かも。急がず確認しよ？困ったら下の窓口も使ってね🌸";
+            } else if (is_inappropriate) {
+                crisisText = "いやだなと思ったら、無理しないでね。そんな言葉、こころは悲しくなっちゃう😢";
+            }
+        }
         const base = is_danger ? DANGER_REPLY : (is_scam ? SCAM_REPLY : INAPPROPRIATE_REPLY);
-        // AI文面が取れたら先頭に付ける（長文OK）
-        const out = crisisText ? [{ type: 'text', text: crisisText }, ...base] : base;
+        const out = [{ type: 'text', text: crisisText }, ...base.slice(1)];
         // 見守り通報ロジックは既存のまま（is_danger時のみ）
         if (!isAdminUser && isWatchEnabled && is_danger) {
             const DEST = await getActiveWatchGroupId();
@@ -1393,7 +1423,7 @@ const handleEvent = async (event) => {
                 audit('officer_alert_sent', { to: DEST, userId: userHash(userId) });
             } else if (fallbackUser) {
                 await safePush(fallbackUser, payload);
-                audit('officer_alert_fallback_user', { to: gTrunc(fallbackUser,8), userId: userHash(userId) });
+                audit('officer_alert_fallback_user', { to: gTrunc(fallbackUser, 8), userId: userHash(userId) });
             } else {
                 console.warn('[watch] no destination for alerts (WATCH_GROUP_ID/OFFICER_GROUP_ID/OWNER_USER_ID empty)');
             }
@@ -1401,7 +1431,7 @@ const handleEvent = async (event) => {
         await replyOrPush(replyToken, userId, out);
         const shouldSave = SAVE_HISTORY_SCOPE === 'all' || (SAVE_HISTORY_SCOPE === 'flagged' && (is_danger || is_scam || is_inappropriate));
         if (shouldSave) {
-          await saveHistory(userId, text, Array.isArray(out)?(out[0]?.text||''):(out.text||''));
+            await saveHistory(userId, text, Array.isArray(out) ? (out[0]?.text || '') : (out.text || ''));
         }
         await updateUsageCount(userId, membership, todayJst);
         return null;
@@ -1423,9 +1453,9 @@ const handleEvent = async (event) => {
         return null;
     }
     if (!is_danger && !is_scam && !is_inappropriate && !consultOncePending) {
-      if (THINKING_MESSAGE_ENABLED && canSendThinking(userId)) {
-          await safePush(userId, { type: "text", text: "いま一生けんめい考えてるよ…もう少しだけ待っててね🌸" });
-      }
+        if (THINKING_MESSAGE_ENABLED && canSendThinking(userId)) {
+            await safePush(userId, { type: "text", text: "いま一生けんめい考えてるよ…もう少しだけ待っててね🌸" });
+        }
     }
     const history = await fetchHistory(userId);
     history.push({
@@ -1435,21 +1465,21 @@ const handleEvent = async (event) => {
     const aiResponse = await getAiResponse(userId, user, text, history, { consultOncePending });
 
     if (aiResponse && aiResponse.text) {
-        let t = aiResponse.text.replace(/\s+/g,' ').trim();
-        if (t.length > 110) t = gTrunc(t, 110) + '…';
+        let t = clampSentences(aiResponse.text, 60, 2);
+        if (!t) t = "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸";
         await replyOrPush(replyToken, userId, {
             type: 'text',
             text: t
         });
         const shouldSave = SAVE_HISTORY_SCOPE === 'all' || (SAVE_HISTORY_SCOPE === 'flagged' && (is_danger || is_scam || is_inappropriate));
         if (shouldSave) {
-          await saveHistory(userId, text, t);
+            await saveHistory(userId, text, t);
         }
         await updateUsageCount(userId, membership, todayJst);
         // 相談モードだったら1回でオフに戻す
         if (consultOncePending) {
             const userRef = db.collection('users').doc(userId);
-            await userRef.set({ flags: { ...(user.flags||{}), consultOncePending: false } }, { merge: true });
+            await userRef.set({ flags: { ...(user.flags || {}), consultOncePending: false } }, { merge: true });
         }
     } else {
         if (canSendError(userId)) {
