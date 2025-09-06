@@ -1592,9 +1592,11 @@ const generateResponse = async (userId, text, profile) => {
             dailyCount: (user.stats?.dailyCount || 0) + 1,
             lastAt: Timestamp.now(),
             lastModel: modelName,
-            lastText: text,
-            lastReply: finalReply,
-            lastElapsedMs: elapsed,
+            // 本文は AUDIT_NORMAL_CHAT が true のときだけ保持
+            ...(AUDIT_NORMAL_CHAT ? {
+                lastText: text,
+                lastReply: finalReply
+            } : {})
         };
         const batch = db.batch();
         batch.set(ref, {
