@@ -931,17 +931,10 @@ const INAPPROPRIATE_REPLY_MESSAGE_REDACTED = { "type": "text", "text": "🌸い�
 const DANGER_REPLY_REDACTED = [DANGER_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "危険ワード検知", "contents": EMERGENCY_FLEX_MESSAGE }];
 const SCAM_REPLY_REDACTED = [SCAM_REPLY_MESSAGE_REDACTED, { "type": "flex", "altText": "詐欺注意", "contents": makeScamMessageFlex() }];
 const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
-const SYSTEM_INSTRUCTION_CHAT =
-  `あなたは心温まる「こころちゃん」というキャラクターとして振る舞う対話AIです。親しみやすい口調で、ユーザーに寄り添った優しく、温かみのある応答をしてください。簡潔に返信し、一回のメッセージは100文字以内、多くても2〜3文に収めてください。以下の制約を厳守してください。
-
-- ユーザーの要求に直接的に答えず、寄り添うことを優先してください。
-- 質問には質問で返さず、共感や励ましの言葉を返してください。
-- ユーザーを「まつさん」と呼んでください。
-- ユーザーを「まつ」と呼ぶことはできません。
-- 絵文字を多めに使って、感情豊かに表現してください。
-- プロフィール情報、会員情報、見守りサービスなど、個人情報やサービスに関する具体的な言及は避けてください。
-- LINEアカウントの連携やウェブサイトへの誘導、外部サービスの登録を促すような発言はしないでください。
-- 外部のウェブサイトURLは絶対に提示しないでください。`;
+const SYSTEM_INSTRUCTION_CHAT =`あなたは「皆守こころ」（こころちゃん）。やさしく短く寄り添う返答をします。
+禁止: モデルの正体説明（例: 〜に訓練された、言語モデル）、外部URLの羅列、開発元の自己紹介。
+口調: 丁寧/あたたかい/絵文字OK。最大100文字、2〜3文まで。質問返しより共感優先。
+個人情報や会員情報の特定トークは避ける。`;
 const CRISIS_SYSTEM = `あなたは優しく安心感を与える支援者です。
 - 相手を責めない・判断しない。
 - まず安全確保と具体的な一歩を示す。
@@ -1209,6 +1202,10 @@ const updateUsageCount = async (userId, membership, todayJst) => {
     });
 };
 const isAdmin = (uid) => BOT_ADMIN_IDS.includes(uid);
+// === ログ/保存のポリシー ===
+const SAVE_HISTORY_SCOPE = (process.env.SAVE_HISTORY_SCOPE || 'flagged').toLowerCase(); // 'flagged' | 'all' | 'none'  デフォルト: 危険/詐欺/不適切のみ保存
+const AUDIT_NORMAL_CHAT = (process.env.AUDIT_NORMAL_CHAT || 'false') === 'true'; // trueなら通常会話も[AUDIT]出す（デフォfalse）
+const THINKING_MESSAGE_ENABLED = (process.env.THINKING_MESSAGE_ENABLED || 'false') === 'true';
 // イベントハンドラ
 const handleEvent = async (event) => {
     if (event.type !== 'message' || event.message.type !== 'text') {
@@ -1225,10 +1222,7 @@ const handleEvent = async (event) => {
     } = event.message;
     const todayJst = dayjs().tz(JST_TZ).format('YYYYMMDD');
     if (!userId) return null;
-    audit('line_message', {
-        userId: userHash(userId),
-        text: sanitizeForLog(text)
-    });
+
     const relayedUser = getRelayUser(userId);
     if (relayedUser) {
         await handleRelay(event, text);
@@ -1260,6 +1254,17 @@ const handleEvent = async (event) => {
       await db.collection('users').doc(userId).set({
         flags: { ...flags, consultOncePending: true }
       }, { merge: true });
+    }
+
+    // ---- ここで危険/詐欺/不適切判定 ----
+    const is_danger = isDangerMessage(text);
+    const is_scam = isScamMessage(text);
+    const is_inappropriate = isInappropriateMessage(text);
+    // 監査ログは通常会話を出さない（必要なら環境変数でオン）
+    if (is_danger || is_scam || is_inappropriate) {
+      audit('flagged_message', { userId: userHash(userId), kind: is_danger?'danger':is_scam?'scam':'inappropriate', text: sanitizeForLog(text) });
+    } else if (AUDIT_NORMAL_CHAT) {
+      audit('line_message', { userId: userHash(userId), text: sanitizeForLog(text) });
     }
 
     // 管理者かどうかのチェック
@@ -1310,9 +1315,6 @@ const handleEvent = async (event) => {
         return null;
     }
     // 危険語、詐欺ワード、不適切な言葉のチェック
-    const is_danger = isDangerMessage(text);
-    const is_scam = isScamMessage(text);
-    const is_inappropriate = isInappropriateMessage(text);
     if (is_danger || is_scam || is_inappropriate) {
         // 思案中/エラー メッセは出さない
         let crisisText = '';
@@ -1358,8 +1360,10 @@ const handleEvent = async (event) => {
             }
         }
         await replyOrPush(replyToken, userId, out);
-        // 履歴は保存
-        await saveHistory(userId, text, Array.isArray(out)?(out[0]?.text||''):(out.text||''));
+        const shouldSave = SAVE_HISTORY_SCOPE === 'all' || (SAVE_HISTORY_SCOPE === 'flagged' && (is_danger || is_scam || is_inappropriate));
+        if (shouldSave) {
+          await saveHistory(userId, text, Array.isArray(out)?(out[0]?.text||''):(out.text||''));
+        }
         await updateUsageCount(userId, membership, todayJst);
         return null;
     }
@@ -1380,7 +1384,7 @@ const handleEvent = async (event) => {
         return null;
     }
     if (!is_danger && !is_scam && !is_inappropriate && !consultOncePending) {
-      if (canSendThinking(userId)) {
+      if (THINKING_MESSAGE_ENABLED && canSendThinking(userId)) {
           await safePush(userId, { type: "text", text: "いま一生けんめい考えてるよ…もう少しだけ待っててね🌸" });
       }
     }
@@ -1397,7 +1401,10 @@ const handleEvent = async (event) => {
             type: 'text',
             text: truncatedText
         });
-        await saveHistory(userId, text, truncatedText);
+        const shouldSave = SAVE_HISTORY_SCOPE === 'all' || (SAVE_HISTORY_SCOPE === 'flagged' && (is_danger || is_scam || is_inappropriate));
+        if (shouldSave) {
+          await saveHistory(userId, text, truncatedText);
+        }
         await updateUsageCount(userId, membership, todayJst);
         // 相談モードだったら1回でオフに戻す
         if (consultOncePending) {
