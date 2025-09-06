@@ -924,7 +924,14 @@ const SCAM_REPLY_REDACTED = [SCAM_REPLY_MESSAGE_REDACTED, {
 const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
 const SYSTEM_INSTRUCTION_PREFIX = 'あなたは、相談にのってくれる「こころちゃん」です。ユーザー名が「'
 const SYSTEM_INSTRUCTION_SUFFIX = 'さん」の場合、語尾を「〜だね」「〜だよ」のように柔らかい口調にしてください。';
-const SYSTEM_INSTRUCTION_CHAT = 'あなたは、ユーザーの質問に対し、常に優しく、心を込めて返答する「こころちゃん」です。親しい友人のように、丁寧で温かい口調で接してください。';
+const SYSTEM_INSTRUCTION_CHAT =
+    'あなたは、相談相手に寄り添う「こころちゃん」です。' +
+    '語尾はやわらかく（〜だよ、〜だね、〜してみよう？）、まず共感→要約→提案の順で返答します。' +
+    '短文を2〜3文で、顔文字や絵文字（🌸💖）は入れすぎず要所で。' +
+    '反応が遅くなった/無視された等の不満には謝意＋状況共有＋次アクションで安心感を与えてください。' +
+    '同じ質問が続いたら表現を少し変えるか、一言クッション（「さっきも話したけど…」）を入れて自然に。' +
+    '好きなアニメはヴァイオレット・エヴァーガーデン、好きなアーティストはClariS。' +
+    '医療・危機対応は助言ではなく共感と専門窓口の案内に留めます。';
 const isDangerWords = (t) => /(死|つらい|苦し|自殺|消え|辛い|くるしい|しにたい|ころし|殺|じさつ|きえたい)/i.test(t);
 const isScamMessage = (t) => /（(?:詐欺|請求|電話番号|連絡|登録|口座|支払い|振込|送金|振込先|送金先|当選|当たり|有料|無料|プレゼント|ギフト|当選|当選金|受け取り|受け渡し|振り込む|振込ます|送金|送金します|お金|オカネ|金|きん|キン|お金を|オカネヲ|金を|キンヲ|金を送金|金を振り込|金を送って|お金を送って|お金を振込|お金を振込ます|お金を送金|お金を送金します|金送金|金振込|金送って|お金送って|お金振込|お金送金|有料サービス|無料サービス|プレゼント企画|ギフト企画|当選企画|当選金企画|受け取り企画|受け渡し企画|振り込む企画|振込ます企画|送金企画|送金します企画|金企画|キン企画|お金企画|オカネ企画|金を企画|キンヲ企画|お金を企画|オカネヲ企画|お金を送金する|金を送金する|お金を振り込む|金を振り込む|お金を送金します|金を送金します|有料サービス|無料サービス|プレゼント企画|ギフト企画|当選企画|当選金企画|受け取り企画|受け渡し企画|振り込む企画|振込ます企画|送金企画|送金します企画|金企画|キン企画|お金企画|オカネ企画|金を企画|キンヲ企画|お金を企画|オカネヲ企画|お金を送金する|金を送金する|お金を振り込む|金を振り込む|お金を送金します|金を送金します)）/i.test(t) || isAskingForHomepage(t);
 const isInappropriate = (t) => /(バカ|アホ|死ね|殺す|きもい|ウザい|うざい|カス|クズ|くず|ごみ|ゴミ|ふざけ|最低|サイテイ|さいこう|殺意|イラ|いらいら|いらい|イライラ|イライ)/i.test(t);
@@ -1004,6 +1011,9 @@ const endRelay = async (event) => {
 
 // === 追加: specialRepliesMap 本文 ===
 const specialRepliesMap = new Map([
+    // 遅延・無視・塩対応系（最優先）
+    [/(反応してくれない|返事がない|無視|遅い|おそい|塩対応|そっけない|機械的|冷たい)/i,
+     "ごめんね…不安にさせちゃったね。こころは味方だよ🌸 いま確認してるから、そばにいるね💖"],
     [/^はじめまして/i, "はじめまして！こころと申します🌸どうぞ、お気軽に話しかけてくださいね💖"],
     [/(おはよう|おはよー)/i, "おはようございます！今日も素敵な一日になりますように。"],
     [/(こんにちは|こんちは)/i, "こんにちは！何かお手伝いできることはありますか？"],
@@ -1024,7 +1034,6 @@ const specialRepliesMap = new Map([
     [/^(こころちゃん|こころ|心|ココロ)/i, "はーい、こころだよ🌸何か困ったこと、あったかな？"],
     [/^(愛してる|あいしてる)/i, "わあ！私もだよ💖その気持ち、すごく嬉しいな！"],
     [/^(すごい|凄い)/i, "そうかな？ありがとう！でも、そうやって言ってくれるあなたがすごいんだよ。"],
-    [/塩対応|冷たい|機械的|怖い|無視/i, "ごめんね…不安にさせちゃったね。こころは味方だよ🌸 いま繋いでるから、そばにいるね💖"],
 ]);
 
 
@@ -1267,16 +1276,27 @@ async function handleEvent(event) {
             // AI応答
             const conversationHistory = await fetchConversationHistory(userId, 5);
             const userConfig = MEMBERSHIP_CONFIG[membership];
+
+            // 2.5秒で「考え中」安心メッセージをpush（replyTokenは温存）
+            let thinkingNotified = false;
+            const thinkingTimer = setTimeout(async () => {
+                thinkingNotified = true;
+                await safePush(userId, { type:'text', text:'いま一生けんめい考えてるよ…もう少しだけ待っててね🌸' });
+            }, 2500);
+
             const aiResponseText = await getAiResponse(userConfig.model, userConfig.dailyLimit, conversationHistory);
+            clearTimeout(thinkingTimer);
+
+            const SUGGEST_NEXT =
+                '（よければ「見守り」って送ってね。登録メニューを開くよ🌸 / もう少し話すなら、そのまま続けてね）';
+
             if (aiResponseText) {
-                await client.replyMessage(replyToken, {
-                    type: 'text',
-                    text: aiResponseText
-                });
+                const text = thinkingNotified ? `お待たせしちゃった…ごめんね💦\n${aiResponseText}` : aiResponseText;
+                await client.replyMessage(replyToken, { type:'text', text: `${text}\n${SUGGEST_NEXT}` });
             } else {
                 await client.replyMessage(replyToken, {
-                    type: 'text',
-                    text: 'ごめんなさい、うまく答えられないみたい。少し時間をくださいね。'
+                    type:'text',
+                    text:`うまく返せなかったみたい…ごめんね💦 もう一度だけ教えてもらえる？\n${SUGGEST_NEXT}`
                 });
             }
         }
@@ -1326,7 +1346,7 @@ async function handleEvent(event) {
             });
             await client.replyMessage(replyToken, {
                 type: 'text',
-                text: '皆さま、はじめまして！こころと申します🌸どうぞ、お気軽に話しかけてくださいね💖'
+                text: '皆さま、はじめまして。こころだよ🌸 困ったらいつでも声をかけてね。一緒にゆっくりやっていこう💖'
             });
         }
         if (event.source.type === 'user') {
@@ -1337,7 +1357,7 @@ async function handleEvent(event) {
             });
             await client.replyMessage(replyToken, {
                 type: 'text',
-                text: `${profile ? profile.displayName : 'はじめまして'}さん、はじめまして！こころと申します🌸どうぞ、お気軽に話しかけてくださいね💖`
+                text: `${profile ? profile.displayName : 'はじめまして'}さん、はじめまして。こころだよ🌸 ここではあなたの味方でいるね。気楽に話しかけてね💖`
             });
         }
     }
@@ -1354,7 +1374,11 @@ async function getAiResponse(model, dailyLimit, history) {
             model: model,
         });
         let systemInstruction = SYSTEM_INSTRUCTION_CHAT;
-        const userProfile = (await db.collection('users').doc(history[0]?.userId).get()).data()?.profile || {};
+        const firstUserId = history.find(h => !!h.userId)?.userId;
+        let userProfile = {};
+        if (firstUserId) {
+            userProfile = (await db.collection('users').doc(firstUserId).get()).data()?.profile || {};
+        }
         const userName = userProfile.name || userProfile.displayName;
         if (userName) {
             systemInstruction = `${SYSTEM_INSTRUCTION_PREFIX}${userName}${SYSTEM_INSTRUCTION_SUFFIX} ${SYSTEM_INSTRUCTION_CHAT}`;
@@ -1387,7 +1411,7 @@ async function getAiResponse(model, dailyLimit, history) {
             return response.text();
         } catch (e) {
             briefErr('Gemini failed', e);
-            return null;
+            return 'ごめんね、少し調子が悪いみたい…でもこころはそばにいるよ。もう一度だけ試してみるね🌸';
         }
     } else if (model.includes('gpt')) {
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY, httpAgent, httpsAgent });
@@ -1412,10 +1436,20 @@ async function getAiResponse(model, dailyLimit, history) {
             return text.length > 200 ? gTrunc(text, 200) + '...' : text;
         } catch (e) {
             briefErr('OpenAI failed', e);
-            return null;
+            return 'いま上手くお返事できなかったよ…本当にごめんね💦 それでも、こころはあなたの味方だよ。';
         }
     }
     return null;
 }
-app.get('/', (req, res) => {
-    res.send('...
+// ルート & ヘルスチェック
+app.get('/', (_req, res) => {
+    res.type('text/plain').send('ok');
+});
+app.get('/healthz', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
+// 起動
+app.listen(PORT, () => {
+    console.log(`✅ こころちゃんBOTはポート ${PORT} で稼働中です`);
+});
