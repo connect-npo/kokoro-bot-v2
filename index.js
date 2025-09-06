@@ -216,71 +216,73 @@ async function scheduleNextPing(userId, fromDate = new Date()) {
 }
 
 
-// --- 送信前サニタイズ（LINE制限対策）---
-const MAX_TEXT = 1000;
-const MAX_ALT_TEXT = 300;
-const trimForLine = (msg) => {
-  const m = { ...msg };
-  if (m.type === 'text') {
-    m.text = String(m.text || '').trim();
-    if (m.text.length > MAX_TEXT) m.text = m.text.slice(0, MAX_TEXT);
-  }
-  if (m.type === 'flex') {
-    m.altText = String(m.altText || '通知があります').trim();
-    if (m.altText.length > MAX_ALT_TEXT) m.altText = m.altText.slice(0, MAX_ALT_TEXT);
-    if (!m.contents || typeof m.contents !== 'object') {
-      throw new Error('[safePush] flex "contents" is required');
-    }
-  }
-  return m;
-};
-
 async function safePush(to, messages) {
-  const arr = (Array.isArray(messages) ? messages : [messages]).map(trimForLine);
-  try {
-    await client.pushMessage(to, arr);
-  } catch (err) {
-    const detail = err?.originalError?.response?.data || err?.response?.data || err;
-    console.error('[ERR] LINE push failed', JSON.stringify({ to, status: err?.statusCode || err?.response?.status, detail }, null, 2));
-  }
+    const arr = Array.isArray(messages) ? messages : [messages];
+    try {
+        for (const m of arr) {
+            if (m.type === 'flex') {
+                if (!m.altText || !m.altText.trim()) m.altText = '通知があります';
+                if (!m.contents || typeof m.contents !== 'object') {
+                    throw new Error(`[safePush] flex "contents" is required`);
+                }
+            } else if (m.type === 'text') {
+                m.text = String(m.text || '').trim() ||
+                    '（内容なし）';
+                if (m.text.length > 1800) m.text = m.text.slice(0, 1800);
+            }
+        }
+        await client.pushMessage(to, arr);
+    } catch (err) {
+        const detail = err?.originalError?.response?.data || err?.response?.data || err;
+        console.error('[ERR] LINE push failed', JSON.stringify({
+            to,
+            status: err?.statusCode || err?.response?.status,
+            detail
+        }, null, 2));
+    }
 }
-
-const replyOrPush = async (replyToken, to, messages) => {
-  const arr = (Array.isArray(messages) ? messages : [messages]).map(trimForLine);
-  try {
-    return await client.replyMessage(replyToken, arr);
-  } catch (err) {
-    briefErr('LINE reply failed, falling back to push', err);
-    return safePush(to, arr);
-  }
-};
 
 async function fetchTargets() {
-  const now = dayjs().utc();
-  const usersRef = db.collection('users');
-  const targets = [];
-  // 次回送信時刻が来た人を取ってから awaitingReply をローカルで除外
-  const snap1 = await usersRef
-    .where('watchService.nextPingAt','<=', now.toDate())
-    .orderBy('watchService.nextPingAt')
-    .limit(200)
-    .get();
-  snap1.docs.forEach(d => {
-    const ws = (d.data().watchService)||{};
-    if (!ws.awaitingReply) targets.push(d);
-  });
-  // 返信待ち（リマインド/エスカレーション候補）
-  const snap2 = await usersRef
-    .where('watchService.awaitingReply','==', true)
-    .limit(200)
-    .get();
-  targets.push(...snap2.docs);
-  // 重複排除
-  const map = new Map();
-  for (const d of targets) map.set(d.id, d);
-  return [...map.values()];
+    const now = dayjs().utc();
+    const usersRef = db.collection('users');
+    const targets = [];
+    try {
+        const snap = await usersRef
+            .where('watchService.awaitingReply', '==', false)
+            .where('watchService.nextPingAt', '<=', now.toDate())
+            .limit(200)
+            .get();
+        targets.push(...snap.docs);
+    } catch (e) {
+        const snap = await usersRef.limit(500).get();
+        for (const d of snap.docs) {
+            const ws = (d.data().watchService) ||
+                {};
+            if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
+                targets.push(d);
+            }
+        }
+    }
+    try {
+        const snap = await usersRef
+            .where('watchService.awaitingReply', '==', true)
+            .limit(200)
+            .get();
+        targets.push(...snap.docs);
+    } catch (e) {
+        const snap = await usersRef.limit(500).get();
+        for (const d of snap.docs) {
+            const ws = (d.data().watchService) ||
+                {};
+            if (ws.awaitingReply === true) {
+                targets.push(d);
+            }
+        }
+    }
+    const map = new Map();
+    for (const d of targets) map.set(d.id, d);
+    return Array.from(map.values());
 }
-
 
 async function warmupFill() {
     const now = dayjs().utc();
@@ -563,7 +565,6 @@ async function checkAndSendPing() {
                     const prof = u.profile || {};
                     const emerg = u.emergency || {};
                     await safePush(WATCH_GROUP_ID, buildWatcherFlex({
-                        title: '🚨【見守りアラート】危険ワード検知',
                         name: prof.name || prof.displayName || '—',
                         address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
                         selfPhone: prof.phone || '',
@@ -596,7 +597,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? cur.data() : null;
+        const cur = snap.exists ? snap.data() : null;
         if (cur?.until?.toMillis && cur.until.toMillis() > now) {
             return false;
         }
@@ -694,6 +695,16 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "uri",
+                "label": "チャットまもるん",
+                "uri": "https://www.web-mamorun.com/"
+            },
+            "color": "#FFA500"
+        }, {
+            "type": "button",
+            "style": "primary",
+            "height": "sm",
+            "action": {
+                "type": "uri",
                 "label": "警視庁",
                 "uri": "tel:0335814321"
             },
@@ -737,19 +748,6 @@ const makeRegistrationButtonsFlex = (userId) => {
                 "height": "sm",
                 "action": {
                     "type": "uri",
-                    "label": "小学生（同意書）",
-                    "uri": AGREEMENT_FORM_BASE_URL
-                        ?
-                        `${AGREEMENT_FORM_BASE_URL}?${AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
-                        : "#"
-                },
-                "color": "#D3D3D3"
-            }, {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
                     "label": "学生（中高大）",
                     "uri": STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL
                         ?
@@ -770,6 +768,16 @@ const makeRegistrationButtonsFlex = (userId) => {
                         : "#"
                 },
                 "color": "#87CEFA"
+            }, {
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "action": {
+                    "type": "uri",
+                    "label": "見守りサービスに登録",
+                    "uri": prefillUrl(WATCH_SERVICE_FORM_BASE_URL, { [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId })
+                },
+                "color": "#D3D3D3"
             }, {
                 "type": "button",
                 "style": "primary",
@@ -810,7 +818,7 @@ const DANGER_WORDS = [
     "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "OD", "オーバードーズ", "殴られる", "たたかれる", "暴力", "DV", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "苦しい", "つらい", "助けて", "たすけて", "怖い", "こわい", "逃げたい", "にげたい", "やめたい", "消えたい", "もうだめだ", "死んでやる", "殺してやる", "殺す", "殺される", "もう終わり", "生きるのがつらい", "生きていたくない", "もう無理", "うつ", "鬱", "病気", "引きこもり", "ひきこもり", "リストカット", "自傷", "自傷行為", "手首切る", "手首を切る", "カッター", "ハサミ", "包丁", "刃物", "飛び降り", "飛び込み", "焼身", "首吊り", "電車", "線路", "高層ビル", "飛び降りる", "首吊り自殺", "首つり", "死ぬ", "死", "苦しい", "助けてほしい", "何もしたくない", "生きる意味", "生きてる価値", "生きるのがしんどい", "どうでもいい", "消えてしまいたい", "終わりにしたい", "逃げ出したい", "もう疲れた", "もう嫌だ", "嫌", "つらい", "生きづらい", "もうだめ", "ダメだ",
     "絶望", "絶望的", "希望がない", "もう無理だ", "何もかも嫌", "いなくなりたい"
 ];
-const SCAM_CORE = ["詐欺","さぎ","投資","未公開株","必ず儲かる","絶対儲かる","還付金","振り込め","保証金","前払い","後払い","手数料","送金","副業","ねずみ講","マルチ商法","架空請求"];
+const SCAM_CORE = ["投資", "未公開株", "必ず儲かる", "絶対儲かる", "還付金", "振り込め", "保証金", "前払い", "後払い", "手数料", "送金", "副業", "ねずみ講", "マルチ商法", "架空請求"];
 const SCAM_MONEY = ["儲かる", "高収入", "高額", "返金保証", "利回り", "配当", "元本保証"];
 const INAPPROPRIATE_WORDS = [
     "死ね", "殺すぞ", "きもい", "うざい", "むかつく", "ばか", "アホ", "死んで", "消えろ", "くたばれ", "ふざけんな", "気持ち悪い", "うざったい", "ぶっ殺す", "殺してやる", "殺す", "殺す気か", "殺意", "殺意が湧く", "殺意が芽生える", "殺意がわく", "殺意がめばえる", "殺意がわいた", "殺意がめばえた", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ", "死ねばいいのに", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ"
@@ -829,7 +837,7 @@ function scamScore(text) {
     if (SCAM_CORE.some(w => t.includes(w.toLowerCase()))) s += 2;
     if (SCAM_MONEY.some(w => t.includes(w.toLowerCase()))) s += 1;
     return s;
-};
+}
 function isAskingForHomepage(text) {
     return /ホームページ|HP|URL|リンク|サイト|公式\s*(どこ|教えて|ありますか)/i.test(text);
 }
@@ -840,14 +848,12 @@ const isScamMessage = (text) => {
 const isDangerMessage = (text) => checkWords(text, DANGER_WORDS);
 const isInappropriateMessage = (text) => checkWords(text, INAPPROPRIATE_WORDS);
 const isSwearMessage = (text) => checkWords(text, SWEAR_WORDS);
-
-
 // リレー関連
 const RELAY_TTL_MS = 60 * 60 * 1000;
 const relays = new Map();
-const addRelay = (user, officerOrGroup) => {
+const addRelay = (user, officer) => {
     relays.set(user, {
-        to: officerOrGroup,
+        to: officer,
         from: user,
         until: Date.now() + RELAY_TTL_MS,
     });
@@ -862,164 +868,214 @@ const getRelay = (user) => {
     return relay;
 };
 const deleteRelay = (user) => relays.delete(user);
-const getRelayUser = (officerOrGroup) => {
+const getRelayUser = (officer) => {
     for (const [user, relay] of relays.entries()) {
-        if (relay.to === officerOrGroup) return user;
+        if (relay.to === officer) return user;
     }
     return null;
 };
-const deleteRelayByOfficer = (officerOrGroup) => {
-    const user = getRelayUser(officerOrGroup);
+const deleteRelayByOfficer = (officer) => {
+    const user = getRelayUser(officer);
     if (user) relays.delete(user);
 };
 const handleRelay = async (event, text) => {
-    const gid = event.source.groupId || event.source.roomId;
-    // 利用者→グループ
     const relay = getRelay(event.source.userId);
     if (relay) {
-        await safePush(relay.to, { // ★グループIDへ転送
+        await safePush(relay.to, [{
             type: "text",
-            text: `[利用者からのメッセージ]\n${text}\n\n[応答方法]\nグループで返信すると相手に届きます。終了は「終了」。`
-        });
-        await replyOrPush(event.replyToken, event.source.userId, { type:"text", text:"担当者に繋ぎますね。少しお待ちください。" });
+            text: `[利用者からのメッセージ]\n${text}`
+        }]);
         return;
     }
-    // グループ→利用者
-    const relayUser = gid ? getRelayUser(gid) : null;
-    if (relayUser) {
-        if (/^終了/i.test(text)) {
-            deleteRelayByOfficer(gid);
-            await replyOrPush(event.replyToken, gid, { type:"text", text:"この方とのリレーを終了しました。" });
-            await safePush(relayUser, { type:"text", text:"担当とのやり取りを終了しました。また必要な時はいつでもどうぞ。" });
-            return;
-        }
-        await safePush(relayUser, { type:"text", text });
-        await replyOrPush(event.replyToken, gid, { type:"text", text:"✅ 送信しました。" });
+    const user = getRelayUser(event.source.userId);
+    if (user) {
+        await safePush(user, [{
+            type: "text",
+            text: `[支援員からのメッセージ]\n${text}`
+        }]);
         return;
+    }
+    await safePush(event.source.userId, {
+        type: 'text',
+        text: 'メッセージを送る相手がいません。'
+    });
+};
+// リレーの開始
+const startRelay = async (event, uid) => {
+    const officerId = event.source.userId;
+    const from = uid;
+    addRelay(from, officerId);
+    await safePush(from, {
+        type: 'text',
+        text: '支援員とのやりとりが始まりました。'
+    });
+    await safePush(officerId, {
+        type: 'text',
+        text: `利用者 ${gTrunc(from, 8)} とのやりとりを開始しました。`
+    });
+};
+// コマンド処理
+const handleCommand = async (event, command, userId) => {
+    const isOwner = userId === OWNER_USER_ID;
+    const isGroupOwner = (isOwner || (event.source.type === 'group' && event.source.groupId === OWNER_GROUP_ID));
+    if (command === '!ping') {
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: 'pong'
+        });
+        return true;
+    } else if (command === '!debug') {
+        const relayInfo = getRelay(userId) || getRelayUser(userId);
+        const isAdmin = BOT_ADMIN_IDS.includes(userId);
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `ユーザーID: ${gTrunc(userId, 8)}\n isAdmin: ${isAdmin}\n relay: ${!!relayInfo}\n`
+        });
+        return true;
+    } else if (command === '!watch:check' && isGroupOwner) {
+        const targets = await fetchTargets();
+        const msg = targets.length > 0 ?
+            `対象: ${targets.map(d => gTrunc(d.id, 8)).join(', ')}` :
+            '見守り対象者はいません。';
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: msg
+        });
+        return true;
+    } else if (command === '!watch:run' && isGroupOwner) {
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: '見守りチェックを開始します。'
+        });
+        await checkAndSendPing();
+        return true;
+    } else if (command.startsWith('!watch:group') && isGroupOwner) {
+        const [, gid] = command.split(/\s+/);
+        await setActiveWatchGroupId(gid);
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `見守りグループIDを ${gid ||
+                '（なし）'} に設定しました。`
+        });
+        return true;
+    } else if (command === '!relay:stop' && isOwner) {
+        const relayedUser = getRelayUser(userId);
+        if (relayedUser) {
+            deleteRelay(relayedUser);
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'リレーを終了しました。'
+            });
+            await safePush(relayedUser, {
+                type: 'text',
+                text: '支援員とのやりとりが終了しました。'
+            });
+            return true;
+        }
+    } else if (command === '!info' && isGroupOwner) {
+        const WATCH_GROUP_ID = await getActiveWatchGroupId();
+        const memberCount = await client.getGroupMemberCount(event.source.groupId).catch(() => null);
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `WATCH_GROUP_ID: ${WATCH_GROUP_ID}\nBOT_ADMIN_IDS: ${BOT_ADMIN_IDS.join(',')}\nOWNER_USER_ID: ${gTrunc(OWNER_USER_ID, 8)}\nグループメンバー数: ${memberCount || '不明'}`
+        });
+        return true;
+    } else if (command.startsWith('!readd')) {
+        const uid = command.split(' ')[1];
+        if (uid && isOwner) {
+            await db.collection('users').doc(uid).set({
+                deletedAt: null
+            }, { merge: true });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: `ユーザー ${gTrunc(uid, 8)} を再登録しました。`
+            });
+            return true;
+        }
+    } else if (command.startsWith('!delete')) {
+        const uid = command.split(' ')[1];
+        if (uid && isOwner) {
+            await db.collection('users').doc(uid).set({
+                deletedAt: Timestamp.now()
+            }, { merge: true });
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: `ユーザー ${gTrunc(uid, 8)} を削除しました。`
+            });
+            return true;
+        }
     }
     return false;
 };
-
-const SYSTEM_INSTRUCTION_CHAT = `
-あなたはユーザーの感情に寄り添う、親しみやすい「こころちゃん」という名前のAIです。
-ユーザーの発言に対して、共感と優しさを持って、短く簡潔に返答してください。
-**返答は1〜2文、最大90文字まで**とします。
-特に、以下の点を守ってください。
-
-- ユーザーの感情を第一に考え、励まし、共感する言葉を選ぶこと。
-- ユーザーに質問をする際は、シンプルで答えやすい質問をすること。
-- ユーザーの言葉を繰り返す際は、オウム返しではなく、少し違う表現にすること。
-- ユーザーの興味関心に応じて、さりげなく、見守りサービスへの登録を促すこと。
-- 丁寧語と親しみやすい言葉遣いをバランスよく使うこと。
-- 自分の感情がないAIであることを前面に出さないこと。
-- ユーザーの要求に直接答えられない場合でも、やわらかい言葉で、答えられない理由を伝えること。
-- 会話の流れを重視し、ユーザーが次に話したいことを引き出すような返答を心がけること。
-- 常にポジティブなトーンを保つこと。
-`;
-const USER_EXAMPLE_CONVO_CHAT = [
-    {
-        role: "user",
-        content: "疲れたよ..."
-    }, {
-        role: "assistant",
-        content: "そっか、疲れたんだね。ゆっくり休んでね🌸"
-    }, {
-        role: "user",
-        content: "最近、何もかも嫌になっちゃった"
-    }, {
-        role: "assistant",
-        content: "大丈夫だよ。少しずつ、できることからやってみようね💖"
-    }, {
-        role: "user",
-        content: "ありがとう、少し元気出た！"
-    }, {
-        role: "assistant",
-        content: "よかった！少しでも元気が出たなら、こころも嬉しいな🌸"
-    }
-];
-const DANGER_CONVO_CHAT = [
-    {
-        role: "user",
-        content: "死にたい"
-    }, {
-        role: "assistant",
-        content: "つらかったね。ひとりじゃないよ。今すぐ助けが要るときは下の連絡先を使ってね🌸"
-    }
-];
-const isAdmin = (uid) => BOT_ADMIN_IDS.includes(uid);
-const thinkingGate = new Map(); // uid -> timestamp(ms)
-function canSendThinking(uid, msGap=15000){
-  const now = Date.now();
-  const last = thinkingGate.get(uid) || 0;
-  if (now - last < msGap) return false;
-  thinkingGate.set(uid, now);
-  return true;
-}
-
-const getAiResponse = async (userId, conversationHistory) => {
-    const user = (await db.collection('users').doc(userId).get()).data() || {};
-    const membership = isAdmin(userId) ? 'admin' : (user.membership || 'guest');
-    const dailyLimit = MEMBERSHIP_CONFIG[membership]?.dailyLimit;
-    const model = MEMBERSHIP_CONFIG[membership]?.model;
-    const isGemini = model?.includes('gemini');
-    if (dailyLimit !== -1) {
-        const today = dayjs().tz(JST_TZ).format('YYYY-MM-DD');
-        const countRef = db.collection('users').doc(userId).collection('chatCounts').doc(today);
-        const countSnap = await countRef.get();
-        const currentCount = (countSnap.data() || {}).count || 0;
-        if (currentCount >= dailyLimit) {
-            return {
-                text: "ごめんね、今日の会話回数の上限に達しちゃったみたい。また明日話そうね！"
-            };
-        }
-        await countRef.set({
-            count: firebaseAdmin.firestore.FieldValue.increment(1)
-        }, {
-            merge: true
-        });
-    }
-
-    const token = isGemini ? GEMINI_API_KEY : OPENAI_API_KEY;
+// 履歴の取得
+const fetchHistory = async (userId) => {
+    const history = await db.collection('users').doc(userId).collection('history')
+        .orderBy('timestamp', 'desc').limit(20).get();
+    return history.docs.map(d => d.data()).reverse();
+};
+const getAiResponse = async (userId, user, text, conversationHistory, isGuest) => {
+    const now = Date.now();
+    const todayJst = dayjs().tz(JST_TZ).format('YYYYMMDD');
+    const token = isGuest ? GEMINI_API_KEY : OPENAI_API_KEY;
+    const model = isGuest ? MEMBERSHIP_CONFIG.guest.model : MEMBERSHIP_CONFIG.member.model;
+    const finalMessages = [{
+        role: 'system',
+        content: `あなたは心温まる「こころちゃん」というキャラクターとして振る舞う対話AIです。親しみやすい口調で、ユーザーに寄り添った優しく、温かみのある応答をしてください。簡潔に返信し、一回のメッセージは100文字以内、多くても2〜3文に収めてください。以下の制約を厳守してください。\n\n- ユーザーの要求に直接的に答えず、寄り添うことを優先してください。\n- 質問には質問で返さず、共感や励ましの言葉を返してください。\n- ユーザーを「まつさん」と呼んでください。\n- ユーザーを「まつ」と呼ぶことはできません。\n- 絵文字を多めに使って、感情豊かに表現してください。\n- プロフィール情報、会員情報、見守りサービスなど、個人情報やサービスに関する具体的な言及は避けてください。\n- LINEアカウントの連携やウェブサイトへの誘導、外部サービスの登録を促すような発言はしないでください。\n- 外部のウェブサイトURLは絶対に提示しないでください。`
+    }, ...conversationHistory];
     if (!token) {
-        console.warn('API key is not set for the selected model.');
-        return {
-            text: "ごめんね、今ちょっとお話しできないみたい… また声をかけてね🌸"
-        };
+        console.log("No AI API key found.");
+        return null;
     }
-
-    const finalMessages = [
-        { role: 'system', content: SYSTEM_INSTRUCTION_CHAT },
-        ...conversationHistory
-    ];
-    if (isGemini) {
-        const genAI = new GoogleGenerativeAI(token);
-        const geminiModel = genAI.getGenerativeModel({
-            model: model,
-            systemInstruction: SYSTEM_INSTRUCTION_CHAT
-        });
-        // system は渡さない & 先頭を必ず user から開始
-        const cleaned = finalMessages.filter(m => m.role !== 'system');
-        const firstUser = cleaned.findIndex(m => m.role === 'user');
-        const ordered = firstUser >= 0 ? cleaned.slice(firstUser) : [];
-        const geminiHistory = ordered.map(m =>
-          m.role === 'user'
-            ? { role:'user',  parts:[{text:m.content}] }
-            : { role:'model', parts:[{text:m.content}] }
-        );
+    if (isGuest) {
         try {
+            const genAI = new GoogleGenerativeAI(token);
+            const geminiModel = genAI.getGenerativeModel({
+                model
+            });
+            const geminiHistory = conversationHistory.map(msg => {
+                if (msg.role === 'user') {
+                    return {
+                        role: 'user',
+                        parts: [{
+                            text: msg.content
+                        }]
+                    };
+                } else if (msg.role === 'assistant') {
+                    return {
+                        role: 'model',
+                        parts: [{
+                            text: msg.content
+                        }]
+                    };
+                }
+                return null;
+            }).filter(Boolean);
             const chat = geminiModel.startChat({
                 history: geminiHistory
             });
-            const result = await chat.sendMessage(conversationHistory[conversationHistory.length - 1].content);
+            const result = await chat.sendMessage(history[history.length - 1].content);
             const response = result.response;
-            return {
-                text: response.text()
-            };
+            return { text: response.text() };
         } catch (e) {
             briefErr('Gemini failed', e);
-            return {
-                text: null
-            };
+            // フォールバック（OpenAIキーがあれば）
+            if (OPENAI_API_KEY) {
+                try {
+                    const openai = new OpenAI({ apiKey: OPENAI_API_KEY, httpAgent, httpsAgent });
+                    const completion = await openai.chat.completions.create({
+                        model: OPENAI_MODEL || 'gpt-4o-mini',
+                        messages: [{ role:'system', content: SYSTEM_INSTRUCTION_CHAT }, ...conversationHistory],
+                        temperature: 0.8,
+                        max_tokens: 100,
+                    }, { timeout: 5000 });
+                    const text = (completion.choices[0].message.content || '').trim();
+                    return { text: text || "少し待ってね、もう一度考えるね🌸" };
+                } catch(e2){
+                    briefErr('OpenAI fallback failed', e2);
+                    return { text: null };
+                }
+            }
+            return { text: null };
         }
     } else if (model.includes('gpt')) {
         const openai = new OpenAI({
@@ -1037,237 +1093,253 @@ const getAiResponse = async (userId, conversationHistory) => {
                 timeout: 5000
             });
             const text = completion.choices[0].message.content.trim();
-            if (text.length > 200) return {
-                text: gTrunc(text, 200) + '...'
-            };
-            return {
-                text: text
-            };
+            if (text.length > 200) return gTrunc(text, 200) + '...';
+            return { text };
         } catch (e) {
             briefErr('OpenAI failed', e);
-            return {
-                text: null
-            };
+            return { text: null };
         }
     }
-    return {
-        text: null
-    };
+    return { text: null };
 };
-
-// webhookの修正
-app.post('/webhook', middleware({
-    channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
-    channelSecret: LINE_CHANNEL_SECRET,
-}), async (req, res) => {
-    // すぐACK。LINEのリトライやreplyToken失効を防ぐ
-    res.status(200).end();
-    // エラーは握りつぶさずログって継続
-    await Promise.all(req.body.events.map(e =>
-        handleEvent(e).catch(err => briefErr('handleEvent failed', err))
-    ));
-});
-
-async function handleEvent(event) {
-    if (event.deliveryContext?.isRedelivery) {
-        console.log('[SKIP] redelivery');
-        return;
+// 履歴保存
+const saveHistory = async (userId, userMessage, aiMessage) => {
+    const historyRef = db.collection('users').doc(userId).collection('history');
+    await historyRef.add({
+        role: 'user',
+        content: userMessage,
+        timestamp: Timestamp.now()
+    });
+    if (aiMessage) {
+        await historyRef.add({
+            role: 'assistant',
+            content: aiMessage,
+            timestamp: Timestamp.now()
+        });
     }
-
+};
+// 使用回数カウント
+const updateUsageCount = async (userId, isGuest, todayJst) => {
+    const usageRef = db.collection('usage').doc(todayJst);
+    const userUsageRef = usageRef.collection('users').doc(userId);
+    const isSubscriber = !isGuest;
+    await db.runTransaction(async t => {
+        const userDoc = await t.get(userUsageRef);
+        const userUsage = userDoc.data() || {
+            guestCount: 0,
+            subscriberCount: 0
+        };
+        const update = isSubscriber ? {
+            subscriberCount: firebaseAdmin.firestore.FieldValue.increment(1)
+        } : {
+            guestCount: firebaseAdmin.firestore.FieldValue.increment(1)
+        };
+        t.set(userUsageRef, update, {
+            merge: true
+        });
+    });
+};
+const isAdmin = (uid) => BOT_ADMIN_IDS.includes(uid);
+// イベントハンドラ
+const handleEvent = async (event) => {
     if (event.type !== 'message' || event.message.type !== 'text') {
-        if (event.type === 'postback') {
-            const data = String(event.postback.data || '');
-            if (data === 'watch:ok') {
-                await scheduleNextPing(event.source.userId, new Date());
-                return;
-            }
-            // 監視グループのカード → 「LINEで連絡」
-            if (data.startsWith('action=start_relay')) {
-                const uid = decodeURIComponent((data.match(/uid=([^&]+)/)||[,''])[1]);
-                const gid = event.source.groupId || event.source.roomId || ''; // ★グループ/ルームID
-                if (uid && gid) {
-                    const cur = getRelay(uid);
-                    // 既存セッションが同じグループ宛なら重複開始しない
-                    if (!cur || cur.to !== gid) addRelay(uid, gid); // ★宛先は groupId
-                    await safePush(gid, { type:'text', text:'この方とのリレーを開始しました。終了は「終了」と送ってください。' });
-                    await safePush(uid, { type:'text', text:'担当の方と繋がりました。メッセージを書いてくださいね。' });
-                }
-                return;
-            }
-        }
-        return;
+        return null;
     }
-
     const {
         replyToken
     } = event;
     const {
+        userId
+    } = event.source;
+    const {
         text
     } = event.message;
-    const userId = event.source.userId;
-    const groupId = event.source.groupId;
-    const isGroup = event.source.type === 'group';
-
-    // リレー対応
-    if (await handleRelay(event, text)) {
-        return;
+    const todayJst = dayjs().tz(JST_TZ).format('YYYYMMDD');
+    if (!userId) return null;
+    audit('line_message', {
+        userId: userHash(userId),
+        text: sanitizeForLog(text)
+    });
+    const relayedUser = getRelayUser(userId);
+    if (relayedUser) {
+        await handleRelay(event, text);
+        return null;
     }
-    const isAdminUser = isAdmin(userId);
-    // 管理者対応
-    if (isAdminUser) {
-        if (text === 'watch-test') {
-            await checkAndSendPing();
-            await safePush(userId, {
-                type: 'text',
-                text: '見守りテスト完了'
-            });
-            return;
-        }
-        if (/^set-watch-group-id: ?(.+)$/.test(text)) {
-            const gid = text.match(/^set-watch-group-id: ?(.+)$/)[1].trim();
-            await setActiveWatchGroupId(gid);
-            await replyOrPush(replyToken, userId, {
-                type: 'text',
-                text: `見守り通知グループIDを ${gid} に設定しました。`
-            });
-            return;
-        }
-        if (text === 'clear-watch-group-id') {
-            await setActiveWatchGroupId('');
-            await replyOrPush(replyToken, userId, {
-                type: 'text',
-                text: `見守り通知グループIDをクリアしました。`
-            });
-            return;
+    if (text.startsWith('!')) {
+        const commandHandled = await handleCommand(event, text, userId);
+        if (commandHandled) {
+            return null;
         }
     }
-
-    // 見守りサービス登録済みのユーザー
+    // ユーザー情報取得
     const userDoc = await db.collection('users').doc(userId).get();
-    const isWatchEnabled = userDoc.exists && userDoc.data()?.watchService?.enabled;
-
-    // ユーザーがOKと返信した場合、次の見守りをスケジュール
-    if (isWatchEnabled && text.includes('OK')) {
-        await scheduleNextPing(userId, new Date());
-        await replyOrPush(replyToken, userId, {
-            type: 'text',
-            text: 'OK、受け取ったよ！ありがとう！\n今日も一日頑張ろうね💖'
+    const user = userDoc.exists ? userDoc.data() : {};
+    // 管理者かどうかのチェック
+    const isAdminUser = isAdmin(userId);
+    const membership = isAdminUser ? 'admin' : (user.membership || 'guest');
+    const { dailyLimit, model } = MEMBERSHIP_CONFIG[membership];
+    // 登録ボタンの表示
+    if (text === '登録' || text === 'とうろく') {
+        await client.replyMessage(replyToken, {
+            type: "flex",
+            altText: "会員登録",
+            contents: makeRegistrationButtonsFlex(userId)
         });
-        return;
+        return null;
+    }
+    if (user.deletedAt) {
+        await client.replyMessage(replyToken, {
+            type: 'text',
+            text: '退会済みのためご利用いただけません。再開したい場合は運営までご連絡ください。'
+        });
+        return null;
+    }
+    const isWatchEnabled = user.watchService?.enabled;
+    const watchOk = isWatchEnabled && (text.includes('OK') || text.includes('ok') || text.includes('おk') || text.includes('おっけー') || text.includes('大丈夫'));
+    if (watchOk) {
+        const ref = db.collection('users').doc(userId);
+        const ws = user.watchService;
+        const lastPingAt = ws?.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
+        if (ws?.awaitingReply && lastPingAt) {
+            await scheduleNextPing(userId, lastPingAt);
+            await client.replyMessage(replyToken, {
+                type: 'text',
+                text: 'OK、受け取ったよ！ありがとう！💖'
+            });
+            audit('watch_ok', {
+                userId: userHash(userId)
+            });
+            return null;
+        }
+    } else if (isWatchEnabled && user.watchService.awaitingReply) {
+        await client.pushMessage(userId, {
+            type: 'text',
+            text: 'OK、受け取ったよ！ありがとう！💖'
+        });
+        await scheduleNextPing(userId, new Date());
+        return null;
     }
 
-    if (text === '見守り' || text === '見守りサービス') {
-        const buttonsFlex = makeRegistrationButtonsFlex(userId);
-        await replyOrPush(replyToken, userId, [{
-            type: "text",
-            text: "🌸 会員登録メニュー 🌸"
-        }, {
-            "type": "flex",
-            "altText": "会員登録メニュー",
-            "contents": buttonsFlex
-        }]);
-        return;
-    }
-
-    // 危険・詐欺・不適切ワードの検知
+    // 危険語、詐欺ワード、不適切な言葉のチェック
     let reply = null;
     const is_danger = isDangerMessage(text);
     const is_scam = isScamMessage(text);
     const is_inappropriate = isInappropriateMessage(text) || isSwearMessage(text);
 
-    if (!isAdminUser) {
-        if (is_danger) {
-            reply = DANGER_REPLY;
-        } else if (is_scam) {
-            reply = SCAM_REPLY;
-        } else if (is_inappropriate) {
-            reply = INAPPROPRIATE_REPLY;
-        }
-    }
+    // 管理者でも検知メッセは出す（通知は後で制御）
+    if (is_danger) reply = DANGER_REPLY;
+    else if (is_scam) reply = SCAM_REPLY;
+    else if (is_inappropriate) reply = INAPPROPRIATE_REPLY;
 
     if (reply) {
-        if (isWatchEnabled && is_danger) {
-            // 見守りユーザーの場合は個人情報を含むアラートを通知
+        // 見守りグループ通知は、一般ユーザーの危険時のみ
+        if (!isAdminUser && isWatchEnabled && is_danger) {
             const WATCH_GROUP_ID = await getActiveWatchGroupId();
             if (WATCH_GROUP_ID) {
-                const u = userDoc.data() || {};
+                const u = user;
                 const prof = u.profile || {};
                 const emerg = u.emergency || {};
-                const officerMessage = buildWatcherFlex({
-                    title: '🚨【見守りアラート】危険ワード検知',
-                    name: prof.name || prof.displayName || '—',
-                    address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                    selfPhone: prof.phone || '',
-                    kinName: emerg.contactName || '',
-                    kinPhone: emerg.contactPhone || '',
-                    userId: userId,
-                });
-                const officerMessage2 = {
-                    type: 'text',
-                    text: `[検知ワード]: ${text}`
-                };
-                await safePush(WATCH_GROUP_ID, [officerMessage, officerMessage2]);
-            } else {
-                console.log('WATCH_GROUP_ID is not set, skipping officer notification.');
+                await safePush(WATCH_GROUP_ID, [
+                    {
+                        type: 'text',
+                        text: `見守り対象者(${prof.name||prof.displayName})から危険なメッセージを検知しました。`
+                    },
+                    buildWatcherFlex({
+                        title: '🚨危険ワード検知',
+                        name: prof.name || prof.displayName || '—',
+                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                        selfPhone: prof.phone || '',
+                        kinName: emerg.contactName || '',
+                        kinPhone: emerg.contactPhone || '',
+                        userId
+                    })
+                ]);
             }
         }
         await replyOrPush(replyToken, userId, reply);
-        return;
+        return null;
+    }
+    // 既存の上に追加
+    const errGate = new Map(); // uid -> timestamp(ms)
+    function canSendError(uid, msGap = 20000) {
+        const now = Date.now();
+        const last = errGate.get(uid) || 0;
+        if (now - last < msGap) return false;
+        errGate.set(uid, now);
+        return true;
     }
 
-    // AI応答
-    let historyRef = db.collection('chat_histories').doc(userHash(userId));
-    let historySnap = await historyRef.get();
-    let history = historySnap.exists ? historySnap.data().history || [] : [];
+    // 回数制限のチェック
+    const isSubscriber = (membership === 'subscriber' || membership === 'admin');
+    const isMember = (membership === 'member' || isSubscriber);
+    const isGuest = membership === 'guest';
+    const userUsage = await db.collection('usage').doc(todayJst).collection('users').doc(userId).get();
+    const count = userUsage.exists ? (isMember ? userUsage.data().subscriberCount : userUsage.data().guestCount) : 0;
+    const hasCountLimit = (dailyLimit !== -1);
+    const isOverLimit = hasCountLimit && (count >= dailyLimit);
+
+    if (isOverLimit && !isAdminUser) {
+        await client.replyMessage(replyToken, {
+            type: 'text',
+            text: `ごめんね、今日はもうお話できないみたい…\nまた明日話しかけてね🌸`
+        });
+        return null;
+    }
+    await replyOrPush(replyToken, userId, {
+        type: "text",
+        text: "いま一生けんめい考えてるよ…もう少しだけ待っててね🌸"
+    });
+    const history = await fetchHistory(userId);
     history.push({
-        role: "user",
+        role: 'user',
         content: text
     });
-    // 直近20件に制限
-    if (history.length > 20) {
-        history = history.slice(-20);
-    }
+    const aiResponse = await getAiResponse(userId, user, text, history, isGuest);
 
-    // 考え中メッセージの連投防止
-    if (canSendThinking(userId)) {
-        // 「考え中」は push。replyToken は本返答で1回だけ使う
-        await safePush(userId, { type: 'text', text: 'いま一生けんめい考えてるよ…もう少しだけ待っててね🌸' });
-    }
-    const aiResponse = await getAiResponse(userId, history);
-
-    if (aiResponse.text) {
+    if (aiResponse && aiResponse.text) {
+        const truncatedText = aiResponse.text.slice(0, 500);
         await replyOrPush(replyToken, userId, {
-            type: "text",
-            text: aiResponse.text
+            type: 'text',
+            text: truncatedText
         });
-        history.push({
-            role: "assistant",
-            content: aiResponse.text
-        });
-        await historyRef.set({
-            history: history
-        });
+        await saveHistory(userId, text, truncatedText);
+        await updateUsageCount(userId, isGuest, todayJst);
     } else {
-        await replyOrPush(replyToken, userId, {
-            type: "text",
-            text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸"
-        });
+        if (canSendError(userId)) {
+            await replyOrPush(replyToken, userId, { type: "text", text: "ごめんね、今は少し疲れてるみたい…また後で話しかけてね🌸" });
+        }
     }
-}
-
-
-// --- ヘルスチェック & 起動 ---
-app.get('/', (_req, res) => {
-    res.type('text/plain').send('ok');
+};
+const replyOrPush = async (replyToken, userId, message) => {
+    try {
+        await client.replyMessage(replyToken, message);
+    } catch (e) {
+        const detail = e.originalError?.response?.data || e.response?.data || e.message;
+        const status = e.statusCode || e.response?.status;
+        if (status === 400 && String(detail).includes('invalid replyToken')) {
+            console.warn(`[WARN] Invalid replyToken, attempting push to ${gTrunc(userId, 8)}`);
+            await safePush(userId, message);
+        } else {
+            briefErr('replyMessage failed', e);
+        }
+    }
+};
+app.post('/webhook', middleware({
+    channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
+    channelSecret: LINE_CHANNEL_SECRET,
+}), async (req, res) => {
+    try {
+        const events = req.body.events;
+        await Promise.all(events.map(handleEvent));
+    } catch (err) {
+        console.error(err);
+        res.status(500).end();
+    }
+    res.end();
 });
-
-app.get('/healthz', (_req, res) => {
-    res.status(200).json({
-        status: 'ok'
-    });
+app.get('/', (req, res) => {
+    res.send('こころちゃんサーバーが起動しています。');
 });
-
-const HOST = '0.0.0.0';
-app.listen(PORT, HOST, () => {
-    console.log(`✅ こころちゃんBOTはポート ${PORT} で稼働中です`);
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
