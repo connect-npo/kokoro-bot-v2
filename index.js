@@ -256,46 +256,26 @@ const replyOrPush = async (replyToken, to, messages) => {
 };
 
 async function fetchTargets() {
-    const now = dayjs().utc();
-    const usersRef = db.collection('users');
-    const targets = [];
-    try {
-        const snap = await usersRef
-            .where('watchService.awaitingReply', '==', false)
-            .where('watchService.nextPingAt', '<=', now.toDate())
-            .limit(200)
-            .get();
-        targets.push(...snap.docs);
-    } catch (e) {
-        const snap = await usersRef.limit(500).get();
-        for (const d of snap.docs) {
-            const ws = (d.data().watchService) ||
-                {};
-            if (!ws.awaitingReply && ws.nextPingAt && ws.nextPingAt.toDate && ws.nextPingAt.toDate() <= now.toDate()) {
-                targets.push(d);
-            }
-        }
-    }
-    try {
-        const snap = await usersRef
-            .where('watchService.awaitingReply', '==', true)
-            .limit(200)
-            .get();
-        targets.push(...snap.docs);
-    } catch (e) {
-        const snap = await usersRef.limit(500).get();
-        for (const d of snap.docs) {
-            const ws = (d.data().watchService) ||
-                {};
-            if (ws.awaitingReply === true) {
-                targets.push(d);
-            }
-        }
-    }
-    const map = new Map();
-    for (const d of targets) map.set(d.id, d);
-    return Array.from(map.values());
+  const now = dayjs().utc();
+  const usersRef = db.collection('users');
+  const targets = [];
+  const snap1 = await usersRef
+    .where('watchService.awaitingReply', '==', false)
+    .where('watchService.nextPingAt', '<=', now.toDate())
+    .limit(200)
+    .get();
+  targets.push(...snap1.docs);
+  const snap2 = await usersRef
+    .where('watchService.awaitingReply', '==', true)
+    .limit(200)
+    .get();
+  targets.push(...snap2.docs);
+  // 重複排除
+  const map = new Map();
+  for (const d of targets) map.set(d.id, d);
+  return [...map.values()];
 }
+
 
 async function warmupFill() {
     const now = dayjs().utc();
@@ -825,7 +805,7 @@ const DANGER_WORDS = [
     "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "OD", "オーバードーズ", "殴られる", "たたかれる", "暴力", "DV", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "苦しい", "つらい", "助けて", "たすけて", "怖い", "こわい", "逃げたい", "にげたい", "やめたい", "消えたい", "もうだめだ", "死んでやる", "殺してやる", "殺す", "殺される", "もう終わり", "生きるのがつらい", "生きていたくない", "もう無理", "うつ", "鬱", "病気", "引きこもり", "ひきこもり", "リストカット", "自傷", "自傷行為", "手首切る", "手首を切る", "カッター", "ハサミ", "包丁", "刃物", "飛び降り", "飛び込み", "焼身", "首吊り", "電車", "線路", "高層ビル", "飛び降りる", "首吊り自殺", "首つり", "死ぬ", "死", "苦しい", "助けてほしい", "何もしたくない", "生きる意味", "生きてる価値", "生きるのがしんどい", "どうでもいい", "消えてしまいたい", "終わりにしたい", "逃げ出したい", "もう疲れた", "もう嫌だ", "嫌", "つらい", "生きづらい", "もうだめ", "ダメだ",
     "絶望", "絶望的", "希望がない", "もう無理だ", "何もかも嫌", "いなくなりたい"
 ];
-const SCAM_CORE = ["投資", "未公開株", "必ず儲かる", "絶対儲かる", "還付金", "振り込め", "保証金", "前払い", "後払い", "手数料", "送金", "副業", "ねずみ講", "マルチ商法", "架空請求"];
+const SCAM_CORE = ["詐欺","さぎ","投資","未公開株","必ず儲かる","絶対儲かる","還付金","振り込め","保証金","前払い","後払い","手数料","送金","副業","ねずみ講","マルチ商法","架空請求"];
 const SCAM_MONEY = ["儲かる", "高収入", "高額", "返金保証", "利回り", "配当", "元本保証"];
 const INAPPROPRIATE_WORDS = [
     "死ね", "殺すぞ", "きもい", "うざい", "むかつく", "ばか", "アホ", "死んで", "消えろ", "くたばれ", "ふざけんな", "気持ち悪い", "うざったい", "ぶっ殺す", "殺してやる", "殺す", "殺す気か", "殺意", "殺意が湧く", "殺意が芽生える", "殺意がわく", "殺意がめばえる", "殺意がわいた", "殺意がめばえた", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ", "死ねばいいのに", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ"
@@ -844,7 +824,7 @@ function scamScore(text) {
     if (SCAM_CORE.some(w => t.includes(w.toLowerCase()))) s += 2;
     if (SCAM_MONEY.some(w => t.includes(w.toLowerCase()))) s += 1;
     return s;
-}
+};
 function isAskingForHomepage(text) {
     return /ホームページ|HP|URL|リンク|サイト|公式\s*(どこ|教えて|ありますか)/i.test(text);
 }
@@ -945,7 +925,7 @@ const SYSTEM_INSTRUCTION_CHAT = `
 - ユーザーの言葉を繰り返す際は、オウム返しではなく、少し違う表現にすること。
 - ユーザーの興味関心に応じて、さりげなく、見守りサービスへの登録を促すこと。
 - 丁寧語と親しみやすい言葉遣いをバランスよく使うこと。
-- 自分の感情がないAIであることを前面に出さないこと。
+- 自分が感情がないAIであることを絶対に言わない事。
 - ユーザーの要求に直接答えられない場合でも、やわらかい言葉で、答えられない理由を伝えること。
 - 会話の流れを重視し、ユーザーが次に話したいことを引き出すような返答を心がけること。
 - 常にポジティブなトーンを保つこと。
@@ -1023,7 +1003,6 @@ const getAiResponse = async (userId, conversationHistory) => {
 
     const finalMessages = [
         { role: 'system', content: SYSTEM_INSTRUCTION_CHAT },
-        ...USER_EXAMPLE_CONVO_CHAT.slice(-3),
         ...conversationHistory
     ];
     if (isGemini) {
@@ -1032,28 +1011,15 @@ const getAiResponse = async (userId, conversationHistory) => {
             model: model,
             systemInstruction: SYSTEM_INSTRUCTION_CHAT
         });
-        const geminiHistory = finalMessages.map(msg => {
-            if (msg.role === 'system') {
-                return null;
-            }
-            if (msg.role === 'user') {
-                return {
-                    role: 'user',
-                    parts: [{
-                        text: msg.content
-                    }]
-                };
-            }
-            if (msg.role === 'assistant') {
-                return {
-                    role: 'model',
-                    parts: [{
-                        text: msg.content
-                    }]
-                };
-            }
-            return null;
-        }).filter(Boolean);
+        // system は渡さない & 先頭を必ず user から開始
+        const cleaned = finalMessages.filter(m => m.role !== 'system');
+        const firstUser = cleaned.findIndex(m => m.role === 'user');
+        const ordered = firstUser >= 0 ? cleaned.slice(firstUser) : [];
+        const geminiHistory = ordered.map(m =>
+          m.role === 'user'
+            ? { role:'user',  parts:[{text:m.content}] }
+            : { role:'model', parts:[{text:m.content}] }
+        );
         try {
             const chat = geminiModel.startChat({
                 history: geminiHistory
@@ -1123,9 +1089,22 @@ async function handleEvent(event) {
     }
 
     if (event.type !== 'message' || event.message.type !== 'text') {
-        if (event.type === 'postback' && event.postback.data === 'watch:ok') {
-            await scheduleNextPing(event.source.userId, new Date());
-            return;
+        if (event.type === 'postback') {
+            const data = String(event.postback.data || '');
+            if (data === 'watch:ok') {
+                await scheduleNextPing(event.source.userId, new Date());
+                return;
+            }
+            // 監視グループのカード → 「LINEで連絡」
+            if (data.startsWith('action=start_relay')) {
+                const uid = decodeURIComponent((data.match(/uid=([^&]+)/)||[,''])[1]);
+                if (uid) {
+                    addRelay(uid, event.source.userId); // 60分セッション
+                    await safePush(event.source.userId, { type:'text', text:'この方とのリレーを開始しました。終了は「終了」と送ってください。' });
+                    await safePush(uid, { type:'text', text:'担当の方と繋がりました。メッセージを書いてくださいね。' });
+                }
+                return;
+            }
         }
         return;
     }
@@ -1261,7 +1240,8 @@ async function handleEvent(event) {
 
     // 考え中メッセージの連投防止
     if (canSendThinking(userId)) {
-        await replyOrPush(replyToken, userId, { type: 'text', text: 'いま一生けんめい考えてるよ…もう少しだけ待っててね🌸' });
+        // 「考え中」は push。replyToken は本返答で1回だけ使う
+        await safePush(userId, { type: 'text', text: 'いま一生けんめい考えてるよ…もう少しだけ待っててね🌸' });
     }
     const aiResponse = await getAiResponse(userId, history);
 
