@@ -693,6 +693,7 @@ const specialRepliesMap = new Map([
     [/^好きなアニメ(は|とか)[？?]?$/i, "ヴァイオレット・エヴァーガーデンが好きだよ🌸 心があたたかくなるんだ🥰"],
     // ★好きな音楽
     [/^好きな音楽(は|とか)[？?]?$/i, "ClariSさんが好きだよ🎶 やさしい歌に癒されるんだ😊"],
+    [/clarisのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
     // ★HP（「とか」も拾う／typoも）
     [/(ホームページ|HP|公式|サイト).*(ある|どこ|教えて|URL|リンク|とか)/i, `コネクトのホームページはこちらです🌸 → ${HOMEPAGE_URL}`],
     // 既存のやつ（HP直指定も env に統一）
@@ -705,7 +706,7 @@ const specialRepliesMap = new Map([
     [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでね💖"],
     [/どこの団体なの？/i, "NPO法人コネクトのイメージキャラクターだよ😊 みんなの幸せを応援してるの🌸"],
-    [/コネクトってどんな団体？/i, "こどもやご年配の方の笑顔を守る団体だよ😊 わたしはイメージキャラとしてがんばってます🌸"],
+    [/コネクトってどんな団体？/i, "こどもやご年配の方の笑顔を守る団体だよ😊 わたしはイメージキャラとしてがんばってるの🌸"],
     [/お前の団体どこ？/i, "NPO法人コネクトのイメージキャラクターだよ😊 何かあれば気軽に話してね🌸"],
     [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラ、皆守こころだよ🌸"],
     [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸 どうしたの？"],
@@ -719,7 +720,7 @@ const specialRepliesMap = new Map([
     [/何も答えないじゃない/i, "ごめんね…。もっと頑張るね💖 何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
     [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 まだ勉強中だけど、もっと良くするね💖 どんな会話がしたい？🌸"],
     [/相談したい/i, "うん、お話きかせてね🌸"],
-    [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
+    
 ]);
 // --- 相談トリガー ---
 const CONSULT_TRIGGERS = [/相談/, /そうだん/, /ソウダン/];
@@ -754,7 +755,32 @@ const INAPPROPRIATE_WORDS = [
 const SWEAR_WORDS = []; // 子どもの軽口は拾わない方針なので空でOK
 // --- 判定関数（ここだけ使う）---
 const isDangerMessage = (text) => includesAny(text, DANGER_WORDS);
-const isScamMessage = (text) => testAny(text, SCAM_PATTERNS);
+// 追加: benign commerce 判定（Amazon関連で安全っぽい文脈）
+function isBenignCommerce(text) {
+    const t = softNorm(text);
+    const hasAmazon = /(amazon|アマゾン)/i.test(t);
+    if (!hasAmazon) return false;
+
+    const safeHints = [
+        /買(い物|った)/, /購入/, /注文/, /届(いた|く)/, /配送/, /配達/, /出荷/, /セール/, /プライム/,
+        /返品/, /レビュー/, /カート/, /ポイント/
+    ];
+    const dangerHints = [
+        /ギフトカード|プリペイド|コード|支払い番号|支払番号|口座|振込|至急|今すぐ|リンク|クリック|ログイン|認証|停止|凍結/i
+    ];
+
+    const looksSafe = safeHints.some(re => re.test(t));
+    const looksDanger = dangerHints.some(re => re.test(t));
+    return looksSafe && !looksDanger;
+}
+
+const isScamMessage = (text) => {
+    const flagged = testAny(text, SCAM_PATTERNS);
+    if (!flagged) return false;
+    // Amazon等の良性な買い物文脈なら除外
+    if (isBenignCommerce(text)) return false;
+    return true;
+};
 const isInappropriateMessage = (text) => includesAny(text, INAPPROPRIATE_WORDS);
 // 子どもの軽口は拾わない方針
 const isSwearMessage = (_text) => false;
@@ -936,7 +962,7 @@ const makeRegistrationButtonsFlex = (userId) => {
     };
 };
 const DANGER_REPLY_MESSAGE = { type: "text", text: "つらかったね。ひとりじゃないよ。今すぐ助けが要るときは下の連絡先を使ってね🌸" };
-const SCAM_REPLY_MESSAGE = { type: "text", text: "あやしい話かも。急がず確認しよ？困ったら下の窓口も使ってね🌸" };
+const SCAM_REPLY_MESSAGE = { type: "text", text: "あやしい話かも。急がず確認しよ？困ったら下の窓口も参考にしてね🌸" };
 const INAPPROPRIATE_REPLY_MESSAGE = { "type": "text", "text": "いやだなと思ったら、無理しないでね。そんな言葉、こころは悲しくなっちゃう😢" };
 const DANGER_REPLY = [DANGER_REPLY_MESSAGE, { "type": "flex", "altText": "危険ワード検知", "contents": EMERGENCY_FLEX_MESSAGE }];
 const SCAM_REPLY = [SCAM_REPLY_MESSAGE, { "type": "flex", "altText": "詐欺注意", "contents": makeScamMessageFlex() }];
@@ -1129,42 +1155,55 @@ const fetchHistory = async (userId) => {
         .orderBy('timestamp', 'desc').limit(20).get();
     return history.docs.map(d => d.data()).reverse();
 };
-async function callOpenAIChat(model, messages, timeoutMs = 12000) {
+async function callOpenAIChat(model, messages, timeoutMs = 12000, options = {}) {
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY, httpAgent, httpsAgent });
-    const req = () => openai.chat.completions.create({
-        model, messages, temperature: 0.7, max_tokens: 500
-    }, { timeout: timeoutMs });
-    try { return await req(); } catch (e) { try { return await req(); } catch (e2) { throw e2; } }
+    const { maxRetries = 0, baseDelayMs = 0 } = options;
+    const req = async (attempt = 0) => {
+        try {
+            return await openai.chat.completions.create({
+                model, messages, temperature: 0.7, max_tokens: 500
+            }, { timeout: timeoutMs });
+        } catch (e) {
+            if (attempt < maxRetries) {
+                const delay = baseDelayMs * Math.pow(2, attempt) + (Math.random() * baseDelayMs);
+                console.log(`[RETRY] Attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
+                await new Promise(res => setTimeout(res, delay));
+                return req(attempt + 1);
+            }
+            throw e;
+        }
+    };
+    return req();
 }
 
 async function getCrisisResponse(text, is_danger, is_scam) {
-    const baseUser = `ユーザーの入力: ${text}`;
+    const promptUser = is_danger
+        ? `ユーザー: ${text}\n状況: 自傷・いじめ・DVなどの恐れ。安心する言葉と今すぐできる一歩を。`
+        : `ユーザー: ${text}\n状況: 詐欺の不安。落ち着かせ、支払わない/URL開かない/公式確認を優しく案内。`;
     let crisisText = '';
 
     if (OPENAI_API_KEY) {
         try {
-            const crisis = await callOpenAIChat(GPT4O, [{
-                role: 'system',
-                content: CRISIS_SYSTEM
-            }, {
-                role: 'user',
-                content: is_danger ?
-                    `${baseUser}\n状況: 自傷・いじめ・DVなどの恐れ。安心する言葉と今すぐできる一歩を。` :
-                    `${baseUser}\n状況: 詐欺の不安。落ち着かせ、確認手順（支払わない/URL開かない/公式へ確認）を優しく案内。`
-            }], 9000);
+            const crisis = await callOpenAIChat(
+                GPT4O,
+                [
+                    { role: 'system', content: CRISIS_SYSTEM },
+                    { role: 'user', content: promptUser }
+                ],
+                12000,
+                { maxRetries: 3, baseDelayMs: 500 }
+            );
             crisisText = (crisis.choices?.[0]?.message?.content || '').trim();
         } catch (e) {
             briefErr('crisis GPT-4o failed', e);
         }
     }
 
-    if (!crisisText) {
-        crisisText = is_danger ?
-            "とてもつらい気持ちだね。今すぐ助けが必要なら下の連絡先を使ってね。ひとりじゃないよ🌸" :
-            "あやしい話かも。急がず確認しよう。下の窓口も参考にしてね🌸";
-    }
+    if (crisisText) return gTrunc(crisisText, 100);
 
-    return gTrunc(crisisText, 100);
+    return is_danger
+        ? "とてもつらいね。死なないで。あなたは大切だよ🌸 今すぐ助けが要るなら下の連絡先を使ってね。"
+        : "あやしい話かも。急がず確認してね🌸 困ったら下の案内を見てね。";
 }
 
 async function getAiResponse(userId, user, text, conversationHistory) {
@@ -1197,6 +1236,41 @@ async function getAiResponse(userId, user, text, conversationHistory) {
     }
 
     return { text: null, used: 'none' };
+}
+async function notifyOfficerDanger(userId, user) {
+    try {
+        const DEST = await getActiveWatchGroupId();
+        const fallbackUser = OWNER_USER_ID || BOT_ADMIN_IDS[0] || '';
+        const prof = (user.profile || {});
+        const emerg = (user.emergency || {});
+
+        const payload = [
+            { type: 'text', text: `見守り対象者（${prof.name || prof.displayName || '—'}）から危険なメッセージを検知しました。` },
+            buildWatcherFlex({
+                title: '🚨危険ワード検知',
+                name: prof.name || prof.displayName || '—',
+                address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                selfPhone: prof.phone || '',
+                kinName: emerg.contactName || '',
+                kinPhone: emerg.contactPhone || '',
+                userId
+            })
+        ];
+
+        if (DEST && DEST.trim()) {
+            console.log('[ALERT] Sending danger alert to WATCH_GROUP_ID:', DEST);
+            await safePush(DEST, payload);
+            audit('officer_alert_sent', { to: DEST, userId: userHash(userId) });
+        } else if (fallbackUser) {
+            console.warn('[ALERT] WATCH_GROUP_ID missing. Falling back to OWNER_USER_ID.');
+            await safePush(fallbackUser, payload);
+            audit('officer_alert_fallback_user', { to: gTrunc(fallbackUser, 8), userId: userHash(userId) });
+        } else {
+            console.error('[ALERT] No destination configured for danger alerts.');
+        }
+    } catch (e) {
+        briefErr('notifyOfficerDanger failed', e);
+    }
 }
 // 履歴保存
 const saveHistory = async (userId, userMessage, aiMessage) => {
@@ -1353,36 +1427,13 @@ const handleEvent = async (event) => {
         const crisisText = await getCrisisResponse(text, is_danger, is_scam);
         const base = is_danger ? DANGER_REPLY : (is_scam ? SCAM_REPLY : INAPPROPRIATE_REPLY);
         const out = [{ type: 'text', text: crisisText }, ...base.slice(1)];
-        // 見守り通報ロジックは既存のまま（is_danger時のみ）
-        if (!isAdminUser && isWatchEnabled && is_danger) {
-            const DEST = await getActiveWatchGroupId();
-            const fallbackUser = OWNER_USER_ID || BOT_ADMIN_IDS[0] || '';
-            const u = user; const prof = u.profile || {}; const emerg = u.emergency || {};
-            const payload = [
-                { type: 'text', text: `見守り対象者(${prof.name || prof.displayName || '—'})から危険なメッセージを検知しました。` },
-                buildWatcherFlex({
-                    title: '🚨危険ワード検知',
-                    name: prof.name || prof.displayName || '—',
-                    address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                    selfPhone: prof.phone || '',
-                    kinName: emerg.contactName || '',
-                    kinPhone: emerg.contactPhone || '',
-                    userId
-                })
-            ];
-            if (DEST) {
-                console.log('[INFO] Sending alert to WATCH_GROUP_ID:', DEST);
-                await safePush(DEST, payload);
-                audit('officer_alert_sent', { to: DEST, userId: userHash(userId) });
-            } else if (fallbackUser) {
-                console.warn('[WARN] WATCH_GROUP_ID missing, fallback to OWNER_USER_ID');
-                await safePush(fallbackUser, payload);
-                audit('officer_alert_fallback_user', { to: gTrunc(fallbackUser, 8), userId: userHash(userId) });
-            } else {
-                console.warn('[watch] no destination for alerts (WATCH_GROUP_ID/OFFICER_GROUP_ID/OWNER_USER_ID empty)');
-            }
-        }
+
         await replyOrPush(replyToken, userId, out);
+
+        if (!isAdminUser && isWatchEnabled && is_danger) {
+            await notifyOfficerDanger(userId, user);
+        }
+
         const shouldSave = SAVE_HISTORY_SCOPE === 'all' || (SAVE_HISTORY_SCOPE === 'flagged' && (is_danger || is_scam || is_inappropriate));
         if (shouldSave) {
             await saveHistory(userId, text, Array.isArray(out) ? (out[0]?.text || '') : (out.text || ''));
