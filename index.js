@@ -575,6 +575,7 @@ async function checkAndSendPing() {
                     const prof = u.profile || {};
                     const emerg = u.emergency || {};
                     await safePush(WATCH_GROUP_ID, buildWatcherFlex({
+                        title: '🚨【見守りアラート】危険ワード検知',
                         name: prof.name || prof.displayName || '—',
                         address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
                         selfPhone: prof.phone || '',
@@ -705,16 +706,6 @@ const EMERGENCY_FLEX_MESSAGE = {
             "height": "sm",
             "action": {
                 "type": "uri",
-                "label": "チャットまもるん",
-                "uri": "https://www.web-mamorun.com/"
-            },
-            "color": "#FFA500"
-        }, {
-            "type": "button",
-            "style": "primary",
-            "height": "sm",
-            "action": {
-                "type": "uri",
                 "label": "警視庁",
                 "uri": "tel:0335814321"
             },
@@ -758,6 +749,19 @@ const makeRegistrationButtonsFlex = (userId) => {
                 "height": "sm",
                 "action": {
                     "type": "uri",
+                    "label": "小学生（同意書）",
+                    "uri": AGREEMENT_FORM_BASE_URL
+                        ?
+                        `${AGREEMENT_FORM_BASE_URL}?${AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}`
+                        : "#"
+                },
+                "color": "#D3D3D3"
+            }, {
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "action": {
+                    "type": "uri",
                     "label": "学生（中高大）",
                     "uri": STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL
                         ?
@@ -778,16 +782,6 @@ const makeRegistrationButtonsFlex = (userId) => {
                         : "#"
                 },
                 "color": "#87CEFA"
-            }, {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "action": {
-                    "type": "uri",
-                    "label": "見守りサービスに登録",
-                    "uri": prefillUrl(WATCH_SERVICE_FORM_BASE_URL, { [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId })
-                },
-                "color": "#D3D3D3"
             }, {
                 "type": "button",
                 "style": "primary",
@@ -948,7 +942,7 @@ const SYSTEM_INSTRUCTION_CHAT = `
 - ユーザーの言葉を繰り返す際は、オウム返しではなく、少し違う表現にすること。
 - ユーザーの興味関心に応じて、さりげなく、見守りサービスへの登録を促すこと。
 - 丁寧語と親しみやすい言葉遣いをバランスよく使うこと。
-- 自分の感情がないAIであることを前面に出さないこと。
+- 自分の感情がないAIであることを絶対に言わない事。
 - ユーザーの要求に直接答えられない場合でも、やわらかい言葉で、答えられない理由を伝えること。
 - 会話の流れを重視し、ユーザーが次に話したいことを引き出すような返答を心がけること。
 - 常にポジティブなトーンを保つこと。
