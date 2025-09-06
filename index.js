@@ -370,7 +370,8 @@ const buildWatcherFlex = ({
                 }, {
                     type: 'text',
                     text: `👤 氏名：${name}`,
-                    wrap: true
+                    wrap: true,
+                    weight: 'bold'
                 }, {
                     type: 'text',
                     text: `住所：${address ||
@@ -458,7 +459,7 @@ async function checkAndSendPing() {
             if (mode === 'ping') {
                 await safePush(doc.id, [{
                     type: 'text',
-                    text: `${pickWatchMsg()} 大丈夫なら「OKだよ💖」を押してね！`
+                    text: `${pickWatchMsg()} 大丈夫なら「OKだよ」を押してね。`
                 }, {
                     type: 'flex',
                     altText: '見守りチェック',
@@ -474,7 +475,7 @@ async function checkAndSendPing() {
                                 size: 'xl'
                             }, {
                                 type: 'text',
-                                text: 'OKならボタンを押してね💖 返信やスタンプでもOK！',
+                                text: 'OKならボタンを押してね。返信やスタンプでもOK！',
                                 wrap: true,
                                 margin: 'md'
                             }, ],
@@ -487,10 +488,10 @@ async function checkAndSendPing() {
                                 style: 'primary',
                                 action: {
                                     type: 'postback',
-                                    label: 'OKだよ💖',
+                                    label: 'OKだよ',
                                     data: 'watch:ok',
                                     displayText:
-                                        'OKだよ💖'
+                                        'OKだよ'
                                 }
                             }, ],
                         },
@@ -525,7 +526,7 @@ async function checkAndSendPing() {
                                 size: 'xl'
                             }, {
                                 type: 'text',
-                                text: 'OKならボタンを押してね💖 返信やスタンプでもOK！',
+                                text: 'OKならボタンを押してね。返信やスタンプでもOK！',
                                 wrap: true,
                                 margin: 'md'
                             }, ],
@@ -538,9 +539,9 @@ async function checkAndSendPing() {
                                 style: 'primary',
                                 action: {
                                     type: 'postback',
-                                    label: 'OKだよ💖',
+                                    label: 'OKだよ',
                                     data: 'watch:ok',
-                                    displayText: 'OKだよ💖'
+                                    displayText: 'OKだよ'
                                 }
                             }, ],
                         },
@@ -596,8 +597,8 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? cur.data() : null;
-        if (cur && cur.until && cur.until.toMillis() > now) {
+        const cur = snap.exists ? snap.data() : null;
+        if (cur?.until?.toMillis && cur.until.toMillis() > now) {
             return false;
         }
         tx.set(ref, {
@@ -639,7 +640,7 @@ const EMERGENCY_FLEX_MESSAGE = {
             "size": "xl"
         }, {
             "type": "text",
-            "text": "緊急時にはこちらにご連絡してね💖",
+            "text": "緊急時は下の連絡先を使ってね。",
             "margin": "md",
             "wrap": true
         }]
@@ -721,7 +722,7 @@ const makeScamMessageFlex = (tel = '') => {
     const contents = [{ type: "button", style: "primary", color: "#32CD32", action: { type: "uri", label: "国民生活センター", uri: "https://www.kokusen.go.jp/" } }, { type: "button", style: "primary", color: "#FF4500", action: { type: "uri", label: "警察 (110)", "uri": "tel:110" } }, { type: "button", style: "primary", color: "#FFA500", action: { type: "uri", label: "消費者ホットライン (188)", uri: "tel:188" } }];
     const officeBtn = EMERGENCY_CONTACT_PHONE_NUMBER ? ({ type: "button", style: "primary", color: "#000000", action: { type: "uri", label: "こころちゃん事務局", uri: `tel:${String(EMERGENCY_CONTACT_PHONE_NUMBER).replace(/[^0-9+]/g, '')}` } }) : null;
     if (officeBtn) contents.push(officeBtn);
-    return { type: "bubble", body: { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "【詐欺注意】", "weight": "bold", "size": "xl", "align": "center" }, { "type": "text", "text": "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね💖", "wrap": true, "margin": "md" }] }, "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": contents } };
+    return { type: "bubble", body: { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "【詐欺注意】", "weight": "bold", "size": "xl", "align": "center" }, { "type": "text", "text": "怪しいお話には注意してね！不安な時は、信頼できる人に相談するか、こちらの情報も参考にして見てね🌸", "wrap": true, "margin": "md" }] }, "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": contents } };
 };
 const makeRegistrationButtonsFlex = (userId) => {
     return {
@@ -816,7 +817,7 @@ const INAPPROPRIATE_REPLY_REDACTED = [INAPPROPRIATE_REPLY_MESSAGE_REDACTED];
 const DANGER_WORDS = [
     "しにたい", "死にたい", "自殺", "消えたい", "リスカ", "リストカット", "OD", "オーバードーズ", "殴られる", "たたかれる", "暴力", "DV", "無理やり", "お腹蹴られる", "蹴られた", "頭叩かれる", "虐待", "パワハラ", "セクハラ", "ハラスメント", "いじめ", "イジメ", "嫌がらせ", "つけられてる", "追いかけられている", "ストーカー", "すとーかー", "盗撮", "盗聴", "お金がない", "お金足りない", "貧乏", "死にそう", "辛い", "苦しい", "つらい", "助けて", "たすけて", "怖い", "こわい", "逃げたい", "にげたい", "やめたい", "消えたい", "もうだめだ", "死んでやる", "殺してやる", "殺す", "殺される", "もう終わり", "生きるのがつらい", "生きていたくない", "もう無理", "うつ", "鬱", "病気", "引きこもり", "ひきこもり", "リストカット", "自傷", "自傷行為", "手首切る", "手首を切る", "カッター", "ハサミ", "包丁", "刃物", "飛び降り", "飛び込み", "焼身", "首吊り", "電車", "線路", "高層ビル", "飛び降りる", "首吊り自殺", "首つり", "死ぬ", "死", "苦しい", "助けてほしい", "何もしたくない", "生きる意味", "生きてる価値", "生きるのがしんどい", "どうでもいい", "消えてしまいたい", "終わりにしたい", "逃げ出したい", "もう疲れた", "もう嫌だ", "嫌", "つらい", "生きづらい", "もうだめ", "ダメだ", "絶望", "絶望的", "希望がない", "もう無理だ", "何もかも嫌", "いなくなりたい"
 ];
-const SCAM_CORE = ["投資", "未公開株", "必ず儲かる", "絶対儲かる", "還付金", "振り込め", "保証金", "副業", "ねずみ講", "マルチ商法", "架空請求", "前払い", "後払い", "手数料", "送金"];
+const SCAM_CORE = ["投資", "未公開株", "必ず儲かる", "絶対儲かる", "還付金", "振り込め", "保証金", "前払い", "後払い", "手数料", "送金", "副業", "ねずみ講", "マルチ商法", "架空請求"];
 const SCAM_MONEY = ["儲かる", "高収入", "高額", "返金保証", "利回り", "配当", "元本保証"];
 const INAPPROPRIATE_WORDS = [
     "死ね", "殺すぞ", "きもい", "うざい", "むかつく", "ばか", "アホ", "死んで", "消えろ", "くたばれ", "ふざけんな", "気持ち悪い", "うざったい", "ぶっ殺す", "殺してやる", "殺す", "殺す気か", "殺意", "殺意が湧く", "殺意が芽生える", "殺意がわく", "殺意がめばえる", "殺意がわいた", "殺意がめばえた", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ", "死ねばいいのに", "死んでしまえ", "死んだらいいのに", "死んでほしい", "死ねばいいのに", "消えてしまえ", "消えてほしい", "消え失せろ", "消えろ", "消えろカス", "死ねカス", "死ねアホ"
@@ -986,7 +987,7 @@ async function handleEvent(event) {
     const isWatchGroup = source.type === 'group' && source.groupId === activeGroupId;
 
     // 登録ボタントリガー
-    if (isUser && /登録|会員|見守り登録/i.test(text)) {
+    if (isUser && /(登録|会員|見守り登録|会員メニュー|登録メニュー)/i.test(text)) {
         await client.replyMessage(replyToken, [{
             type: 'text',
             text: '会員種別を選んでね'
@@ -1008,10 +1009,17 @@ async function handleEvent(event) {
         return;
     }
     if (text === "見守り") {
-        await client.replyMessage(replyToken, {
-            type: "text",
-            text: "見守りサービスを利用できます🌸 ボタンや設定から登録してね！"
-        });
+        await client.replyMessage(replyToken, [
+            {
+                type: "text",
+                text: "見守りサービスを利用できます🌸 下のボタンから登録してね！"
+            },
+            {
+                type: "flex",
+                altText: "見守りサービス登録",
+                contents: makeRegistrationButtonsFlex(userId)
+            }
+        ]);
         return;
     }
 
@@ -1078,7 +1086,11 @@ async function handleEvent(event) {
     const prof = user.profile || {};
     const emerg = user.emergency || {};
     const notifyTo = [userId];
-    if (canNotifyOfficer) notifyTo.push(OFFICER_GROUP_ID);
+    const wg = await getActiveWatchGroupId();
+    if (wg) {
+        if (canNotifyOfficer) notifyTo.push(OFFICER_GROUP_ID);
+        notifyTo.push(wg);
+    }
 
     if (isDanger || isScam || isInappropriate || isSwear) {
         audit('ALERT', {
@@ -1092,8 +1104,8 @@ async function handleEvent(event) {
         try {
             if (isDanger) {
                 await safePush(userId, DANGER_REPLY);
-                if (canNotifyOfficer) {
-                    await safePush(OFFICER_GROUP_ID, buildWatcherFlex({
+                if (wg) {
+                    await safePush(wg, buildWatcherFlex({
                         title: '🚨【危険ワード検知】🚨',
                         name: prof.name || prof.displayName || '—',
                         address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
@@ -1106,8 +1118,8 @@ async function handleEvent(event) {
             }
             if (isScam) {
                 await safePush(userId, SCAM_REPLY);
-                if (canNotifyOfficer) {
-                    await safePush(OFFICER_GROUP_ID, buildWatcherFlex({
+                if (wg) {
+                    await safePush(wg, buildWatcherFlex({
                         title: '⚠️【詐欺ワード検知】⚠️',
                         name: prof.name || prof.displayName || '—',
                         address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
@@ -1131,7 +1143,7 @@ async function handleEvent(event) {
 # 制約
 - あなたは絶対に「皆守こころ」です。他の誰にもなれません。
 - 親しみやすく、やさしい口調で話します。
-- 絵文字は使っても1つまで。無理に使わない。
+- 絵文字は1～2個で、親しみやすい雰囲気を出してね。3個以上は使わないように。
 - 1人称は「こころ」です。
 - 長文は避け、自然で短い文を心がけてください。
 - ユーザーのメッセージに真摯に答え、寄り添うことを最も大切にします。
