@@ -77,6 +77,7 @@ const ADULT_FORM_LINE_USER_ID_ENTRY_ID = process.env.ADULT_FORM_LINE_USER_ID_ENT
 const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
 const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
 const SEND_OFFICER_ALERTS = process.env.SEND_OFFICER_ALERTS !== 'false';
+const HOMEPAGE_URL = process.env.HOMEPAGE_URL || '';
 let creds = null;
 if (process.env.FIREBASE_CREDENTIALS_BASE64) {
     creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
@@ -565,6 +566,7 @@ async function checkAndSendPing() {
                     const prof = u.profile || {};
                     const emerg = u.emergency || {};
                     await safePush(WATCH_GROUP_ID, buildWatcherFlex({
+                        title: isDanger ? '🚨【再度：危険ワード検知】🚨' : '⚠️【再度：詐欺ワード検知】⚠️',
                         name: prof.name || prof.displayName || '—',
                         address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
                         selfPhone: prof.phone || '',
@@ -689,16 +691,6 @@ const EMERGENCY_FLEX_MESSAGE = {
                 "uri": "tel:0570064556"
             },
             "color": "#32CD32"
-        }, {
-            "type": "button",
-            "style": "primary",
-            "height": "sm",
-            "action": {
-                "type": "uri",
-                "label": "チャットまもるん",
-                "uri": "https://www.web-mamorun.com/"
-            },
-            "color": "#FFA500"
         }, {
             "type": "button",
             "style": "primary",
@@ -848,8 +840,9 @@ const makeRegistrationButtonsFlex = (userId) => {
                 "height": "sm",
                 "action": {
                     "type": "uri",
-                    "label": "見守りサービスに登録",
-                    "uri": prefillUrl(WATCH_SERVICE_FORM_BASE_URL, { [WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID]: userId })
+                    "label": "小学生（同意書）",
+                    "uri": AGREEMENT_FORM_BASE_URL ?
+                        `${AGREEMENT_FORM_BASE_URL}?${AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID}=${encodeURIComponent(userId)}` : "#"
                 },
                 "color": "#D3D3D3"
             }, {
@@ -933,7 +926,8 @@ const SYSTEM_INSTRUCTION_CHAT =
     '好きなアニメはヴァイオレット・エヴァーガーデン、好きなアーティストはClariS。' +
     '医療・危機対応は助言ではなく共感と専門窓口の案内に留めます。';
 const isDangerWords = (t) => /(死|つらい|苦し|自殺|消え|辛い|くるしい|しにたい|ころし|殺|じさつ|きえたい)/i.test(t);
-const isScamMessage = (t) => /（(?:詐欺|請求|電話番号|連絡|登録|口座|支払い|振込|送金|振込先|送金先|当選|当たり|有料|無料|プレゼント|ギフト|当選|当選金|受け取り|受け渡し|振り込む|振込ます|送金|送金します|お金|オカネ|金|きん|キン|お金を|オカネヲ|金を|キンヲ|金を送金|金を振り込|金を送って|お金を送って|お金を振込|お金を振込ます|お金を送金|お金を送金します|金送金|金振込|金送って|お金送って|お金振込|お金送金|有料サービス|無料サービス|プレゼント企画|ギフト企画|当選企画|当選金企画|受け取り企画|受け渡し企画|振り込む企画|振込ます企画|送金企画|送金します企画|金企画|キン企画|お金企画|オカネ企画|金を企画|キンヲ企画|お金を企画|オカネヲ企画|お金を送金する|金を送金する|お金を振り込む|金を振り込む|お金を送金します|金を送金します|有料サービス|無料サービス|プレゼント企画|ギフト企画|当選企画|当選金企画|受け取り企画|受け渡し企画|振り込む企画|振込ます企画|送金企画|送金します企画|金企画|キン企画|お金企画|オカネ企画|金を企画|キンヲ企画|お金を企画|オカネヲ企画|お金を送金する|金を送金する|お金を振り込む|金を振り込む|お金を送金します|金を送金します)）/i.test(t) || isAskingForHomepage(t);
+const isScamMessage = (t) =>
+  /（(?:詐欺|請求|電話番号|連絡|登録|口座|支払い|振込|送金|振込先|送金先|当選|当たり|有料|無料|プレゼント|ギフト|当選|当選金|受け取り|受け渡し|振り込む|振込ます|送金|送金します|お金|オカネ|金|きん|キン|お金を|オカネヲ|金を|キンヲ|金を送金|金を振り込|金を送って|お金を送って|お金を振込|お金を振込ます|お金を送金|お金を送金します|金送金|金振込|金送って|お金送って|お金振込|お金送金|有料サービス|無料サービス|プレゼント企画|ギフト企画|当選企画|当選金企画|受け取り企画|受け渡し企画|振り込む企画|振込ます企画|送金企画|送金します企画|金企画|キン企画|お金企画|オカネ企画|金を企画|キンヲ企画|お金を企画|オカネヲ企画|お金を送金する|金を送金する|お金を振り込む|金を振り込む|お金を送金します|金を送金します)）/i.test(t);
 const isInappropriate = (t) => /(バカ|アホ|死ね|殺す|きもい|ウザい|うざい|カス|クズ|くず|ごみ|ゴミ|ふざけ|最低|サイテイ|さいこう|殺意|イラ|いらいら|いらい|イライラ|イライ)/i.test(t);
 const isAskingForHomepage = (t) => /(HP|HPを|ホームページ|ホームページを|ホームページ見せて|ホームページ教えて|ホームページ見せてください|ホームページ教えてください|ホームページを教えて|ホームページを教えてください|HPを教えて|HPを教えてください)/i.test(t);
 // === 置換: 既存の relays 周りを全差し替え ===
@@ -1011,6 +1005,11 @@ const endRelay = async (event) => {
 
 // === 追加: specialRepliesMap 本文 ===
 const specialRepliesMap = new Map([
+    // 公式サイト案内
+    [/(HP|ＨＰ|ホームページ)(を|は|どこ|教えて|見せて)?/i,
+      HOMEPAGE_URL
+        ? `公式サイトはこちらだよ：\n${HOMEPAGE_URL}\n気になるところがあれば教えてね🌸`
+        : '公式サイトは今準備中だよ。公開できたらここで案内するね🌸'],
     // 遅延・無視・塩対応系（最優先）
     [/(反応してくれない|返事がない|無視|遅い|おそい|塩対応|そっけない|機械的|冷たい)/i,
      "ごめんね…不安にさせちゃったね。こころは味方だよ🌸 いま確認してるから、そばにいるね💖"],
@@ -1187,7 +1186,12 @@ async function handleEvent(event) {
 
             // 通常の危険/詐欺/不適切
             if (isDanger) { await safePush(userId, isUser ? DANGER_REPLY : DANGER_REPLY_REDACTED); return; }
-            if (isScam)   { await safePush(userId, isUser ? SCAM_REPLY   : SCAM_REPLY_REDACTED);   return; }
+            if (isScam)   {
+              // replyで失敗してもpushで再送（Flex互換対策）
+              try { await client.replyMessage(replyToken, isUser ? SCAM_REPLY : SCAM_REPLY_REDACTED); }
+              catch { await safePush(userId, isUser ? SCAM_REPLY : SCAM_REPLY_REDACTED); }
+              return;
+            }
             if (isBad)    { await safePush(userId, isUser ? INAPPROPRIATE_REPLY : INAPPROPRIATE_REPLY_REDACTED); return; }
 
 
@@ -1284,7 +1288,7 @@ async function handleEvent(event) {
                 await safePush(userId, { type:'text', text:'いま一生けんめい考えてるよ…もう少しだけ待っててね🌸' });
             }, 2500);
 
-            const aiResponseText = await getAiResponse(userConfig.model, userConfig.dailyLimit, conversationHistory);
+            const aiResponseText = await getAiResponse(userConfig.model, userConfig.dailyLimit, conversationHistory, text);
             clearTimeout(thinkingTimer);
 
             const SUGGEST_NEXT =
@@ -1367,7 +1371,7 @@ async function fetchConversationHistory(userId, limit = 5) {
     const snap = await historyRef.orderBy('timestamp', 'desc').limit(limit).get();
     return snap.docs.reverse().map(doc => doc.data());
 }
-async function getAiResponse(model, dailyLimit, history) {
+async function getAiResponse(model, dailyLimit, history, promptText = '') {
     if (model.includes('gemini')) {
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
         const geminiModel = genAI.getGenerativeModel({
@@ -1383,7 +1387,7 @@ async function getAiResponse(model, dailyLimit, history) {
         if (userName) {
             systemInstruction = `${SYSTEM_INSTRUCTION_PREFIX}${userName}${SYSTEM_INSTRUCTION_SUFFIX} ${SYSTEM_INSTRUCTION_CHAT}`;
         }
-        const geminiHistory = history.map(msg => {
+        const geminiHistory = (history || []).map(msg => {
             if (msg.role === 'user') {
                 return {
                     role: 'user',
@@ -1406,7 +1410,11 @@ async function getAiResponse(model, dailyLimit, history) {
             const chat = geminiModel.startChat({
                 history: geminiHistory
             });
-            const result = await chat.sendMessage(history[history.length - 1].content);
+            const lastUserText =
+                promptText ||
+                (history || []).filter(m => m.role === 'user').slice(-1)[0]?.content ||
+                '';
+            const result = await chat.sendMessage(lastUserText);
             const response = result.response;
             return response.text();
         } catch (e) {
@@ -1419,10 +1427,11 @@ async function getAiResponse(model, dailyLimit, history) {
             // 履歴をOpenAI形式に
             const finalMessages = [
                 { role: 'system', content: SYSTEM_INSTRUCTION_CHAT },
-                ...history.map(h => ({
+                ...(history || []).map(h => ({
                     role: h.role === 'assistant' ? 'assistant' : 'user',
                     content: String(h.content || '')
-                }))
+                })),
+                ...(promptText ? [{ role: 'user', content: String(promptText) }] : []),
             ];
             const completion = await openai.chat.completions.create({
                 model,
