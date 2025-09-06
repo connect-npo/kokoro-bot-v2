@@ -259,14 +259,19 @@ async function fetchTargets() {
   const now = dayjs().utc();
   const usersRef = db.collection('users');
   const targets = [];
+  // 次回送信時刻が来た人を取ってから awaitingReply をローカルで除外
   const snap1 = await usersRef
-    .where('watchService.awaitingReply', '==', false)
-    .where('watchService.nextPingAt', '<=', now.toDate())
+    .where('watchService.nextPingAt','<=', now.toDate())
+    .orderBy('watchService.nextPingAt')
     .limit(200)
     .get();
-  targets.push(...snap1.docs);
+  snap1.docs.forEach(d => {
+    const ws = (d.data().watchService)||{};
+    if (!ws.awaitingReply) targets.push(d);
+  });
+  // 返信待ち（リマインド/エスカレーション候補）
   const snap2 = await usersRef
-    .where('watchService.awaitingReply', '==', true)
+    .where('watchService.awaitingReply','==', true)
     .limit(200)
     .get();
   targets.push(...snap2.docs);
@@ -591,7 +596,7 @@ async function withLock(lockId, ttlSec, fn) {
         const snap = await tx.get(ref);
         const now = Date.now();
         const until = now + ttlSec * 1000;
-        const cur = snap.exists ? snap.data() : null;
+        const cur = snap.exists ? cur.data() : null;
         if (cur?.until?.toMillis && cur.until.toMillis() > now) {
             return false;
         }
@@ -840,9 +845,9 @@ const isSwearMessage = (text) => checkWords(text, SWEAR_WORDS);
 // リレー関連
 const RELAY_TTL_MS = 60 * 60 * 1000;
 const relays = new Map();
-const addRelay = (user, officer) => {
+const addRelay = (user, officerOrGroup) => {
     relays.set(user, {
-        to: officer,
+        to: officerOrGroup,
         from: user,
         until: Date.now() + RELAY_TTL_MS,
     });
@@ -857,58 +862,39 @@ const getRelay = (user) => {
     return relay;
 };
 const deleteRelay = (user) => relays.delete(user);
-const getRelayUser = (officer) => {
+const getRelayUser = (officerOrGroup) => {
     for (const [user, relay] of relays.entries()) {
-        if (relay.to === officer) return user;
+        if (relay.to === officerOrGroup) return user;
     }
     return null;
 };
-const deleteRelayByOfficer = (officer) => {
-    const user = getRelayUser(officer);
+const deleteRelayByOfficer = (officerOrGroup) => {
+    const user = getRelayUser(officerOrGroup);
     if (user) relays.delete(user);
 };
 const handleRelay = async (event, text) => {
+    const gid = event.source.groupId || event.source.roomId;
+    // 利用者→グループ
     const relay = getRelay(event.source.userId);
     if (relay) {
-        await safePush(relay.to, [{
+        await safePush(relay.to, { // ★グループIDへ転送
             type: "text",
-            text: `[利用者からのメッセージ]\n${text}\n\n[応答方法]\n` +
-                "このスレッドを**「この人に対応する」**と返信すると、利用者と直接やりとりできます。"
-        }]);
-        await replyOrPush(event.replyToken, event.source.userId, {
-            type: "text",
-            text: "担当者に繋ぎますね。少しお待ちください。"
+            text: `[利用者からのメッセージ]\n${text}\n\n[応答方法]\nグループで返信すると相手に届きます。終了は「終了」。`
         });
+        await replyOrPush(event.replyToken, event.source.userId, { type:"text", text:"担当者に繋ぎますね。少しお待ちください。" });
         return;
     }
-    const relayUser = getRelayUser(event.source.userId);
+    // グループ→利用者
+    const relayUser = gid ? getRelayUser(gid) : null;
     if (relayUser) {
-        if (/この人に対応する/i.test(text)) {
-            await replyOrPush(event.replyToken, event.source.userId, [{
-                type: "text",
-                text: "承知しました。以降、このユーザーからのメッセージを直接転送します。終了する際は**「終了」**と返信してください。"
-            }, {
-                type: "text",
-                text: "※ 60分経過すると自動的にセッションが終了します。"
-            }]);
-            return;
-        }
         if (/^終了/i.test(text)) {
-            deleteRelayByOfficer(event.source.userId);
-            await replyOrPush(event.replyToken, event.source.userId, {
-                type: "text",
-                text: "セッションを終了しました。また何かあればお声がけください。"
-            });
+            deleteRelayByOfficer(gid);
+            await replyOrPush(event.replyToken, gid, { type:"text", text:"この方とのリレーを終了しました。" });
+            await safePush(relayUser, { type:"text", text:"担当とのやり取りを終了しました。また必要な時はいつでもどうぞ。" });
             return;
         }
-        await safePush(relayUser, {
-            type: "text",
-            text: text
-        });
-        await replyOrPush(event.replyToken, event.source.userId, {
-            type: "text",
-            text: "✅ 送信しました。"
-        });
+        await safePush(relayUser, { type:"text", text });
+        await replyOrPush(event.replyToken, gid, { type:"text", text:"✅ 送信しました。" });
         return;
     }
     return false;
@@ -925,7 +911,7 @@ const SYSTEM_INSTRUCTION_CHAT = `
 - ユーザーの言葉を繰り返す際は、オウム返しではなく、少し違う表現にすること。
 - ユーザーの興味関心に応じて、さりげなく、見守りサービスへの登録を促すこと。
 - 丁寧語と親しみやすい言葉遣いをバランスよく使うこと。
-- 自分が感情がないAIであることを絶対に言わない事。
+- 自分の感情がないAIであることを前面に出さないこと。
 - ユーザーの要求に直接答えられない場合でも、やわらかい言葉で、答えられない理由を伝えること。
 - 会話の流れを重視し、ユーザーが次に話したいことを引き出すような返答を心がけること。
 - 常にポジティブなトーンを保つこと。
@@ -960,7 +946,7 @@ const DANGER_CONVO_CHAT = [
         content: "つらかったね。ひとりじゃないよ。今すぐ助けが要るときは下の連絡先を使ってね🌸"
     }
 ];
-
+const isAdmin = (uid) => BOT_ADMIN_IDS.includes(uid);
 const thinkingGate = new Map(); // uid -> timestamp(ms)
 function canSendThinking(uid, msGap=15000){
   const now = Date.now();
@@ -972,7 +958,7 @@ function canSendThinking(uid, msGap=15000){
 
 const getAiResponse = async (userId, conversationHistory) => {
     const user = (await db.collection('users').doc(userId).get()).data() || {};
-    const membership = user.membership || 'guest';
+    const membership = isAdmin(userId) ? 'admin' : (user.membership || 'guest');
     const dailyLimit = MEMBERSHIP_CONFIG[membership]?.dailyLimit;
     const model = MEMBERSHIP_CONFIG[membership]?.model;
     const isGemini = model?.includes('gemini');
@@ -1098,9 +1084,12 @@ async function handleEvent(event) {
             // 監視グループのカード → 「LINEで連絡」
             if (data.startsWith('action=start_relay')) {
                 const uid = decodeURIComponent((data.match(/uid=([^&]+)/)||[,''])[1]);
-                if (uid) {
-                    addRelay(uid, event.source.userId); // 60分セッション
-                    await safePush(event.source.userId, { type:'text', text:'この方とのリレーを開始しました。終了は「終了」と送ってください。' });
+                const gid = event.source.groupId || event.source.roomId || ''; // ★グループ/ルームID
+                if (uid && gid) {
+                    const cur = getRelay(uid);
+                    // 既存セッションが同じグループ宛なら重複開始しない
+                    if (!cur || cur.to !== gid) addRelay(uid, gid); // ★宛先は groupId
+                    await safePush(gid, { type:'text', text:'この方とのリレーを開始しました。終了は「終了」と送ってください。' });
                     await safePush(uid, { type:'text', text:'担当の方と繋がりました。メッセージを書いてくださいね。' });
                 }
                 return;
@@ -1123,8 +1112,9 @@ async function handleEvent(event) {
     if (await handleRelay(event, text)) {
         return;
     }
+    const isAdminUser = isAdmin(userId);
     // 管理者対応
-    if (BOT_ADMIN_IDS.includes(userId)) {
+    if (isAdminUser) {
         if (text === 'watch-test') {
             await checkAndSendPing();
             await safePush(userId, {
@@ -1181,44 +1171,44 @@ async function handleEvent(event) {
 
     // 危険・詐欺・不適切ワードの検知
     let reply = null;
-    let is_danger = isDangerMessage(text);
+    const is_danger = isDangerMessage(text);
     const is_scam = isScamMessage(text);
     const is_inappropriate = isInappropriateMessage(text) || isSwearMessage(text);
 
-    if (is_danger) {
-        reply = DANGER_REPLY;
-    } else if (is_scam) {
-        reply = SCAM_REPLY;
-    } else if (is_inappropriate) {
-        reply = INAPPROPRIATE_REPLY;
+    if (!isAdminUser) {
+        if (is_danger) {
+            reply = DANGER_REPLY;
+        } else if (is_scam) {
+            reply = SCAM_REPLY;
+        } else if (is_inappropriate) {
+            reply = INAPPROPRIATE_REPLY;
+        }
     }
 
     if (reply) {
-        if (isWatchEnabled) {
-            if (is_danger) {
-                // 見守りユーザーの場合は個人情報を含むアラートを通知
-                const WATCH_GROUP_ID = await getActiveWatchGroupId();
-                if (WATCH_GROUP_ID) {
-                    const u = userDoc.data() || {};
-                    const prof = u.profile || {};
-                    const emerg = u.emergency || {};
-                    const officerMessage = buildWatcherFlex({
-                        title: '🚨【見守りアラート】危険ワード検知',
-                        name: prof.name || prof.displayName || '—',
-                        address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
-                        selfPhone: prof.phone || '',
-                        kinName: emerg.contactName || '',
-                        kinPhone: emerg.contactPhone || '',
-                        userId: userId,
-                    });
-                    const officerMessage2 = {
-                        type: 'text',
-                        text: `[検知ワード]: ${text}`
-                    };
-                    await safePush(WATCH_GROUP_ID, [officerMessage, officerMessage2]);
-                } else {
-                    console.log('WATCH_GROUP_ID is not set, skipping officer notification.');
-                }
+        if (isWatchEnabled && is_danger) {
+            // 見守りユーザーの場合は個人情報を含むアラートを通知
+            const WATCH_GROUP_ID = await getActiveWatchGroupId();
+            if (WATCH_GROUP_ID) {
+                const u = userDoc.data() || {};
+                const prof = u.profile || {};
+                const emerg = u.emergency || {};
+                const officerMessage = buildWatcherFlex({
+                    title: '🚨【見守りアラート】危険ワード検知',
+                    name: prof.name || prof.displayName || '—',
+                    address: [prof.prefecture, prof.city, prof.line1, prof.line2].filter(Boolean).join(' '),
+                    selfPhone: prof.phone || '',
+                    kinName: emerg.contactName || '',
+                    kinPhone: emerg.contactPhone || '',
+                    userId: userId,
+                });
+                const officerMessage2 = {
+                    type: 'text',
+                    text: `[検知ワード]: ${text}`
+                };
+                await safePush(WATCH_GROUP_ID, [officerMessage, officerMessage2]);
+            } else {
+                console.log('WATCH_GROUP_ID is not set, skipping officer notification.');
             }
         }
         await replyOrPush(replyToken, userId, reply);
