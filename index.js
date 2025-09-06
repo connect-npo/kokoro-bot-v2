@@ -216,40 +216,43 @@ async function scheduleNextPing(userId, fromDate = new Date()) {
 }
 
 
+// --- 送信前サニタイズ（LINE制限対策）---
+const MAX_TEXT = 1000;
+const MAX_ALT_TEXT = 300;
+const trimForLine = (msg) => {
+  const m = { ...msg };
+  if (m.type === 'text') {
+    m.text = String(m.text || '').trim();
+    if (m.text.length > MAX_TEXT) m.text = m.text.slice(0, MAX_TEXT);
+  }
+  if (m.type === 'flex') {
+    m.altText = String(m.altText || '通知があります').trim();
+    if (m.altText.length > MAX_ALT_TEXT) m.altText = m.altText.slice(0, MAX_ALT_TEXT);
+    if (!m.contents || typeof m.contents !== 'object') {
+      throw new Error('[safePush] flex "contents" is required');
+    }
+  }
+  return m;
+};
+
 async function safePush(to, messages) {
-    const arr = Array.isArray(messages) ? messages : [messages];
-    try {
-        for (const m of arr) {
-            if (m.type === 'flex') {
-                if (!m.altText || !m.altText.trim()) m.altText = '通知があります';
-                if (!m.contents || typeof m.contents !== 'object') {
-                    throw new Error(`[safePush] flex "contents" is required`);
-                }
-            } else if (m.type === 'text') {
-                m.text = String(m.text || '').trim() ||
-                    '（内容なし）';
-                if (m.text.length > 1800) m.text = m.text.slice(0, 1800);
-            }
-        }
-        await client.pushMessage(to, arr);
-    } catch (err) {
-        const detail = err?.originalError?.response?.data || err?.response?.data || err;
-        console.error('[ERR] LINE push failed', JSON.stringify({
-            to,
-            status: err?.statusCode || err?.response?.status,
-            detail
-        }, null, 2));
-    }
+  const arr = (Array.isArray(messages) ? messages : [messages]).map(trimForLine);
+  try {
+    await client.pushMessage(to, arr);
+  } catch (err) {
+    const detail = err?.originalError?.response?.data || err?.response?.data || err;
+    console.error('[ERR] LINE push failed', JSON.stringify({ to, status: err?.statusCode || err?.response?.status, detail }, null, 2));
+  }
 }
+
 const replyOrPush = async (replyToken, to, messages) => {
-    const arr = Array.isArray(messages) ? messages : [messages];
-    try {
-        const replyRes = await client.replyMessage(replyToken, arr);
-        return replyRes;
-    } catch (err) {
-        briefErr('LINE reply failed, falling back to push', err);
-        return safePush(to, arr);
-    }
+  const arr = (Array.isArray(messages) ? messages : [messages]).map(trimForLine);
+  try {
+    return await client.replyMessage(replyToken, arr);
+  } catch (err) {
+    briefErr('LINE reply failed, falling back to push', err);
+    return safePush(to, arr);
+  }
 };
 
 async function fetchTargets() {
@@ -942,7 +945,7 @@ const SYSTEM_INSTRUCTION_CHAT = `
 - ユーザーの言葉を繰り返す際は、オウム返しではなく、少し違う表現にすること。
 - ユーザーの興味関心に応じて、さりげなく、見守りサービスへの登録を促すこと。
 - 丁寧語と親しみやすい言葉遣いをバランスよく使うこと。
-- 自分の感情がないAIであることを絶対に言わない事。
+- 自分の感情がないAIであることを前面に出さないこと。
 - ユーザーの要求に直接答えられない場合でも、やわらかい言葉で、答えられない理由を伝えること。
 - 会話の流れを重視し、ユーザーが次に話したいことを引き出すような返答を心がけること。
 - 常にポジティブなトーンを保つこと。
@@ -1188,10 +1191,10 @@ async function handleEvent(event) {
         const buttonsFlex = makeRegistrationButtonsFlex(userId);
         await replyOrPush(replyToken, userId, [{
             type: "text",
-            text: "🌸 見守りサービス登録メニュー 🌸"
+            text: "🌸 会員登録メニュー 🌸"
         }, {
             "type": "flex",
-            "altText": "見守りサービス登録メニュー",
+            "altText": "会員登録メニュー",
             "contents": buttonsFlex
         }]);
         return;
@@ -1281,3 +1284,20 @@ async function handleEvent(event) {
         });
     }
 }
+
+
+// --- ヘルスチェック & 起動 ---
+app.get('/', (_req, res) => {
+    res.type('text/plain').send('ok');
+});
+
+app.get('/healthz', (_req, res) => {
+    res.status(200).json({
+        status: 'ok'
+    });
+});
+
+const HOST = '0.0.0.0';
+app.listen(PORT, HOST, () => {
+    console.log(`✅ こころちゃんBOTはポート ${PORT} で稼働中です`);
+});
