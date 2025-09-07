@@ -2,12 +2,12 @@
 
 /**
  * 完成版 watch-service.js
- * - 危険/詐欺時に GPT-4o の“一言” (+ 安全FLEX) を1回送信（失敗時は固定文、二重送信なし）
- * - Amazon 等ブランド語の詐欺判定はコンテキスト除外あり（「Amazonで買い物した」は除外）
- * - いじめ（危険）FLEXはカラフル + 最下部に「こころチャット事務局（理事長TEL）」ボタン
- * - ホームページ/団体の質問に最優先で確実回答（HPリンク + 団体FLEX）
- * - 「見守り」ワードで見守りメニューを起動
- * - reply token 失効時は push に自動フォールバック
+ * - 危険/詐欺時：GPT-4o の“安心→行動”の2文 + 安全FLEXを1回で送信（reply失効時はpushに自動フォールバック）
+ * - 詐欺ワード：見守りグループへ既定で通知（SCAM_ALERT_TO_WATCH_GROUP=true が既定値）
+ * - 危険FLEX：チャイルドライン復活、カラーは bubble.styles の backgroundColor で彩色（buttonにcolor指定しない）
+ * - 会員登録FLEX：buttonのcolor指定を完全撤去（LINE仕様に準拠）
+ * - ホームページ/団体の質問は最優先で確実回答
+ * - 「見守り」ワードで見守りメニュー起動
  */
 
 const express = require('express');
@@ -45,13 +45,13 @@ const prefillUrl = (base, params) => {
   for (const [k, v] of Object.entries(params || {})) if (v) url.searchParams.set(k, v);
   return url.toString();
 };
+const toArr = (m) => Array.isArray(m) ? m : [m];
 
 // ========== ENV ==========
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const AGREEMENT_FORM_BASE_URL = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
 const ADULT_FORM_BASE_URL = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
@@ -70,7 +70,7 @@ const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID = process.env.MEMBER_CANCEL_FORM_
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const SEND_OFFICER_ALERTS = process.env.SEND_OFFICER_ALERTS !== 'false';
 
-const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
+const EMERGENCY_CONTACT_PHONE_NUMBER = (process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
 
 const BOT_ADMIN_IDS = JSON.parse(process.env.BOT_ADMIN_IDS || '[]');
@@ -80,7 +80,8 @@ const OWNER_GROUP_ID = process.env.OWNER_GROUP_ID || null;
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const WATCH_LOG_LEVEL = (process.env.WATCH_LOG_LEVEL || 'info').toLowerCase();
 
-const SCAM_ALERT_TO_WATCH_GROUP = String(process.env.SCAM_ALERT_TO_WATCH_GROUP || 'false').toLowerCase() === 'true';
+// 既定で true（未設定でも詐欺通知が飛ぶ）
+const SCAM_ALERT_TO_WATCH_GROUP = String(process.env.SCAM_ALERT_TO_WATCH_GROUP || 'true').toLowerCase() === 'true';
 
 // 団体・HP
 const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
@@ -90,7 +91,7 @@ const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご�
 const ORG_REP        = process.env.ORG_REP        || '（代表者）';
 const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 
-// OpenAI init（任意）
+// OpenAI init
 try {
   if (OPENAI_API_KEY) {
     const OpenAI = require('openai');
@@ -135,13 +136,11 @@ const briefErr = (msg, e) => {
   const detail = e?.originalError?.response?.data || e?.response?.data || e?.message;
   console.error(`[ERR] ${msg}:`, JSON.stringify(detail, null, 2));
 };
-const userHash = (id) => crypto.createHash('sha256').update(String(id)).digest('hex');
 const sanitizeForLog = (text) => String(text).replace(/\s+/g, ' ').trim();
 const maskPhone = (raw='') => {
   const s = String(raw).replace(/[^0-9+]/g, ''); if (!s) return '';
   const tail = s.slice(-4); const head = s.slice(0, -4).replace(/[0-9]/g, '＊'); return head + tail;
 };
-const toArr = (m) => Array.isArray(m) ? m : [m];
 
 // reply 失敗時に push
 async function safeReplyOrPush(replyToken, to, messages) {
@@ -191,7 +190,7 @@ const watchMessages = [
   "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
   "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
   "こんにちは😊 困ったことはないかな？いつでも相談してね！",
-  "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
+  "やっほー🌸 こころだよ！何かあったら、ここに教えてね💖",
   "元気出してね！こころちゃん、あなたの味方だよ😊",
   "こころちゃんだよ🌸 今日も一日お疲れ様💖",
   "やっほー！ こころだよ🌸 素敵な日になりますように💖",
@@ -239,12 +238,13 @@ const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
     altText: `🚨未応答: ${name} / ${elapsedHours}時間`,
     contents: {
       type: 'bubble',
+      styles: { body:{ backgroundColor:'#fff8f8' }, footer:{ backgroundColor:'#fffefe' } },
       body: {
         type: 'box', layout: 'vertical', spacing: 'md',
         contents: [
           { type: 'text', text: '🚨 見守り未応答', weight: 'bold', size: 'xl' },
           { type: 'text', text: `ユーザー名：${name}`, wrap: true },
-          { type: 'text', text: `UserID：${userId}`, size: 'sm', color: '#888', wrap: true },
+          { type: 'text', text: `UserID：${userId}`, size: 'sm', wrap: true },
           { type: 'text', text: `経過：${elapsedHours}時間`, wrap: true },
           { type: 'separator', margin: 'md' },
           { type: 'text', text: `連絡先（マスク）：${masked}`, wrap: true },
@@ -255,7 +255,7 @@ const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
         contents: tel ? [{
           type: 'button', style: 'primary',
           action: { type: 'uri', label: '📞 発信する', uri: `tel:${tel}` }
-        }] : [{ type: 'text', text: '※TEL未登録', size: 'sm', color: '#888' }]
+        }] : [{ type: 'text', text: '※TEL未登録', size: 'sm' }]
       }
     }
   };
@@ -368,7 +368,9 @@ async function checkAndSendPing() {
           type:'text', text:`${pickWatchMsg()} 大丈夫なら「OKだよ💖」を押してね！`
         }, {
           type:'flex', altText:'見守りチェック', contents:{
-            type:'bubble', body:{ type:'box', layout:'vertical', contents:[
+            type:'bubble',
+            styles:{ body:{ backgroundColor:'#f8fbff' }, footer:{ backgroundColor:'#ffffff' } },
+            body:{ type:'box', layout:'vertical', contents:[
               { type:'text', text:'見守りチェック', weight:'bold', size:'xl' },
               { type:'text', text:'OKならボタンを押してね💖 返信やスタンプでもOK！', wrap:true, margin:'md' }
             ]},
@@ -391,7 +393,9 @@ async function checkAndSendPing() {
           type:'text', text:`${pickWatchMsg()} 昨日の見守りのOKまだ受け取れてないの… 大丈夫ならボタン押してね！`
         }, {
           type:'flex', altText:'見守りリマインド', contents:{
-            type:'bubble', body:{ type:'box', layout:'vertical', contents:[
+            type:'bubble',
+            styles:{ body:{ backgroundColor:'#fffaf6' }, footer:{ backgroundColor:'#ffffff' } },
+            body:{ type:'box', layout:'vertical', contents:[
               { type:'text', text:'見守りリマインド', weight:'bold', size:'xl' },
               { type:'text', text:'OKならボタンを押してね💖 返信やスタンプでもOK！', wrap:true, margin:'md' }
             ]},
@@ -450,72 +454,93 @@ if (WATCH_RUNNER !== 'external') {
   cron.schedule('*/5 * * * *', () => { checkAndSendPing().catch(err => console.error('Cron job error:', err)); }, { scheduled:true, timezone:'UTC' });
 }
 
-// ========== FLEX（危険・詐欺・登録・見守り） ==========
+// ========== FLEX（危険・詐欺・登録・見守り・団体） ==========
 
-// 危険（いじめ等）：カラフル + 事務局ボタン最下部
+// 危険（いじめ等）：チャイルドライン復活、カラーは styles で
 const makeDangerFlex = () => {
-  const tailBtn = ORG_CONTACT_TEL ? [{
-    type:"button", style:"primary", color:"#111111",
-    action:{ type:"uri", label:"こころチャット事務局", uri:`tel:${ORG_CONTACT_TEL}` }
+  const officeBtn = ORG_CONTACT_TEL ? [{
+    type: "button", style: "secondary", height: "sm",
+    action: { type: "uri", label: "こころチャット事務局", uri: `tel:${ORG_CONTACT_TEL}` }
   }] : [];
   return {
-    type:"flex", altText:"危険ワード検知",
-    contents:{
-      type:"bubble",
-      body:{ type:"box", layout:"vertical", contents:[
-        { type:"text", text:"🚨【危険ワード検知】🚨", weight:"bold", size:"xl" },
-        { type:"text", text:"いまは安全を最優先にしようね。必要ならすぐ連絡してね。", wrap:true, margin:"md" }
-      ]},
-      footer:{ type:"box", layout:"vertical", spacing:"sm", contents:[
-        { type:"button", style:"primary", color:"#e74c3c", action:{ type:"uri", label:"警察 (110)", uri:"tel:110" } },
-        { type:"button", style:"primary", color:"#c0392b", action:{ type:"uri", label:"消防・救急 (119)", uri:"tel:119" } },
-        { type:"button", style:"primary", color:"#8e44ad", action:{ type:"uri", label:"いのちの電話", uri:"tel:0570064556" } },
-        { type:"button", style:"primary", color:"#2980b9", action:{ type:"uri", label:"警視庁", uri:"tel:0335814321" } },
-        ...tailBtn
-      ] }
+    type: "flex",
+    altText: "危険ワード検知",
+    contents: {
+      type: "bubble",
+      styles: { body:{ backgroundColor:"#fff6f7" }, footer:{ backgroundColor:"#fffafb" } },
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "text", text: "🚨【危険ワード検知】🚨", weight: "bold", size: "xl" },
+          { type: "text", text: "いまは安全がいちばん。必要ならすぐ連絡してね。", margin: "md", wrap: true }
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "警察 (110)", uri: "tel:110" } },
+          { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "消防・救急 (119)", uri: "tel:119" } },
+          { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "いのちの電話", uri: "tel:0570064556" } },
+          { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "チャイルドライン", uri: "tel:0120997777" } },
+          { type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "警視庁", uri: "tel:0335814321" } },
+          ...officeBtn
+        ]
+      }
     }
   };
 };
 
-// 詐欺
+// 詐欺：styles で柔色、ボタンは primary/secondary のみ
 const makeScamMessageFlex = () => {
   const contents = [
-    { type:"button", style:"primary", color:"#32CD32", action:{ type:"uri", label:"国民生活センター", uri:"https://www.kokusen.go.jp/" } },
-    { type:"button", style:"primary", color:"#FF4500", action:{ type:"uri", label:"警察 (110)", uri:"tel:110" } },
-    { type:"button", style:"primary", color:"#FFA500", action:{ type:"uri", label:"消費者ホットライン (188)", uri:"tel:188" } },
+    { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "国民生活センター", uri: "https://www.kokusen.go.jp/" } },
+    { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "警察 (110)", uri: "tel:110" } },
+    { type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "消費者ホットライン (188)", uri: "tel:188" } },
   ];
-  if (ORG_CONTACT_TEL) contents.push({ type:"button", style:"primary", color:"#111111", action:{ type:"uri", label:"こころチャット事務局", uri:`tel:${ORG_CONTACT_TEL}` }});
+  if (ORG_CONTACT_TEL) {
+    contents.push({ type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "こころチャット事務局", uri: `tel:${ORG_CONTACT_TEL}` } });
+  }
   return {
-    type:"flex", altText:"詐欺注意",
-    contents:{
-      type:"bubble",
-      body:{ type:"box", layout:"vertical", contents:[
-        { type:"text", text:"【詐欺注意】", weight:"bold", size:"xl", align:"center" },
-        { type:"text", text:"怪しい連絡は開かない・押さない・教えない。困ったらすぐ相談してね。", wrap:true, margin:"md" }
-      ]},
-      footer:{ type:"box", layout:"vertical", spacing:"sm", contents }
+    type: "flex",
+    altText: "詐欺注意",
+    contents: {
+      type: "bubble",
+      styles: { body:{ backgroundColor:"#f7fbff" }, footer:{ backgroundColor:"#ffffff" } },
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "text", text: "【詐欺注意】", weight: "bold", size: "xl", align: "center" },
+          { type: "text", text: "慌てず、公式アプリ/正規サイトで確認しよう。怪しいリンクは押さないでね。", wrap: true, margin: "md" }
+        ]
+      },
+      footer: { type: "box", layout: "vertical", spacing: "sm", contents }
     }
   };
 };
 
-// 会員登録
+// 会員登録（button の color は使用しない）
 const makeRegistrationButtonsFlex = (userId) => ({
   type:"flex", altText:"会員登録メニュー",
   contents:{
     type:"bubble",
+    styles:{ body:{ backgroundColor:"#ffffff" }, footer:{ backgroundColor:"#f9fbff" } },
     body:{ type:"box", layout:"vertical", contents:[
       { type:"text", text:"どの会員になるか選んでね🌸", wrap:true, weight:"bold", size:"md" }
     ]},
     footer:{ type:"box", layout:"vertical", spacing:"sm", contents:[
-      { type:"button", style:"primary", height:"sm", color:"#90EE90",
+      { type:"button", style:"primary", height:"sm",
         action:{ type:"uri", label:"小学生（同意書）", uri:prefillUrl(AGREEMENT_FORM_BASE_URL, { [AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
-      { type:"button", style:"primary", height:"sm", color:"#ADD8E6",
+      { type:"button", style:"primary", height:"sm",
         action:{ type:"uri", label:"学生（中学・高校・大学）", uri:prefillUrl(STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL, { [STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
-      { type:"button", style:"primary", height:"sm", color:"#87CEFA",
+      { type:"button", style:"primary", height:"sm",
         action:{ type:"uri", label:"大人（一般）", uri:prefillUrl(ADULT_FORM_BASE_URL, { [ADULT_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
-      { type:"button", style:"primary", height:"sm", color:"#FFC0CB",
+      { type:"button", style:"secondary", height:"sm",
         action:{ type:"uri", label:"会員情報を変更する", uri:prefillUrl(MEMBER_CHANGE_FORM_BASE_URL, { [MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
-      { type:"button", style:"primary", height:"sm", color:"#DDA0DD",
+      { type:"button", style:"secondary", height:"sm",
         action:{ type:"uri", label:"退会", uri:prefillUrl(MEMBER_CANCEL_FORM_BASE_URL, { [MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID]: userId }) } },
     ] }
   }
@@ -526,6 +551,7 @@ const makeWatchToggleFlex = (enabled, userId) => ({
   type:'flex', altText:'見守りメニュー',
   contents:{
     type:'bubble',
+    styles:{ body:{ backgroundColor:'#ffffff' }, footer:{ backgroundColor:'#fffdf8' } },
     body:{ type:'box', layout:'vertical', contents:[
       { type:'text', text:'見守りサービス', weight:'bold', size:'xl' },
       { type:'text', text: enabled ? '現在：有効' : '現在：停止', margin:'md' }
@@ -544,14 +570,15 @@ const makeWatchToggleFlex = (enabled, userId) => ({
   }
 });
 
-// 団体案内 FLEX
+// 団体案内 FLEX（安全のため text.color は使わない）
 const ORG_INFO_FLEX = () => ({
   type:'bubble',
+  styles:{ body:{ backgroundColor:'#ffffff' }, footer:{ backgroundColor:'#f7fbff' } },
   body:{ type:'box', layout:'vertical', spacing:'sm', contents:[
     { type:'text', text: ORG_NAME, weight:'bold', size:'lg' },
     { type:'text', text:`ミッション：${ORG_MISSION}`, wrap:true },
     { type:'text', text:`代表：${ORG_REP}`, wrap:true },
-    ...(HOMEPAGE_URL ? [{ type:'text', text:`HP：${HOMEPAGE_URL}`, size:'sm', color:'#666', wrap:true }] : []),
+    ...(HOMEPAGE_URL ? [{ type:'text', text:`HP：${HOMEPAGE_URL}`, size:'sm', wrap:true }] : []),
   ]},
   footer:{ type:'box', layout:'vertical', spacing:'sm', contents:[
     ...(HOMEPAGE_URL ? [{ type:'button', style:'primary', action:{ type:'uri', label:'ホームページを見る', uri:HOMEPAGE_URL } }] : []),
@@ -573,6 +600,7 @@ const isHomepageIntent = (t) => {
   return hit || shortOnly;
 };
 const ORG_INTENT = /(どこの団体|どんな団体|何の団体|団体|NPO|コネクトって(何|どんな|どこ)|代表|理事長|連絡先|お問い合わせ|住所|所在地)/i;
+
 async function answerOrgOrHomepage(event, userId, text) {
   if (isHomepageIntent(text)) {
     await safeReplyOrPush(event.replyToken, userId, { type:'text', text:`うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}` });
@@ -604,9 +632,7 @@ const SCAM_CORE_WORDS = [
   "詐欺","さぎ","サギ","フィッシング","架空請求","ワンクリック詐欺","特殊詐欺","当選","高額当選",
   "暗号資産","投資","未払い","滞納","訴訟","裁判","副業","MLM","マルチ商法","ログイン","認証","本人確認"
 ];
-// ブランド語（詐欺判定の補助）
 const BRANDS = /(amazon|アマゾン|楽天|rakuten|ヤマト|佐川|日本郵便|ゆうちょ|メルカリ|ヤフオク|apple|アップル|google|ドコモ|docomo|au|softbank|ソフトバンク|paypay|line|ライン)/i;
-// ブランド正常利用コンテキスト（除外）
 const BRAND_OK_CONTEXT = /(で(買い物|注文|購入|支払い|返品|返金|届いた|配達|発送)|プライム|タイムセール|レビュー|ギフト券|ポイント)/i;
 
 function isDangerMessage(text) {
@@ -616,15 +642,12 @@ function isDangerMessage(text) {
 function isScamMessage(text) {
   const raw = String(text || '');
   const t = normalizeJa(raw);
-  // HP/登録/見守り指示は除外
   if (isHomepageIntent(raw)) return false;
   if (/(会員登録|入会|メンバー登録|登録したい)/i.test(raw)) return false;
   if (/(見守り(?:サービス)?)/.test(raw)) return false;
 
-  // 直接「詐欺」系
   if (SCAM_CORE_WORDS.some(w => t.includes(normalizeJa(w)))) return true;
 
-  // URL + 緊急/金銭/情報要求
   const hasUrl = /(https?:\/\/|t\.co\/|bit\.ly|tinyurl\.com|lnkd\.in|\.ru\/|\.cn\/|\.top\/|\.xyz\/)/i.test(raw);
   const money = /(当選|高額|配当|振込|振り込み|送金|入金|手数料|ビットコイン|暗号資産|投資|請求)/;
   const urgency = /(至急|今すぐ|本日中|限定|緊急|停止|ロック|アカウント停止)/;
@@ -632,22 +655,37 @@ function isScamMessage(text) {
   if (hasUrl && (money.test(t) || urgency.test(t) || credAsk.test(t))) return true;
   if ((money.test(t) && urgency.test(t)) || (credAsk.test(t) && urgency.test(t))) return true;
 
-  // ブランド語は補助。ただし正常利用コンテキストは除外
   if (BRANDS.test(raw) && !BRAND_OK_CONTEXT.test(raw)) {
     if (urgency.test(t) || credAsk.test(t) || /リンク|クリック|こちら/.test(t)) return true;
   }
   return false;
 }
 
-// ========== GPT-4o 一言（失敗時は null） ==========
-async function gptOneLiner(kind, userText) {
+// ========== GPT-4o 2文メッセージ（必ず2文化） ==========
+function enforceTwoSentences(text, kind) {
+  const parts = String(text || '').split('。').map(s => s.trim()).filter(Boolean);
+  const templ2 = kind === 'danger'
+    ? '深呼吸して、信頼できる人や緊急先にすぐ相談しよう。'
+    : '公式アプリや正規サイトで確認して、怪しいリンクは押さないでね。';
+  if (parts.length >= 2) return `${parts[0]}。${parts[1]}。`;
+  if (parts.length === 1) {
+    const a = parts[0];
+    // 短すぎる1文を補強
+    if (a.length < 12) return `${a}。${templ2}`;
+    return `${a}。${templ2}`;
+  }
+  return templ2;
+}
+
+async function gptTwoShorts(kind, userText) {
   if (!openai) return null;
   const sys =
-    `あなたは14歳の女の子「皆守こころ」。口調はやさしく短く。絵文字は最大1個まで。
-安全第一。過激な語は繰り返さない。50文字以内で「一言」だけ。`;
+`あなたは14歳の女の子「皆守こころ」。やさしく安心させる言葉で、**日本語の短い2文だけ**を出力する。
+1文目：安心・共感。2文目：今すぐできる安全な一歩（危険なら緊急先/詐欺なら公式確認・リンク非タップ）。
+句点「。」で区切る。合計は140文字以内。絵文字は最大1個。AIやプログラムには触れない。`;
   const ask = kind === 'danger'
-    ? `相手は危険やいじめで不安。落ち着かせる一言を。`
-    : `相手は詐欺を心配。慌てず確認を促す一言を。`;
+    ? `相手はいじめ/暴力/自傷などで不安。安心→行動の2文を出力。`
+    : `相手は詐欺を心配。安心→行動の2文を出力。`;
   try {
     const r = await openai.chat.completions.create({
       model: OPENAI_MODEL,
@@ -655,11 +693,12 @@ async function gptOneLiner(kind, userText) {
         { role:'system', content: sys },
         { role:'user', content: `${ask}\nユーザー発言:「${String(userText).slice(0,200)}」` }
       ],
-      max_tokens: 80, temperature: 0.6
+      max_tokens: 160, temperature: 0.6
     });
-    return (r.choices?.[0]?.message?.content || '').trim().slice(0,80) || null;
+    const raw = (r.choices?.[0]?.message?.content || '').trim();
+    return enforceTwoSentences(raw, kind);
   } catch (e) {
-    briefErr('gptOneLiner failed', e);
+    briefErr('gptTwoShorts failed', e);
     return null;
   }
 }
@@ -687,7 +726,7 @@ app.post('/webhook', lineMiddleware, async (req, res) => {
 
 app.get('/', (_, res) => res.send('Kokoro Bot is running!'));
 
-// ========== Handlers ==========
+// ========== Relays ==========
 const relays = {
   doc: (groupId) => db.collection('relays').doc(groupId),
   async get(groupId) { const s = await this.doc(groupId).get(); return s.exists ? s.data() : null; },
@@ -709,6 +748,7 @@ async function getProfile(userId) {
   catch(e){ console.warn('getProfile failed', e); return null; }
 }
 
+// ========== Handlers ==========
 async function handlePostbackEvent(event, userId) {
   const data = new URLSearchParams(event.postback.data || '');
   const action = data.get('action');
@@ -716,10 +756,7 @@ async function handlePostbackEvent(event, userId) {
   if (action === 'start_relay') {
     const targetUserId = data.get('uid');
     const groupId = event.source.groupId || event.source.roomId;
-    if (!groupId) {
-      await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'この操作はグループ内で使ってね🌸' });
-      return;
-    }
+    if (!groupId) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'この操作はグループ内で使ってね🌸' }); return; }
     await relays.start(groupId, targetUserId, userId);
     await safePush(targetUserId, { type:'text', text:'事務局（見守りグループ）とつながりました。ここで会話できます🌸（終了は /end）' });
     await safeReplyOrPush(event.replyToken, userId, { type:'text', text:`リレー開始：このグループ ↔ ${maskPhone(targetUserId).slice(-6)} さん` });
@@ -820,8 +857,8 @@ async function handleEvent(event) {
 
   // 2) 見守りのOK（テキスト/一部スタンプ）
   if (isUser && enabled && u.watchService?.awaitingReply && (
-    /(^(ok|大丈夫|はい|元気|おけ|おっけ|okだよ|問題ない|なんとか|ありがとう)$)/i.test(text.trim()) ||
-    /^(11537|11538|52002734|52002735|52002741|52002742|52002758|52002759|52002766|52002767)$/i.test(stickerId)
+    /(^(ok|大丈夫|はい|元気|おけ|おっけ|okだよ|問題ない|なんとか|ありがとう)$)/i.test(String(text||'').trim()) ||
+    /^(11537|11538|52002734|52002735|52002741|52002742|52002758|52002759|52002766|52002767)$/i.test(String(stickerId||''))
   )) {
     const ref = db.collection('users').doc(userId);
     await ref.set({ watchService:{ awaitingReply:false, lastReplyAt: Timestamp.now() } }, { merge:true });
@@ -846,38 +883,40 @@ async function handleEvent(event) {
     return;
   }
 
-  // 5) 危険/詐欺/不適切ワード検知
+  // 5) 危険/詐欺ワード検知
   const danger = isDangerMessage(text);
-  const scam = isScamMessage(text);
+  const scam   = isScamMessage(text);
 
   if (danger || scam) {
     const kind = danger ? 'danger' : 'scam';
-    const one = await gptOneLiner(kind, text);
-    const oneMsg = one
-      ? { type:'text', text: one }
-      : { type:'text', text: danger
-            ? 'いまは安全をいちばんに。深呼吸して、必要ならすぐ連絡しようね。'
-            : '慌てずに、公式アプリや正規サイトで確認してね。怪しいリンクは開かないでね。' };
+    const two  = await gptTwoShorts(kind, text);
+    const talk = two
+      ? { type: 'text', text: two }
+      : { type: 'text', text: danger
+          ? '大丈夫、まずは深呼吸しよう。信頼できる人や緊急先にすぐ相談しよう。'
+          : '落ち着いて公式アプリや正規サイトで確認してね。怪しいリンクは開かないでね。' };
 
     const flex = danger ? makeDangerFlex() : makeScamMessageFlex();
 
-    // ※一度の送信にまとめる（2重送信回避）
-    await safeReplyOrPush(event.replyToken, userId, [ oneMsg, flex ]);
+    // まとめて1回送信（reply失効時はpushに自動フォールバック）
+    await safeReplyOrPush(event.replyToken, userId, [talk, flex]);
 
-    // 監視グループ通知（危険は常時、詐欺はオプション）
+    // 見守りグループ通知（危険＝常時 / 詐欺＝既定でON）
     try {
       const WATCH_GROUP_ID = await getActiveWatchGroupId();
-      if (danger && (SEND_OFFICER_ALERTS && (WATCH_GROUP_ID || OFFICER_GROUP_ID))) {
-        await safePush(WATCH_GROUP_ID || OFFICER_GROUP_ID, { type:'text',
-          text:`【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${sanitizeForLog(text)}` });
-      }
-      if (scam && SCAM_ALERT_TO_WATCH_GROUP) {
-        const GID = WATCH_GROUP_ID || OFFICER_GROUP_ID;
-        if (GID) await safePush(GID, { type:'text',
-          text:`【詐欺の可能性】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${sanitizeForLog(text)}` });
-      }
-    } catch(e){ briefErr('alert to group failed', e); }
+      const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
 
+      if (danger && gid && SEND_OFFICER_ALERTS !== false) {
+        await safePush(gid, { type:'text', text:`【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${sanitizeForLog(text)}` });
+        audit('danger-alert-sent', { gid, uid: userId.slice(-6) });
+      }
+      if (scam && gid && SCAM_ALERT_TO_WATCH_GROUP) {
+        await safePush(gid, { type:'text', text:`【詐欺の可能性】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${sanitizeForLog(text)}` });
+        audit('scam-alert-sent', { gid, uid: userId.slice(-6) });
+      }
+    } catch (e) {
+      briefErr('alert to group failed', e);
+    }
     return;
   }
 
