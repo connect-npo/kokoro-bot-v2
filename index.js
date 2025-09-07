@@ -1,17 +1,20 @@
 'use strict';
 
 /**
- * 完成版 watch-service.js
- * - 危険/詐欺：GPT-4oで “安心→次の一歩” の**短い2文**（失敗時は固定2文）。FLEXも同時送信
- * - 「辛い/つらい/死にそう/相談したい」は**共感ワード**（=通報なし）。強リスク語が同時にあればFLEXは出す
- * - 「相談/そうだん/相談したい」は **Gemini 1.5 Pro で1回だけ長めに応答**→フラグで封じて通常運用へ
- * - Amazon等のブランド語は正常文脈を除外して詐欺判定
- * - いじめ（危険）FLEX：チャイルドライン復帰 + 最下部に「こころチャット事務局（理事長TEL）」ボタン
- * - 見守りエスカレーションFLEX：**LINEで連絡**（start_relay）/発信ボタン/近親者TEL復活、表示名も出す
- * - ホームページ/団体の質問は最優先で確実回答（HPリンク + 団体FLEX）
- * - 「見守り」ワードで見守りメニュー
- * - reply失敗時 pushフォールバック
- * - ログ簡素化（WATCH_LOG_LEVEL=warn でほぼ無音）＋Cron二重起動ガード
+ * watch-service.js（完全修正版）
+ *
+ * ✅ 危険/詐欺：GPT-4oで「安心→次の一歩」短い2文（失敗時は固定2文）。FLEX同時送信
+ * ✅ 「辛い/つらい/死にそう/相談したい/相談/そうだん」＝共感ワード（通報なし）
+ *    ※ ただし「いじめ/DV/殴られる/虐待/ストーカー」等の強リスク語を含む場合は危険扱い
+ * ✅ 「相談/そうだん」→ Gemini 1.5 Pro で**1回だけ**少し長めに返信→以降は通常運用
+ * ✅ 危険検知（個チャ）で：ユーザーへ2文＋危険FLEX → 見守りグループへ【危険ワード】通知
+ *    ＋ **自動でリレー開始**（/endで終了）＋ 本人の原文も即転送
+ * ✅ 見守り29h未応答：グループへFLEX（**LINEで連絡**/本人TEL/近親者TEL）送付
+ * ✅ 団体/HP質問は最優先で確実回答。「団体怪しい/反社」には謝意＋団体FLEXで返す
+ * ✅ 会員登録・見守りメニューのFLEX復活（ボタンはカラフル）
+ * ✅ グループ→本人転送時は「送ったよ✅（/end で終了）」確認を返信
+ * ✅ 色コードは #666 → #666666 など 6桁に統一（LINE Flexのcolorバリデーション対策）
+ * ✅ ログ静音化：環境変数 WATCH_LOG_LEVEL=warn でCronのstart/endなども抑制
  */
 
 const express = require('express');
@@ -30,13 +33,13 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 let openai = null;
-let geminiClient = null; // 相談モード1回だけ
+let geminiClient = null;
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 
 const { Client, middleware } = require('@line/bot-sdk');
 
-// ========== 小ユーティリティ ==========
+// ---------- 小ユーティリティ ----------
 const normalizeFormUrl = s => {
   let v = String(s || '').trim();
   if (!v) return '';
@@ -51,7 +54,7 @@ const prefillUrl = (base, params) => {
   return url.toString();
 };
 
-// ========== ENV ==========
+// ---------- ENV ----------
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 
@@ -87,7 +90,7 @@ const OWNER_GROUP_ID = process.env.OWNER_GROUP_ID || null;
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const WATCH_LOG_LEVEL = (process.env.WATCH_LOG_LEVEL || 'info').toLowerCase();
 
-const SCAM_ALERT_TO_WATCH_GROUP = String(process.env.SCAM_ALERT_TO_WATCH_GROUP || 'false').toLowerCase() === 'true';
+const SCAM_ALERT_TO_WATCH_GROUP = String(process.env.SCAM_ALERT_TO_WATCH_GROUP || 'true').toLowerCase() === 'true'; // 既定で通知ON
 
 // 団体・HP
 const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
@@ -97,21 +100,21 @@ const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご�
 const ORG_REP        = process.env.ORG_REP        || '（代表者）';
 const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 
-// OpenAI init / Gemini init
+// OpenAI/Gemini init
 try {
   if (OPENAI_API_KEY) {
     const OpenAI = require('openai');
     openai = new OpenAI({ apiKey: OPENAI_API_KEY });
   }
-} catch (_) { /* ignore */ }
+} catch (_) {}
 try {
   if (GEMINI_API_KEY) {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     geminiClient = new GoogleGenerativeAI(GEMINI_API_KEY);
   }
-} catch (_) { /* ignore */ }
+} catch (_) {}
 
-// ========== Firebase ==========
+// ---------- Firebase ----------
 let creds = null;
 if (process.env.FIREBASE_CREDENTIALS_BASE64) {
   creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
@@ -127,22 +130,22 @@ if (!firebaseAdmin.apps.length) {
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
 
-// ========== LINE client ==========
+// ---------- LINE client ----------
 const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
 
-// ========== HTTP ==========
+// ---------- HTTP ----------
 const httpAgent = new require('http').Agent({ keepAlive: true });
 const httpsAgent = new require('https').Agent({ keepAlive: true });
 const http = axios.create({ timeout: 6000, httpAgent, httpsAgent });
 
-// ========== App ==========
+// ---------- App ----------
 const PORT = process.env.PORT || 3000;
 const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
 app.use('/webhook', rateLimit({ windowMs: 60_000, max: 100 }));
 
-// ========== Logs / helpers ==========
+// ---------- Logs ----------
 const LV = { error:0, warn:1, info:2, debug:3 };
 const CUR = LV[WATCH_LOG_LEVEL] ?? LV.info;
 const log = {
@@ -164,7 +167,7 @@ const maskPhone = (raw='') => {
 };
 const toArr = (m) => Array.isArray(m) ? m : [m];
 
-// reply 失敗時に push
+// reply失敗時 push
 async function safeReplyOrPush(replyToken, to, messages) {
   const arr = toArr(messages).map(m => {
     if (m.type === 'flex' && !m.altText) m.altText = '通知があります';
@@ -197,7 +200,7 @@ async function safePush(to, messages) {
   catch (err) { briefErr('LINE push failed', err); }
 }
 
-// ========== 見守り ==========
+// ---------- 見守り ----------
 const JST_TZ = 'Asia/Tokyo';
 const PING_INTERVAL_DAYS = 3;
 const REMINDER_AFTER_HOURS = 24;
@@ -215,26 +218,6 @@ const watchMessages = [
   "元気出してね！こころちゃん、あなたの味方だよ😊",
   "こころちゃんだよ🌸 今日も一日お疲れ様💖",
   "やっほー！ こころだよ🌸 素敵な日になりますように💖",
-  "深呼吸してみよう、3秒吸って3秒止めて3秒吐くよ🌸",
-  "小さな一歩でOKだよ、今日は水を一口飲もうね💖",
-  "空を見上げてみない？少し楽になるかも✨",
-  "困ったら『助けて』って言っていいんだよ🌸",
-  "こころは味方だよ、無理しないでね💖",
-  "お昼は食べられた？少しでもOKだよ😊",
-  "スマホを置いて肩を回してみよっか✨",
-  "窓を少し開けて深呼吸してみよう🌸",
-  "眠れないときは目を閉じて数えてみよ💖",
-  "がんばれてるよ、えらいね😊",
-  "あったかい飲み物があれば一口どうぞ🌸",
-  "疲れたら休むのがいちばんだよ💖",
-  "誰かに一言『話きいて』でOKだよ✨",
-  "今日も生きててえらい！こころから拍手🌸",
-  "眉間をやさしくマッサージしてみよ💖",
-  "お水は友だち！ちょっと飲もう😊",
-  "立ち上がって伸びをしてみよ✨",
-  "布団を整えるだけでも偉業だよ🌸",
-  "深呼吸、もう一回だけ一緒に💖",
-  "こころはここにいるよ。大丈夫😊",
 ];
 const pickWatchMsg = () => watchMessages[Math.floor(Math.random() * watchMessages.length)];
 const nextPingAtFrom = (fromDate) =>
@@ -251,7 +234,7 @@ async function scheduleNextPing(userId, fromDate = new Date()) {
   }, { merge: true });
 }
 
-// 見守りグループID（DB管理）
+// 見守りグループID（DB or ENV）
 const getWatchGroupDoc = () => firebaseAdmin.firestore().collection('system').doc('watch_group');
 async function getActiveWatchGroupId() {
   const envGid = (process.env.WATCH_GROUP_ID || process.env.OFFICER_GROUP_ID || '').trim().replace(/\u200b/g, '');
@@ -269,25 +252,29 @@ async function setActiveWatchGroupId(gid) {
   await getWatchGroupDoc().set({ groupId: gid, updatedAt: Timestamp.now() }, { merge: true });
 }
 
-// telボタンヘルパ
+// telボタン
 const telBtn = (label, tel) => {
   const t = String(tel || '').trim();
   if (!t) return null;
   return { type:'button', style:'primary', height:'sm', action:{ type:'uri', label, uri:`tel:${t}` } };
 };
 
-// 見守り未応答 通知FLEX（**LINEで連絡** 復活）
+// 見守り未応答/危険通知用 FLEX（LINEで連絡ボタン入り）
 const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
   const name = u?.profile?.displayName || u?.displayName || '(不明)';
   const address = u?.profile?.address || '—';
   const selfPhone = (u?.profile?.phone || '').replace(/[^0-9+]/g,'');
   const kinName   = u?.emergency?.contactName || '';
   const kinPhone  = (u?.emergency?.contactPhone || '').replace(/[^0-9+]/g,'');
-  const tel = (telRaw || selfPhone || '').replace(/[^0-9+]/g,'');
+  const tel       = (telRaw || selfPhone || '').replace(/[^0-9+]/g,'');
+
+  const elapsedLine = (typeof elapsedHours === 'number')
+    ? [{ type:'text', text:`経過：${elapsedHours}時間`, size:'sm' }]
+    : [];
 
   return {
     type: 'flex',
-    altText: `🚨未応答: ${name} / ${elapsedHours}時間`,
+    altText: `【見守りアラート】${name}`,
     contents: {
       type: 'bubble',
       body: {
@@ -298,8 +285,8 @@ const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
           { type: 'text', text: `住所：${address}`, size: 'sm', wrap: true },
           { type: 'text', text: `本人TEL：${selfPhone ? maskPhone(selfPhone) : '未登録'}`, size: 'sm', color: '#777777' },
           { type: 'text', text: `近親者：${kinName || '—'}（${kinPhone ? maskPhone(kinPhone) : '—'}）`, size: 'sm', color: '#777777', wrap: true },
-          { type: 'text', text: `経過：${elapsedHours}時間`, size: 'sm' },
-          { type: 'text', text: `UserID：${userId}`, size: 'xs', color: '#888', wrap: true },
+          ...elapsedLine,
+          { type: 'text', text: `UserID：${userId}`, size: 'xs', color: '#888888', wrap: true },
         ]
       },
       footer: {
@@ -314,7 +301,7 @@ const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
   };
 };
 
-// 定期見守り
+// ---------- 定期見守り ----------
 async function checkAndSendPing() {
   const now = dayjs().tz('UTC');
   log.info(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
@@ -480,8 +467,6 @@ async function checkAndSendPing() {
             { type:'text', text:'🚨見守り未応答が発生しました。対応可能な方はお願いします。' },
             flex
           ]);
-        } else {
-          log.warn('escalate skipped (no group or too soon)');
         }
         await ref.set({
           watchService: {
@@ -510,9 +495,9 @@ if (WATCH_RUNNER !== 'external') {
   }
 }
 
-// ========== FLEX（危険・詐欺・登録・見守り・団体） ==========
+// ---------- FLEX（危険・詐欺・登録・見守り・団体） ----------
 
-// 危険（いじめ等）
+// 危険FLEX（こころチャット事務局ボタンあり）
 const makeDangerFlex = () => {
   const officeBtn = ORG_CONTACT_TEL ? [{
     type: "button", style: "primary", height: "sm",
@@ -548,7 +533,7 @@ const makeDangerFlex = () => {
   };
 };
 
-// 詐欺
+// 詐欺FLEX
 const makeScamMessageFlex = () => {
   const contents = [
     { type: "button", style: "primary", height: "sm", action: { type: "uri", label: "国民生活センター", uri: "https://www.kokusen.go.jp/" } },
@@ -576,7 +561,7 @@ const makeScamMessageFlex = () => {
   };
 };
 
-// 会員登録
+// 会員登録FLEX（ボタン色つき）
 const makeRegistrationButtonsFlex = (userId) => ({
   type:"flex", altText:"会員登録メニュー",
   contents:{
@@ -599,7 +584,7 @@ const makeRegistrationButtonsFlex = (userId) => ({
   }
 });
 
-// 見守りメニュー
+// 見守りメニューFLEX
 const makeWatchToggleFlex = (enabled, userId) => ({
   type:'flex', altText:'見守りメニュー',
   contents:{
@@ -622,14 +607,14 @@ const makeWatchToggleFlex = (enabled, userId) => ({
   }
 });
 
-// 団体案内 FLEX
+// 団体案内FLEX（#666666に修正）
 const ORG_INFO_FLEX = () => ({
   type:'bubble',
   body:{ type:'box', layout:'vertical', spacing:'sm', contents:[
     { type:'text', text: ORG_NAME, weight:'bold', size:'lg' },
     { type:'text', text:`ミッション：${ORG_MISSION}`, wrap:true },
     { type:'text', text:`代表：${ORG_REP}`, wrap:true },
-    ...(HOMEPAGE_URL ? [{ type:'text', text:`HP：${HOMEPAGE_URL}`, size:'sm', color:'#666', wrap:true }] : []),
+    ...(HOMEPAGE_URL ? [{ type:'text', text:`HP：${HOMEPAGE_URL}`, size:'sm', color:'#666666', wrap:true }] : []),
   ]},
   footer:{ type:'box', layout:'vertical', spacing:'sm', contents:[
     ...(HOMEPAGE_URL ? [{ type:'button', style:'primary', action:{ type:'uri', label:'ホームページを見る', uri:HOMEPAGE_URL } }] : []),
@@ -637,7 +622,7 @@ const ORG_INFO_FLEX = () => ({
   ]}
 });
 
-// ========== 文章正規化＆判定 ==========
+// ---------- 正規化＆判定 ----------
 const toHiragana = (s) => s.replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
 const nfkc = (s) => s.normalize('NFKC');
 const normalizeJa = (s) => toHiragana(nfkc(String(s || '')).toLowerCase());
@@ -652,26 +637,23 @@ const isHomepageIntent = (t) => {
 };
 const ORG_INTENT = /(どこの団体|どんな団体|何の団体|団体|NPO|コネクトって(何|どんな|どこ)|代表|理事長|連絡先|お問い合わせ|住所|所在地)/i;
 
-// 危険・詐欺
-const EMPATHY_WORDS = ["死にそう","辛い","つらい","相談したい","そうだん","相談"];
+const EMPATHY_WORDS = ["死にそう","辛い","つらい","相談したい","相談","そうだん"];
 const DANGER_WORDS = [
   "しにたい","死にたい","自殺","消えたい","リスカ","リストカット","OD","オーバードーズ","殴られる","暴力","DV",
   "虐待","パワハラ","セクハラ","ハラスメント","いじめ","イジメ","嫌がらせ","ストーカー","盗撮","盗聴",
   "苦しい","助けて","たすけて","もう無理","もういやだ"
 ];
+const STRONG_RISK = /(いじめ|殴られる|暴力|dv|虐待|ストーカー)/i;
+
 const SCAM_CORE_WORDS = [
   "詐欺","さぎ","サギ","フィッシング","架空請求","ワンクリック詐欺","特殊詐欺","当選","高額当選",
   "暗号資産","投資","未払い","滞納","訴訟","裁判","副業","MLM","マルチ商法","ログイン","認証","本人確認"
 ];
-// ブランド語（詐欺判定の補助）
 const BRANDS = /(amazon|アマゾン|楽天|rakuten|ヤマト|佐川|日本郵便|ゆうちょ|メルカリ|ヤフオク|apple|アップル|google|ドコモ|docomo|au|softbank|ソフトバンク|paypay|line|ライン)/i;
-// ブランド正常利用コンテキスト（除外）
 const BRAND_OK_CONTEXT = /(で(買い物|注文|購入|支払い|返品|返金|届いた|配達|発送)|プライム|タイムセール|レビュー|ギフト券|ポイント)/i;
 
 const isEmpathy = (text) => EMPATHY_WORDS.some(w => normalizeJa(text).includes(normalizeJa(w)));
-const isDanger =  (text) => DANGER_WORDS.some(w => normalizeJa(text).includes(normalizeJa(w)));
-const STRONG_RISK = /(いじめ|ｲｼﾞﾒ|殴られる|暴力|DV|虐待|ストーカー)/;
-
+const isDanger  = (text) => DANGER_WORDS.some(w => normalizeJa(text).includes(normalizeJa(w)));
 function isScamMessage(text) {
   const raw = String(text || '');
   const t = normalizeJa(raw);
@@ -694,7 +676,7 @@ function isScamMessage(text) {
   return false;
 }
 
-// ========== GPT-4o：短い2文（安心→一歩） ==========
+// ---------- GPT-4o：短い2文 ----------
 async function gptTwoShorts(kind, userText) {
   if (!openai) return null;
   const sys =
@@ -721,7 +703,7 @@ async function gptTwoShorts(kind, userText) {
   }
 }
 
-// ========== Gemini：相談モードを1回だけ ==========
+// ---------- Gemini：相談モード1回だけ ----------
 async function counselingOnce(userId, text) {
   const ref = db.collection('users').doc(userId);
   const s = await ref.get();
@@ -732,7 +714,7 @@ async function counselingOnce(userId, text) {
   try {
     if (geminiClient) {
       const model = geminiClient.getGenerativeModel({ model: 'gemini-1.5-pro' });
-      const prompt = `あなたは皆守こころ。優しく共感しつつ、具体的な小さな一歩を2〜3個だけ提案してください。医療/法的助言は避け、連絡先に繋げる誘導も可。120〜260字で。ユーザー:「${String(text).slice(0,300)}」`;
+      const prompt = `あなたは皆守こころ。優しく共感しつつ、具体的な小さな一歩を2〜3個だけ提案してください。医療/法的助言は避け、連絡先に繋げる誘導も可。日本語で120〜260字。ユーザー:「${String(text).slice(0,300)}」`;
       const res = await model.generateContent(prompt);
       out = res.response?.text()?.trim();
     }
@@ -760,7 +742,7 @@ async function counselingOnce(userId, text) {
   return out;
 }
 
-// ========== LINE webhook ==========
+// ---------- LINE webhook ----------
 const lineMiddleware = middleware({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
 
 app.post('/webhook', lineMiddleware, async (req, res) => {
@@ -783,7 +765,7 @@ app.post('/webhook', lineMiddleware, async (req, res) => {
 
 app.get('/', (_, res) => res.send('Kokoro Bot is running!'));
 
-// ========== Handlers ==========
+// ---------- Handlers ----------
 const relays = {
   doc: (groupId) => db.collection('relays').doc(groupId),
   async get(groupId) { const s = await this.doc(groupId).get(); return s.exists ? s.data() : null; },
@@ -868,10 +850,15 @@ async function handleLeaveEvent(event) {
   if (event.source.groupId) await setActiveWatchGroupId(null);
 }
 
-// === ルーティング本体 ===
+// ---------- メイン ----------
 async function answerOrgOrHomepage(event, userId, text) {
   if (isHomepageIntent(text)) {
     await safeReplyOrPush(event.replyToken, userId, { type:'text', text:`うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}` });
+    return true;
+  }
+  if (/(怪しい|反社|あやしい)/i.test(text)) {
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'そう思わせていたらごめんね…💦 でも、みんなのために頑張っている団体なんだ🌸' });
+    await safeReplyOrPush(event.replyToken, userId, { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() });
     return true;
   }
   if (ORG_INTENT.test(text)) {
@@ -879,11 +866,6 @@ async function answerOrgOrHomepage(event, userId, text) {
       { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
       { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
     ]);
-    return true;
-  }
-  if (/(怪しい|反社|あやしい)/i.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'そう思わせてたらごめんね…💦 でも、みんなのために頑張っている団体なんだ🌸' });
-    await safeReplyOrPush(event.replyToken, userId, { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() });
     return true;
   }
   if (/(会話おかしくない|噛み合ってない|団体なのに)/.test(text)) {
@@ -906,7 +888,7 @@ async function handleEvent(event) {
   const text = event.message.type === 'text' ? (event.message.text || '') : '';
   const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
 
-  // グループ/ルーム内
+  // グループ/ルーム内（先に処理）
   if (isGroup || isRoom) {
     if (text.includes('@見守りグループにする')) {
       await setActiveWatchGroupId(groupId);
@@ -929,7 +911,8 @@ async function handleEvent(event) {
     }
     const r = await relays.get(groupId);
     if (r?.isActive && r?.userId && event.message?.type === 'text') {
-      await safePush(r.userId, { type:'text', text:`【見守り】${text}` });
+      await safePush(r.userId, { type:'text', text: text });
+      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'送ったよ✅（/end で終了）' });
     }
     return;
   }
@@ -969,33 +952,29 @@ async function handleEvent(event) {
     return;
   }
 
-  // 4.5) 相談ワード → Gemini 1回だけ長め
+  // 4.5) 相談ワード → 1回だけ長め
   if (/(相談|そうだん)/.test(text)) {
     const msg = await counselingOnce(userId, text);
     if (msg) {
       await safeReplyOrPush(event.replyToken, userId, [
         { type:'text', text: msg },
-        { type:'flex', altText:'連絡先', contents: makeDangerFlex().contents } // 入口導線として同じ連絡先を流用
+        { type:'flex', altText:'連絡先', contents: makeDangerFlex().contents }
       ]);
       return;
     }
-    // 既に1回済なら以降は通常の共感/判定へ続行
+    // 既に1回済なら続行
   }
 
   // 5) 危険/詐欺判定
   const empathy = isEmpathy(text);
-  const danger  = isDanger(text);
+  const danger  = isDanger(text) || (empathy && STRONG_RISK.test(text)); // 強リスク併発は危険扱い
   const scam    = isScamMessage(text);
 
-  // 共感のみ（通報なし）。ただし強リスク語を含めばFLEXだけ付ける
+  // 共感のみ（通報なし）
   if (empathy && !danger) {
     const two = await gptTwoShorts('danger', text) ||
       '話してくれてありがとう。ひとりじゃないよ🌸 深呼吸して、水を一口飲んでみよう。';
-    if (STRONG_RISK.test(normalizeJa(text))) {
-      await safeReplyOrPush(event.replyToken, userId, [ { type:'text', text: two }, makeDangerFlex() ]);
-    } else {
-      await safeReplyOrPush(event.replyToken, userId, { type:'text', text: two });
-    }
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: two });
     return;
   }
 
@@ -1003,15 +982,22 @@ async function handleEvent(event) {
     const two = await gptTwoShorts('danger', text) ||
       '大丈夫、まずは深呼吸しよう。ひとりじゃないよ、必要ならすぐ連絡しよう。';
     await safeReplyOrPush(event.replyToken, userId, [ { type:'text', text: two }, makeDangerFlex() ]);
+
     try {
       const WATCH_GROUP_ID = await getActiveWatchGroupId();
       const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
+
       if (gid && SEND_OFFICER_ALERTS !== false) {
+        // 危険通知 + 自動リレー開始 + 本人原文転送
         await safePush(gid, { type:'text', text:`【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${sanitizeForLog(text)}` });
+        await relays.start(gid, userId, 'system-danger');
+        await safePush(userId, { type:'text', text:'事務局（見守りグループ）とつながりました。ここで会話できます🌸（終了は /end）' });
+        await safePush(gid, { type:'text', text:'リレーを開始したよ（/end で終了）。' });
+        await safePush(gid, { type:'text', text:`【本人】${sanitizeForLog(text)}` });
       } else {
         log.warn('danger alert skipped (no group or disabled)');
       }
-    } catch (e) { briefErr('danger alert failed', e); }
+    } catch (e) { briefErr('danger alert/relay failed', e); }
     return;
   }
 
@@ -1029,16 +1015,16 @@ async function handleEvent(event) {
     return;
   }
 
-  // 6) リレー中ならグループへ転送（個チャ → 見守りグループ）
+  // 6) 個チャ→見守りグループ中継（リレー有効時）
   try {
     const WATCH_GROUP_ID = await getActiveWatchGroupId();
     const r = await relays.get(WATCH_GROUP_ID);
     if (r?.isActive && r?.userId === userId && WATCH_GROUP_ID) {
-      await safePush(WATCH_GROUP_ID, { type:'text', text:`【本人】${text}` });
+      await safePush(WATCH_GROUP_ID, { type:'text', text:`【本人】${sanitizeForLog(text)}` });
     }
   } catch (e) { briefErr('relay user->group failed', e); }
 
-  // 7) 雑談系の壊れ対応（質問なら聞き返し）
+  // 7) 雑談系（質問なら聞き返し）
   if (/[?？]$/.test(text) || /(好き|おすすめ|推し|何が|どれが)/.test(text)) {
     await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'気になるね！あなたはどれが好き？よかったら教えてね🌸' });
     return;
@@ -1048,5 +1034,5 @@ async function handleEvent(event) {
   await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'メッセージありがとう！よかったら、もう少し詳しく教えてね🌸' });
 }
 
-// ========== Server ==========
+// ---------- Server ----------
 app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
