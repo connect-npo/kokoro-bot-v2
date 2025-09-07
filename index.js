@@ -1,14 +1,14 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, full)
- - 通常会話：こころちゃんの“固定の好み”と優先応答テーブルで自然に返す
+ index.js (angel-kokoro, full - convo router ready)
+ - 通常会話：<50文字→Gemini 1.5 Flash、>=50文字→GPT-4o mini（自動フォールバック）
  - 危険 > 詐欺 > 共感の優先判定（危険は2文+危険FLEX→見守りへFLEX通知）
  - 詐欺は2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
  - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
  - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
  - リレー（LINEで連絡）/ reply→push自動フォールバック
- - 代表者名：松本博文（既定）
+ - 代表者名：松本博文（固定）
 */
 
 const express = require('express');
@@ -27,6 +27,8 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 let openai = null;
+let gemini = null;
+
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 
@@ -63,13 +65,25 @@ const maskPhone = (raw='') => {
   const tail = s.slice(-4); const head = s.slice(0, -4).replace(/[0-9]/g, '＊'); return head + tail;
 };
 const toArr = (m) => Array.isArray(m) ? m : [m];
+const countGraphemes = (s) => toGraphemes(String(s||'')).length;
+
+function withTimeout(promise, ms = 2200) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))
+  ]);
+}
 
 // ===== ENV =====
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET      = process.env.LINE_CHANNEL_SECRET;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o';
+const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o'; // 危険/詐欺 2文用 既存運用
+const OPENAI_CONVO_MODEL = process.env.OPENAI_CONVO_MODEL || 'gpt-4o-mini';
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_CONVO_MODEL = process.env.GEMINI_CONVO_MODEL || 'gemini-1.5-flash';
 
 const AGREEMENT_FORM_BASE_URL               = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
 const ADULT_FORM_BASE_URL                   = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
@@ -106,6 +120,14 @@ try {
   if (OPENAI_API_KEY) {
     const OpenAI = require('openai');
     openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  }
+} catch (_) { /* ignore */ }
+
+// ===== Gemini =====
+try {
+  if (GEMINI_API_KEY) {
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    gemini = new GoogleGenerativeAI(GEMINI_API_KEY);
   }
 } catch (_) { /* ignore */ }
 
@@ -414,7 +436,7 @@ function replyLikes(text) {
     return "ClariSさんが好きだよ🎧 やさしい歌声にいやされるんだ✨";
   }
   if (/好きな漫画/.test(text)) {
-    return "最近は『Dr.STONE』もおもしろいよね！あなたのベスト3も教えてほしいな🌸";
+    return "最近は『Dr.STONE』もおもしろいよね！あなたの好きな漫画も教えてほしいな🌸";
   }
   return null;
 }
@@ -464,7 +486,7 @@ const isScamMessage = (text) => {
   return false;
 };
 
-// ===== GPT helpers =====
+// ===== GPT helpers (危険/詐欺 2文) =====
 async function gptTwoShorts(kind, userText) {
   if (!openai) return null;
   const sys = 'あなたは14歳の女の子「皆守こころ」。やさしく短く安心させる。出力は日本語の短い2文だけ。合計110文字以内。絵文字は最大1個。';
@@ -484,6 +506,58 @@ async function gptTwoShorts(kind, userText) {
 }
 const fallbackDangerTwo = ()=>'大丈夫、まずは深呼吸しよう。ひとりじゃないよ、必要ならすぐ連絡しよう。';
 const fallbackScamTwo   = ()=>'落ち着いて公式アプリや正規サイトで確認してね。怪しいリンクは開かないでね。';
+
+// ===== Conversation LLM (通常会話) =====
+async function convoWithOpenAI(userText) {
+  if (!openai) return null;
+  const sys =
+    'あなたは14歳の女の子「皆守こころ」。やさしく誠実に、まず相手の問いにきちんと答える。' +
+    '砕けすぎない敬体。絵文字は多用しない（使っても1個まで）。一人称は「わたし」。出力は日本語。';
+  const r = await openai.chat.completions.create({
+    model: OPENAI_CONVO_MODEL,
+    messages: [
+      { role: 'system', content: sys },
+      { role: 'user',   content: String(userText).slice(0, 1200) }
+    ],
+    temperature: 0.7,
+    max_tokens: 220
+  });
+  return (r.choices?.[0]?.message?.content || '').trim();
+}
+async function convoWithGemini(userText) {
+  if (!gemini) return null;
+  const model = gemini.getGenerativeModel({ model: GEMINI_CONVO_MODEL });
+  const prompt =
+    'あなたは14歳の女の子「皆守こころ」。やさしく誠実に、まず相手の問いに答える。' +
+    '短めの返信を心がける（できれば2文以内）。絵文字は多くても1つ。出力は日本語。';
+  const res = await model.generateContent([
+    { role: 'user', parts: [{ text: `${prompt}\n\nユーザー: ${String(userText).slice(0, 1200)}` }] }
+  ]);
+  return res?.response?.text()?.trim() || null;
+}
+// 文字数でモデル選択：<50 → Gemini、>=50 → GPT-4o mini
+async function chatForConversation(userText) {
+  const n = countGraphemes(userText);
+  const prefer = n >= 50 ? 'openai' : 'gemini';
+  let out = null;
+  try {
+    out = prefer === 'gemini'
+      ? await withTimeout(convoWithGemini(userText))
+      : await withTimeout(convoWithOpenAI(userText));
+  } catch (e) {
+    briefErr('convo primary failed', e);
+  }
+  if (!out) {
+    try {
+      out = prefer === 'gemini'
+        ? await withTimeout(convoWithOpenAI(userText))
+        : await withTimeout(convoWithGemini(userText));
+    } catch (e) {
+      briefErr('convo fallback failed', e);
+    }
+  }
+  return out;
+}
 
 // ===== Webhook =====
 const lineMiddleware = middleware({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
@@ -951,20 +1025,22 @@ async function handleEvent(event) {
     return;
   }
 
-  // 6) 通常会話（固定の好み・優先応答）
+  // 6) 通常会話：まず LLM に投げる（<50→Gemini、>=50→GPT-4o mini）
+  if (text) {
+    const llmOut = await chatForConversation(text);
+    if (llmOut) {
+      await safeReplyOrPush(event.replyToken, userId, { type:'text', text: llmOut });
+      return;
+    }
+  }
+
+  // LLM失敗時のフォールバック（従来の定型）
   const special = getSpecialReply(text);
   if (special) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: special }); return; }
   const like = replyLikes(text);
   if (like) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: like }); return; }
   if (smallTalkRe.test(text)) {
-    const variants = [
-      '教えてくれてうれしいな！もう少し詳しく聞かせて？🌸',
-      'いいね！きみのおすすめポイントも知りたいな💖',
-      'わくわくするね！ベスト3があったら教えて〜♪',
-      'その話、もっと聞きたいな。最初に好きになったきっかけは？'
-    ];
-    const pick = variants[Math.floor(Math.random()*variants.length)];
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick });
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: 'うん、気になるね。あなたはどう思う？もう少し教えてほしいな🌸' });
     return;
   }
 
@@ -977,7 +1053,7 @@ async function handleEvent(event) {
     }
   } catch (e) { briefErr('relay user->group failed', e); }
 
-  // 8) 既定の相槌
+  // 8) 最終フォールバック
   await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ありがとう🌸 その気持ち、ちゃんと受け取ったよ。必要ならいつでも頼ってね💖' });
 }
 
