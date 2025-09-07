@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, full - convo router ready)
+ index.js (angel-kokoro, full - convo router FINAL)
  - 通常会話：<50文字→Gemini 1.5 Flash、>=50文字→GPT-4o mini（自動フォールバック）
  - 危険 > 詐欺 > 共感の優先判定（危険は2文+危険FLEX→見守りへFLEX通知）
  - 詐欺は2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
@@ -79,7 +79,7 @@ const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET      = process.env.LINE_CHANNEL_SECRET;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o'; // 危険/詐欺 2文用 既存運用
+const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o'; // 危険/詐欺 2文用
 const OPENAI_CONVO_MODEL = process.env.OPENAI_CONVO_MODEL || 'gpt-4o-mini';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -436,7 +436,7 @@ function replyLikes(text) {
     return "ClariSさんが好きだよ🎧 やさしい歌声にいやされるんだ✨";
   }
   if (/好きな漫画/.test(text)) {
-    return "最近は『Dr.STONE』もおもしろいよね！あなたの好きな漫画も教えてほしいな🌸";
+    return "最近は『Dr.STONE』もおもしろいよね！あなたのベスト3も教えてほしいな🌸";
   }
   return null;
 }
@@ -489,7 +489,7 @@ const isScamMessage = (text) => {
 // ===== GPT helpers (危険/詐欺 2文) =====
 async function gptTwoShorts(kind, userText) {
   if (!openai) return null;
-  const sys = 'あなたは14歳の女の子「皆守こころ」。やさしく短く安心させる。出力は日本語の短い2文だけ。合計110文字以内。絵文字は最大1個。';
+  const sys = 'あなたは14歳の女の子「皆守こころ」。やさしく短く安心させる。出力は日本語の短い2文だけ。合計110文字以内。絵文字は最大1〜2個まで。';
   const ask = kind === 'danger'
     ? '相手はいじめ/暴力/自傷などで不安。まず安心させ、次に具体的な一歩（深呼吸・周囲に連絡）を促す2文を出力。'
     : '相手は詐欺を心配。まず安心させ、次に公式アプリ/正規サイト確認・リンク非タップ・周囲に相談を促す2文を出力。';
@@ -512,7 +512,7 @@ async function convoWithOpenAI(userText) {
   if (!openai) return null;
   const sys =
     'あなたは14歳の女の子「皆守こころ」。やさしく誠実に、まず相手の問いにきちんと答える。' +
-    '砕けすぎない敬体。絵文字は多用しない（使っても1個まで）。一人称は「わたし」。出力は日本語。';
+    '砕けすぎない敬体。絵文字は自然に0〜2個まで。一人称は「わたし」。出力は日本語。';
   const r = await openai.chat.completions.create({
     model: OPENAI_CONVO_MODEL,
     messages: [
@@ -524,17 +524,20 @@ async function convoWithOpenAI(userText) {
   });
   return (r.choices?.[0]?.message?.content || '').trim();
 }
+
+// ★ 修正点：Geminiに正しい入力形式（単一文字列 or contentsオブジェクト）で送る
 async function convoWithGemini(userText) {
   if (!gemini) return null;
   const model = gemini.getGenerativeModel({ model: GEMINI_CONVO_MODEL });
   const prompt =
     'あなたは14歳の女の子「皆守こころ」。やさしく誠実に、まず相手の問いに答える。' +
-    '短めの返信を心がける（できれば2文以内）。絵文字は多くても1つ。出力は日本語。';
-  const res = await model.generateContent([
-    { role: 'user', parts: [{ text: `${prompt}\n\nユーザー: ${String(userText).slice(0, 1200)}` }] }
-  ]);
+    '返信は短め（できれば2文以内）。絵文字は自然に0〜2個まで。出力は日本語。';
+  const input = `${prompt}\n\nユーザー: ${String(userText).slice(0, 1200)}`;
+  // 文字列入力で送る（v1beta generateContent の正規形）
+  const res = await model.generateContent(input);
   return res?.response?.text()?.trim() || null;
 }
+
 // 文字数でモデル選択：<50 → Gemini、>=50 → GPT-4o mini
 async function chatForConversation(userText) {
   const n = countGraphemes(userText);
