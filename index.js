@@ -1,7 +1,3 @@
-相談　そうだん　も入れたほうが良いよね　Gemini1.5Pro出すために　そこくらいは俺でも出来そう
-
-あとはこれでいいか
-'use strict';
 
 const express = require('express');
 const axios = require('axios');
