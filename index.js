@@ -1,14 +1,16 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, full - convo router FINAL)
- - 通常会話：<50文字→Gemini 1.5 Flash、>=50文字→GPT-4o mini（自動フォールバック）
- - 危険 > 詐欺 > 共感の優先判定（危険は2文+危険FLEX→見守りへFLEX通知）
- - 詐欺は2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
- - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
+ index.js (angel-kokoro, FINAL-LOCKED-PREF & 2way-relay)
+ - 通常会話：<50文字→Gemini 1.5 Flash、>=50文字→GPT-4o mini（フォールバック相互）
+ - 固定の好み（ブレ防止）：
+   漫画/アニメ＝『ヴァイオレット・エヴァーガーデン』
+   音楽/アーティスト＝ClariS
+   一番好きな曲＝『コネクト』
+ - 危険 > 詐欺 > 共感（危険は2文+危険FLEX→見守りFLEX通知）
+ - リレー：グループ⇄本人を常時双方向（本人→グループ転送を最優先で処理）
  - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
- - リレー（LINEで連絡）/ reply→push自動フォールバック
- - 代表者名：松本博文（固定）
+ - reply→push自動フォールバック
 */
 
 const express = require('express');
@@ -79,7 +81,7 @@ const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET      = process.env.LINE_CHANNEL_SECRET;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o'; // 危険/詐欺 2文用
+const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o'; // 危険/詐欺 2文
 const OPENAI_CONVO_MODEL = process.env.OPENAI_CONVO_MODEL || 'gpt-4o-mini';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -112,7 +114,7 @@ const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
 const ORG_SHORT_NAME = process.env.ORG_SHORT_NAME || 'コネクト';
 const HOMEPAGE_URL   = normalizeFormUrl(process.env.HOMEPAGE_URL || 'https://connect-npo.or.jp');
 const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご高齢の方の安心と笑顔を守る活動';
-const ORG_REP        = (process.env.ORG_REP || '松本博文'); // 固定
+const ORG_REP        = (process.env.ORG_REP || '松本博文');
 const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 
 // ===== OpenAI =====
@@ -354,7 +356,7 @@ const ORG_INFO_FLEX = () => ({
   ].filter(Boolean)}
 });
 
-// グループ通知FLEX（危険/詐欺/29h未応答 共通、モノトーン）
+// グループ通知FLEX
 const buildGroupAlertFlex = ({ kind='危険', name='—', userId='—', excerpt='—', selfPhone='', kinName='', kinPhone='' }) => {
   const telSelfBtn = selfPhone ? telBtn('本人に電話', selfPhone) : null;
   const telKinBtn  = kinPhone  ? telBtn('近親者に電話', kinPhone) : null;
@@ -413,6 +415,8 @@ const specialReplies = [
   [/コネクトのイメージキャラなのにいえないのかよ/i, "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸"],
   [/税金泥棒/i, "そう感じさせてしまったらごめんね。税金は人の命を守るために使われるべきだよ。私たちは誰かを傷つけない社会のために誠実に活動してるよ💡"],
   [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば教えてね🌱"],
+  // 固定の好み整合強制
+  [/Clari\S*?じゃない/i, "ううん、わたしはClariSがいちばん好きだよ♪ 一番好きな曲は『コネクト』だよ🌸"],
   [/ホームページ(教えて|ある|ありますか)?\??/i, `うん、あるよ🌸 コネクトのホームページはこちらだよ✨ → ${HOMEPAGE_URL}`],
   [/使えないな/i, "ごめんね…。わたし、もっと頑張るね💖 またいつかお話できたらうれしいな🌸"],
   [/サービス辞めるわ/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸 あなたのこと、ずっと応援してるよ💖"],
@@ -429,18 +433,22 @@ function getSpecialReply(t) {
   return null;
 }
 function replyLikes(text) {
-  if (/好きなアニメ/.test(text)) {
-    return "『ヴァイオレット・エヴァーガーデン』だよ💐 こころがあたたかくなるんだ🌸";
+  const t = String(text || '');
+  // 漫画/アニメはヴァイオレット・エヴァーガーデンで固定
+  if (/(好きな|おすすめの)?(漫画|アニメ)/i.test(t)) {
+    return "『ヴァイオレット・エヴァーガーデン』だよ📚✨ 心があたたかくなる物語なの🌸";
   }
-  if (/好きなアーティスト|好きな歌手/.test(text)) {
-    return "ClariSさんが好きだよ🎧 やさしい歌声にいやされるんだ✨";
+  // 音楽/アーティストはClariS固定＋一番好きな曲はコネクト
+  if (/(好きな(音楽|曲)|おすすめの(音楽|曲)|好きな(アーティスト|歌手)|アーティスト)/i.test(t)) {
+    return "ClariSが好きだよ🎧 一番好きな曲は『コネクト』！元気をくれるんだ✨";
   }
-  if (/好きな漫画/.test(text)) {
-    return "最近は『Dr.STONE』もおもしろいよね！あなたのベスト3も教えてほしいな🌸";
+  // 「一番好きな曲」「好きな歌」明示
+  if (/一番(好き|すき)な(曲|うた|歌)|好きな(曲|うた|歌)/i.test(t)) {
+    return "いちばんは『コネクト』だよ♪ ClariSの曲で、とっても大切な一曲なの🌸";
   }
   return null;
 }
-const smallTalkRe = /(好きな(漫画|アニメ|アーティスト|歌手)|こんにちは|こんばんは|やっほー|やぁ|元気|調子どう)/i;
+const smallTalkRe = /(こんにちは|こんばんは|やっほー|やぁ|元気|調子どう)/i;
 
 // ===== 判定 =====
 const EMPATHY_WORDS = [ '死にそう', '辛い', 'つらい' ];
@@ -486,10 +494,11 @@ const isScamMessage = (text) => {
   return false;
 };
 
-// ===== GPT helpers (危険/詐欺 2文) =====
+// ===== GPT helpers（危険/詐欺 2文）=====
 async function gptTwoShorts(kind, userText) {
   if (!openai) return null;
-  const sys = 'あなたは14歳の女の子「皆守こころ」。やさしく短く安心させる。出力は日本語の短い2文だけ。合計110文字以内。絵文字は最大1〜2個まで。';
+  const sys = 'あなたは14歳の女の子「皆守こころ」。やさしく短く安心させる。出力は日本語の短い2文だけ。合計110文字以内。絵文字は自然に0〜2個まで。' +
+              '固定の好み：アニメ/漫画=『ヴァイオレット・エヴァーガーデン』、音楽/アーティスト=ClariS、いちばん好きな曲=『コネクト』。これ以外に変えない。';
   const ask = kind === 'danger'
     ? '相手はいじめ/暴力/自傷などで不安。まず安心させ、次に具体的な一歩（深呼吸・周囲に連絡）を促す2文を出力。'
     : '相手は詐欺を心配。まず安心させ、次に公式アプリ/正規サイト確認・リンク非タップ・周囲に相談を促す2文を出力。';
@@ -507,12 +516,13 @@ async function gptTwoShorts(kind, userText) {
 const fallbackDangerTwo = ()=>'大丈夫、まずは深呼吸しよう。ひとりじゃないよ、必要ならすぐ連絡しよう。';
 const fallbackScamTwo   = ()=>'落ち着いて公式アプリや正規サイトで確認してね。怪しいリンクは開かないでね。';
 
-// ===== Conversation LLM (通常会話) =====
+// ===== Conversation LLM（通常会話）=====
 async function convoWithOpenAI(userText) {
   if (!openai) return null;
   const sys =
     'あなたは14歳の女の子「皆守こころ」。やさしく誠実に、まず相手の問いにきちんと答える。' +
-    '砕けすぎない敬体。絵文字は自然に0〜2個まで。一人称は「わたし」。出力は日本語。';
+    '砕けすぎない敬体。絵文字は自然に0〜2個まで。一人称は「わたし」。出力は日本語。' +
+    '固定の好み：アニメ/漫画=『ヴァイオレット・エヴァーガーデン』、音楽/アーティスト=ClariS、いちばん好きな曲=『コネクト』。これ以外に変えない。';
   const r = await openai.chat.completions.create({
     model: OPENAI_CONVO_MODEL,
     messages: [
@@ -525,20 +535,20 @@ async function convoWithOpenAI(userText) {
   return (r.choices?.[0]?.message?.content || '').trim();
 }
 
-// ★ 修正点：Geminiに正しい入力形式（単一文字列 or contentsオブジェクト）で送る
+// Gemini：文字列入力で送る（v1beta）
 async function convoWithGemini(userText) {
   if (!gemini) return null;
   const model = gemini.getGenerativeModel({ model: GEMINI_CONVO_MODEL });
   const prompt =
     'あなたは14歳の女の子「皆守こころ」。やさしく誠実に、まず相手の問いに答える。' +
-    '返信は短め（できれば2文以内）。絵文字は自然に0〜2個まで。出力は日本語。';
+    '返信は短め（できれば2文以内）。絵文字は自然に0〜2個まで。出力は日本語。' +
+    '固定の好み：アニメ/漫画=『ヴァイオレット・エヴァーガーデン』、音楽/アーティスト=ClariS、いちばん好きな曲=『コネクト』。これ以外に変えない。';
   const input = `${prompt}\n\nユーザー: ${String(userText).slice(0, 1200)}`;
-  // 文字列入力で送る（v1beta generateContent の正規形）
   const res = await model.generateContent(input);
   return res?.response?.text()?.trim() || null;
 }
 
-// 文字数でモデル選択：<50 → Gemini、>=50 → GPT-4o mini
+// 文字数ルータ：<50 → Gemini、>=50 → GPT-4o mini
 async function chatForConversation(userText) {
   const n = countGraphemes(userText);
   const prefer = n >= 50 ? 'openai' : 'gemini';
@@ -931,15 +941,27 @@ async function handleEvent(event) {
     return;
   }
 
-  // 1) org/homepage first
+  // ===== ここから個チャ（本人側） =====
+  // ★ 1) 本人→グループ転送を最優先で実行（双方向化）
+  try {
+    const WATCH_GROUP_ID = await getActiveWatchGroupId();
+    if (WATCH_GROUP_ID && event.message?.type === 'text') {
+      const r = await relays.get(WATCH_GROUP_ID);
+      if (r?.isActive && r?.userId === userId) {
+        await safePush(WATCH_GROUP_ID, { type:'text', text:`【本人】${text}` });
+      }
+    }
+  } catch (e) { briefErr('relay user->group failed', e); }
+
+  // 2) 団体/HPの定形
   if (await answerOrgOrHomepage(event, userId, text)) return;
 
-  // profile/watch
+  // 3) profile/watch
   const udoc = await db.collection('users').doc(userId).get();
   const u = udoc.exists ? (udoc.data() || {}) : {};
   const enabled = !!(u.watchService && u.watchService.enabled);
 
-  // 2) watch OK by text/sticker
+  // 4) 見守りOK（テキスト・スタンプ）
   if (isUser && enabled && u.watchService?.awaitingReply && (
     /(^(ok|大丈夫|はい|元気|おけ|おっけ|okだよ|問題ない|なんとか|ありがとう)$)/i.test(text.trim()) ||
     /^(11537|11538|52002734|52002735|52002741|52002742|52002758|52002759|52002766|52002767)$/i.test(stickerId)
@@ -954,20 +976,20 @@ async function handleEvent(event) {
     return;
   }
 
-  // 3) 見守りメニュー
+  // 5) 見守りメニュー
   if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
     const en = !!(u.watchService && u.watchService.enabled);
     await safeReplyOrPush(event.replyToken, userId, makeWatchToggleFlex(en, userId));
     return;
   }
 
-  // 4) 会員登録
+  // 6) 会員登録
   if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
     await safeReplyOrPush(event.replyToken, userId, makeRegistrationButtonsFlex(userId));
     return;
   }
 
-  // 5) 危険/詐欺/共感（優先：危険 > 詐欺 > 共感）
+  // 7) 危険/詐欺/共感（優先：危険 > 詐欺 > 共感）
   const danger = isDangerMessage(text);
   const scam   = !danger && isScamMessage(text);
   const empathyOnly = !danger && !scam && hasEmpathyWord(text);
@@ -1028,7 +1050,18 @@ async function handleEvent(event) {
     return;
   }
 
-  // 6) 通常会話：まず LLM に投げる（<50→Gemini、>=50→GPT-4o mini）
+  // 8) 通常会話：まず「固定応答」を優先（ブレ防止）→ それでも該当しなければLLM
+  const special = getSpecialReply(text);
+  if (special) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: special }); return; }
+  const like = replyLikes(text);
+  if (like) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: like }); return; }
+
+  if (smallTalkRe.test(text)) {
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: 'うん、いいね！どんなところが好きか教えてほしいな🌸' });
+    return;
+  }
+
+  // 9) LLM（<50→Gemini, >=50→GPT-4o mini）
   if (text) {
     const llmOut = await chatForConversation(text);
     if (llmOut) {
@@ -1037,26 +1070,7 @@ async function handleEvent(event) {
     }
   }
 
-  // LLM失敗時のフォールバック（従来の定型）
-  const special = getSpecialReply(text);
-  if (special) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: special }); return; }
-  const like = replyLikes(text);
-  if (like) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: like }); return; }
-  if (smallTalkRe.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: 'うん、気になるね。あなたはどう思う？もう少し教えてほしいな🌸' });
-    return;
-  }
-
-  // 7) リレー（個チャ→グループ）
-  try {
-    const WATCH_GROUP_ID = await getActiveWatchGroupId();
-    const r = await relays.get(WATCH_GROUP_ID);
-    if (r?.isActive && r?.userId === userId && WATCH_GROUP_ID) {
-      await safePush(WATCH_GROUP_ID, { type:'text', text:`【本人】${text}` });
-    }
-  } catch (e) { briefErr('relay user->group failed', e); }
-
-  // 8) 最終フォールバック
+  // 10) 最終フォールバック
   await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ありがとう🌸 その気持ち、ちゃんと受け取ったよ。必要ならいつでも頼ってね💖' });
 }
 
