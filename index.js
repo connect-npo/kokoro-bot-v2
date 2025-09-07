@@ -1112,4 +1112,4 @@ async function handleEvent(event) {
 }
 
 // ===== Server =====
-app.listen(PORT, () => log('info', Listening on port ${PORT}));
+app.listen(PORT, () => log('info', `Listening on port ${PORT}`));
