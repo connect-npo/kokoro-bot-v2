@@ -77,6 +77,8 @@ const todayJST = () => dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET        = process.env.LINE_CHANNEL_SECRET;
 
+const OWNER_USER_ID = process.env.OWNER_USER_ID; // ✅ 追加：オーナーのユーザーID
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -345,9 +347,7 @@ const ORG_INFO_FLEX = () => ({
   ].filter(Boolean)}
 });
 
-// ✅ 修正: 見守りグループ通知FLEX（危険/詐欺/29h未応答 共通、モノトーン）
-// - 本名、住所、電話番号、緊急連絡先を追加
-// - 電話番号はマスクしつつ、発信可能なボタンに設定
+// 見守りグループ通知FLEX（危険/詐欺/29h未応答 共通、モノトーン）
 const buildGroupAlertFlex = ({ kind='危険', name='—', userId='—', excerpt='—', selfName='—', selfAddress='—', selfPhone='', kinName='', kinPhone='' }) => {
   const telSelfBtn = selfPhone ? { type:'button', style:'primary', action:{ type:'uri', label:'本人に電話', uri:`tel:${selfPhone}` } } : null;
   const telKinBtn  = kinPhone  ? { type:'button', style:'primary', action:{ type:'uri', label:'近親者に電話', uri:`tel:${kinPhone}` } } : null;
@@ -379,7 +379,6 @@ const buildGroupAlertFlex = ({ kind='危険', name='—', userId='—', excerpt=
       footer: {
         type: 'box', layout:'vertical', spacing:'sm',
         contents: [
-          // ✅ 修正: postbackのdataにactionとuidを明記し、LINEリレー機能の信頼性を向上
           { type:'button', style:'primary', action:{ type:'postback', label:'LINEで連絡', data:`action=start_relay&uid=${encodeURIComponent(userId)}` } },
           ...(telSelfBtn ? [telSelfBtn] : []),
           ...(telKinBtn  ? [telKinBtn]  : []),
@@ -408,8 +407,6 @@ const ORG_SUSPICIOUS = /(怪しい|胡散臭い|反社|あやしい|危ない)/i
 // ===== 会話・固定設定（こころちゃん） =====
 const CLARIS_SONG_FAVORITE_REPLY = 'やっぱり『コネクト』かな！💖　元気になれる曲だよ😊';
 
-// ✅ 修正: 「こころ」への不自然な反応を修正
-// ユーザーが「俺はこころちゃんじゃない」という文脈を理解し、適切に返す
 const specialReplies = new Map([
   [/俺はこころちゃんじゃないよ？/i, "はい、まつさんが「こころちゃん」ではないことはわかっていますよ😊　ごめんね、私みたいに言っちゃったから、勘違いさせちゃったかな💦"],
   [/話聞いてないな？/i, "ごめんね💦　ちゃんと聞いてなかったみたい…😢　話、聞かせてくれる？💖　どんなことでも大丈夫だよ。一人で抱え込まないでね。いつでも私がそばにいるよ。"],
@@ -526,8 +523,9 @@ const MEMBERSHIP_CONFIG = {
 };
 const DEFAULT_RANK = 'guest';
 
-// ユーザーの会員ランクを取得
+// ✅ 修正：OWNER_USER_IDを考慮してユーザーランクを決定
 async function getUserRank(userId) {
+  if (userId === OWNER_USER_ID) return 'admin';
   const doc = await db.collection('users').doc(userId).get();
   if (!doc.exists) return DEFAULT_RANK;
   const u = doc.data() || {};
@@ -674,11 +672,6 @@ async function aiGeneralReply(userText, rank) {
   A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
   Q: 税金泥棒
   A: 税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために頑張っているんだ💡
-
-  # 注意
-  - 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
-  - こころちゃんは"わたし"一人。迷わず一貫した発言を続けてください。
-  - 自信を持って、でも謙虚にやさしく応えましょう。
 
   **【宿題や勉強に関する対応の絶対ルール】**
   質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
@@ -1043,7 +1036,6 @@ async function handlePostbackEvent(event, userId) {
       await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'この操作はグループ内で使ってね🌸' });
       return;
     }
-    // ✅ 修正: リレー開始時のグループ通知を改善
     await relays.start(groupId, targetUserId, userId);
     await safePush(targetUserId, { type:'text', text:'事務局（見守りグループ）とつながりました。ここで会話できます🌸（終了は /end）' });
     await safeReplyOrPush(event.replyToken, userId, { type:'text', text:`リレー開始：このグループ ↔ ${targetUserId.slice(-6)} さん` });
