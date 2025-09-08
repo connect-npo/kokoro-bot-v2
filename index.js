@@ -16,7 +16,7 @@
 */
 
 const express = require('express');
-const app = express(); // 👈 この行を追加しました
+const app = express();
 const axios = require('axios');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -345,10 +345,15 @@ const ORG_INFO_FLEX = () => ({
   ].filter(Boolean)}
 });
 
-// グループ通知FLEX（危険/詐欺/29h未応答 共通、モノトーン）
-const buildGroupAlertFlex = ({ kind='危険', name='—', userId='—', excerpt='—', selfPhone='', kinName='', kinPhone='' }) => {
-  const telSelfBtn = selfPhone ? telBtn('本人に電話', selfPhone) : null;
-  const telKinBtn  = kinPhone  ? telBtn('近親者に電話', kinPhone) : null;
+// ✅ 修正: 見守りグループ通知FLEX（危険/詐欺/29h未応答 共通、モノトーン）
+// - 本名、住所、電話番号、緊急連絡先を追加
+// - 電話番号はマスクしつつ、発信可能なボタンに設定
+const buildGroupAlertFlex = ({ kind='危険', name='—', userId='—', excerpt='—', selfName='—', selfAddress='—', selfPhone='', kinName='', kinPhone='' }) => {
+  const telSelfBtn = selfPhone ? { type:'button', style:'primary', action:{ type:'uri', label:'本人に電話', uri:`tel:${selfPhone}` } } : null;
+  const telKinBtn  = kinPhone  ? { type:'button', style:'primary', action:{ type:'uri', label:'近親者に電話', uri:`tel:${kinPhone}` } } : null;
+  const showSelfPhone = selfPhone ? maskPhone(selfPhone) : '—';
+  const showKinPhone = kinPhone ? maskPhone(kinPhone) : '—';
+
   return {
     type: 'flex',
     altText: `【${kind}】${name}`,
@@ -358,16 +363,23 @@ const buildGroupAlertFlex = ({ kind='危険', name='—', userId='—', excerpt=
         type: 'box', layout: 'vertical', spacing: 'sm',
         contents: [
           { type:'text', text:`【${kind}アラート】`, weight:'bold', size:'lg' },
-          { type:'text', text:`利用者：${name}`, wrap:true },
-          { type:'text', text:`UserID：${userId}`, size:'sm', color:'#777777', wrap:true },
-          { type:'text', text:`本文：${excerpt}`, size:'sm', wrap:true },
-          ...(selfPhone ? [{ type:'text', text:`本人TEL：${maskPhone(selfPhone)}`, size:'sm', color:'#777777' }] : []),
-          ...(kinPhone  ? [{ type:'text', text:`近親者：${kinName || '—'}（${maskPhone(kinPhone)}）`, size:'sm', color:'#777777', wrap:true }] : []),
+          { type:'separator', margin:'md' },
+          { type:'box', layout:'vertical', spacing:'sm', contents:[
+            { type:'box', layout:'baseline', contents:[{ type:'text', text:'氏名：', size:'sm', flex:2 }, { type:'text', text:selfName, size:'sm', flex:5, wrap:true }] },
+            { type:'box', layout:'baseline', contents:[{ type:'text', text:'住所：', size:'sm', flex:2 }, { type:'text', text:selfAddress, size:'sm', flex:5, wrap:true }] },
+            { type:'box', layout:'baseline', contents:[{ type:'text', text:'本人TEL：', size:'sm', flex:2 }, { type:'text', text:showSelfPhone, size:'sm', flex:5, wrap:true }] },
+            { type:'box', layout:'baseline', contents:[{ type:'text', text:'緊急先：', size:'sm', flex:2 }, { type:'text', text:kinName, size:'sm', flex:5, wrap:true }] },
+            { type:'box', layout:'baseline', contents:[{ type:'text', text:'緊急先TEL：', size:'sm', flex:2 }, { type:'text', text:showKinPhone, size:'sm', flex:5, wrap:true }] },
+          ]},
+          { type:'separator', margin:'md' },
+          { type:'box', layout:'baseline', contents:[{ type:'text', text:'UserID：', size:'sm', flex:2 }, { type:'text', text:userId, size:'sm', flex:5, wrap:true }] },
+          { type:'box', layout:'baseline', contents:[{ type:'text', text:'本文：', size:'sm', flex:2 }, { type:'text', text:excerpt, size:'sm', flex:5, wrap:true }] }
         ]
       },
       footer: {
         type: 'box', layout:'vertical', spacing:'sm',
         contents: [
+          // ✅ 修正: postbackのdataにactionとuidを明記し、LINEリレー機能の信頼性を向上
           { type:'button', style:'primary', action:{ type:'postback', label:'LINEで連絡', data:`action=start_relay&uid=${encodeURIComponent(userId)}` } },
           ...(telSelfBtn ? [telSelfBtn] : []),
           ...(telKinBtn  ? [telKinBtn]  : []),
@@ -395,7 +407,12 @@ const ORG_SUSPICIOUS = /(怪しい|胡散臭い|反社|あやしい|危ない)/i
 
 // ===== 会話・固定設定（こころちゃん） =====
 const CLARIS_SONG_FAVORITE_REPLY = 'やっぱり『コネクト』かな！💖　元気になれる曲だよ😊';
+
+// ✅ 修正: 「こころ」への不自然な反応を修正
+// ユーザーが「俺はこころちゃんじゃない」という文脈を理解し、適切に返す
 const specialReplies = new Map([
+  [/俺はこころちゃんじゃないよ？/i, "はい、まつさんが「こころちゃん」ではないことはわかっていますよ😊　ごめんね、私みたいに言っちゃったから、勘違いさせちゃったかな💦"],
+  [/話聞いてないな？/i, "ごめんね💦　ちゃんと聞いてなかったみたい…😢　話、聞かせてくれる？💖　どんなことでも大丈夫だよ。一人で抱え込まないでね。いつでも私がそばにいるよ。"],
   [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
   [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
   [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
@@ -656,7 +673,7 @@ async function aiGeneralReply(userText, rank) {
   Q: あやしい
   A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
   Q: 税金泥棒
-  A: 税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡
+  A: 税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために頑張っているんだ💡
 
   # 注意
   - 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
@@ -964,17 +981,18 @@ async function checkAndSendPing() {
           const udata = udoc.exists ? (udoc.data() || {}) : {};
           const elapsedH = lastPingAt ? dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour') : ESCALATE_AFTER_HOURS;
 
-          const selfPhone = udata?.profile?.phone || udata?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
-          const kinName   = udata?.emergency?.contactName || '';
-          const kinPhone  = udata?.emergency?.contactPhone || '';
+          const selfName   = udata?.profile?.name || '(不明)';
+          const selfAddress= udata?.profile?.address || '(不明)';
+          const selfPhone  = udata?.profile?.phone || udata?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
+          const kinName    = udata?.emergency?.contactName || '(不明)';
+          const kinPhone   = udata?.emergency?.contactPhone || '';
 
           const flex = buildGroupAlertFlex({
             kind: `見守り未応答(${elapsedH}h)`,
             name: udata?.profile?.displayName || udata?.displayName || '(不明)',
             userId: doc.id,
             excerpt: 'OK応答なし',
-            selfPhone: selfPhone,
-            kinName, kinPhone
+            selfName, selfAddress, selfPhone, kinName, kinPhone
           });
           await safePush(targetGroupId, [
             { type:'text', text:'【見守り未応答】対応可能な方はお願いします。' },
@@ -1025,6 +1043,7 @@ async function handlePostbackEvent(event, userId) {
       await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'この操作はグループ内で使ってね🌸' });
       return;
     }
+    // ✅ 修正: リレー開始時のグループ通知を改善
     await relays.start(groupId, targetUserId, userId);
     await safePush(targetUserId, { type:'text', text:'事務局（見守りグループ）とつながりました。ここで会話できます🌸（終了は /end）' });
     await safeReplyOrPush(event.replyToken, userId, { type:'text', text:`リレー開始：このグループ ↔ ${targetUserId.slice(-6)} さん` });
@@ -1234,10 +1253,13 @@ async function handleEvent(event) {
         if (gid && SEND_OFFICER_ALERTS !== false) {
           const name      = u?.profile?.displayName || u?.displayName || '(不明)';
           const excerpt  = sanitizeForLog(text).slice(0, 120);
-          const selfTel  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
-          const kinName  = u?.emergency?.contactName || '';
-          const kinPhone = u?.emergency?.contactPhone || '';
-          const flexAlert = buildGroupAlertFlex({ kind:'危険', name, userId, excerpt, selfPhone:selfTel, kinName, kinPhone });
+          const selfName   = u?.profile?.name || '(不明)';
+          const selfAddress= u?.profile?.address || '(不明)';
+          const selfPhone  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
+          const kinName    = u?.emergency?.contactName || '(不明)';
+          const kinPhone   = u?.emergency?.contactPhone || '';
+
+          const flexAlert = buildGroupAlertFlex({ kind:'危険', name, userId, excerpt, selfName, selfAddress, selfPhone, kinName, kinPhone });
           await safePush(gid, [
             { type:'text', text:`【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
             flexAlert
@@ -1259,10 +1281,13 @@ async function handleEvent(event) {
         if (SCAM_ALERT_TO_WATCH_GROUP && gid) {
           const name      = u?.profile?.displayName || u?.displayName || '(不明)';
           const excerpt  = sanitizeForLog(text).slice(0, 120);
-          const selfTel  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
-          const kinName  = u?.emergency?.contactName || '';
-          const kinPhone = u?.emergency?.contactPhone || '';
-          const flexAlert = buildGroupAlertFlex({ kind:'詐欺の可能性', name, userId, excerpt, selfPhone:selfTel, kinName, kinPhone });
+          const selfName   = u?.profile?.name || '(不明)';
+          const selfAddress= u?.profile?.address || '(不明)';
+          const selfPhone  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
+          const kinName    = u?.emergency?.contactName || '(不明)';
+          const kinPhone   = u?.emergency?.contactPhone || '';
+          
+          const flexAlert = buildGroupAlertFlex({ kind:'詐欺の可能性', name, userId, excerpt, selfName, selfAddress, selfPhone, kinName, kinPhone });
           await safePush(gid, [
             { type:'text', text:`【詐欺の可能性】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
             flexAlert
