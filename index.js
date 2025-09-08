@@ -77,7 +77,7 @@ const todayJST = () => dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET        = process.env.LINE_CHANNEL_SECRET;
 
-const OWNER_USER_ID = process.env.OWNER_USER_ID; // ✅ 追加：オーナーのユーザーID
+const OWNER_USER_ID = process.env.OWNER_USER_ID;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -630,7 +630,13 @@ const fallbackDangerTwo = ()=>'大丈夫だよ、まずは深呼吸しようね�
 const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
 
 // ===== AIによる通常会話応答 =====
-async function aiGeneralReply(userText, rank) {
+// ✅ 修正: 過去の会話履歴を考慮する
+async function aiGeneralReply(userText, rank, userId) {
+  const chatHistory = await getRecentChatHistory(userId, 5); // 過去5件の履歴を取得
+  const chatHistoryFormatted = chatHistory.map(entry => {
+    return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
+  }).reverse().join('\n'); // タイムスタンプ付きでフォーマットし、新しい順に並べ替える
+
   const charLength = _splitter.splitGraphemes(userText).length;
   const modelName = (charLength <= 50) ? GEMINI_MODEL : MEMBERSHIP_CONFIG[rank].model;
   let aiClient;
@@ -646,6 +652,9 @@ async function aiGeneralReply(userText, rank) {
   - 自分の名前・団体・活動内容には自信と誇りを持っています
   - ユーザーに安心感と信頼感を与えることが大切です
   - ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
+  - **ユーザーの日常的な出来事やポジティブな内容を、ネガティブに捉えたり、共感しすぎたりしないでください。「大変だったね」「辛かったね」といった言葉は、本当に深刻な相談内容の場合のみ使用してください。**
+  - **麻雀や教室の話など、具体的な話題には興味を持ってさらに質問してください。**
+  
   # 例
   Q: 君の名前は？
   A: わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
@@ -695,7 +704,6 @@ async function aiGeneralReply(userText, rank) {
   また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
   「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
   `;
-
   const empathyPrompt = `
   あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
   ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
@@ -706,12 +714,20 @@ async function aiGeneralReply(userText, rank) {
 
   const fullPrompt = `${systemInstruction}\n\n${empathyPrompt}`;
 
+  const messages = [{ role:'system', content: fullPrompt }];
+  // 過去履歴をメッセージに追加
+  chatHistory.forEach(h => {
+    messages.push({ role: h.sender === 'ユーザー' ? 'user' : 'assistant', content: h.message });
+  });
+  messages.push({ role: 'user', content: `ユーザー発言:「${userText}」` });
+
+
   if (modelName === GEMINI_MODEL) {
     if (!googleGenerativeAI) return null;
     aiClient = googleGenerativeAI.getGenerativeModel({ model: modelName });
     try {
       const result = await aiClient.generateContent({
-        contents: [{ role: 'user', parts: [{ text: `${fullPrompt}\nユーザー発言:「${userText}」` }] }],
+        contents: messages,
         safetySettings: [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }],
       });
       return result.response.text();
@@ -724,7 +740,7 @@ async function aiGeneralReply(userText, rank) {
     try {
       const r = await openai.chat.completions.create({
         model: modelName,
-        messages: [{ role:'system', content: fullPrompt }, { role:'user', content: `ユーザー発言:「${userText}」` }],
+        messages: messages,
         max_tokens: 250, temperature: 0.8
       });
       return r.choices?.[0]?.message?.content || null;
@@ -734,6 +750,27 @@ async function aiGeneralReply(userText, rank) {
     }
   }
 }
+
+// ===== Chat history management =====
+async function saveChatHistory(userId, sender, message) {
+  const ref = db.collection('chatHistory').doc(userId);
+  await ref.set({
+    history: firebaseAdmin.firestore.FieldValue.arrayUnion({
+      sender,
+      message,
+      timestamp: Timestamp.now()
+    })
+  }, { merge: true });
+}
+
+async function getRecentChatHistory(userId, limit) {
+  const ref = db.collection('chatHistory').doc(userId);
+  const doc = await ref.get();
+  if (!doc.exists) return [];
+  const history = doc.data().history || [];
+  return history.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).slice(0, limit);
+}
+
 
 // ===== Suspension helpers =====
 async function suspendUser(userId, days = 7) {
@@ -1103,6 +1140,11 @@ async function handleEvent(event) {
   const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
   const inputCharLength = toGraphemes(text).length;
 
+  // 履歴保存
+  if (isUser && text) {
+    await saveChatHistory(userId, 'ユーザー', text);
+  }
+
   if (!text) {
     if (stickerId) {
       const udoc = await db.collection('users').doc(userId).get();
@@ -1252,6 +1294,7 @@ async function handleEvent(event) {
           const kinPhone   = u?.emergency?.contactPhone || '';
 
           const flexAlert = buildGroupAlertFlex({ kind:'危険', name, userId, excerpt, selfName, selfAddress, selfPhone, kinName, kinPhone });
+          // ✅ 修正: 即時プッシュ
           await safePush(gid, [
             { type:'text', text:`【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
             flexAlert
@@ -1280,6 +1323,7 @@ async function handleEvent(event) {
           const kinPhone   = u?.emergency?.contactPhone || '';
           
           const flexAlert = buildGroupAlertFlex({ kind:'詐欺の可能性', name, userId, excerpt, selfName, selfAddress, selfPhone, kinName, kinPhone });
+          // ✅ 修正: 即時プッシュ
           await safePush(gid, [
             { type:'text', text:`【詐欺の可能性】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
             flexAlert
@@ -1328,17 +1372,25 @@ async function handleEvent(event) {
     if (rank === 'guest') limitMsg += `\nもっとお話ししたいなら、会員登録してみてね！😊`;
     if (rank === 'member') limitMsg += `\nサブスク会員になると、回数無制限で話せるよ💖`;
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: limitMsg });
+    // 履歴にも保存
+    await saveChatHistory(userId, 'こころチャット', limitMsg);
     return;
   }
   
   // 7) 特定コマンド（見守り・会員登録）
   if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
     const en = !!(u.watchService && u.watchService.enabled);
-    await safeReplyOrPush(event.replyToken, userId, makeWatchToggleFlex(en, userId));
+    const reply = makeWatchToggleFlex(en, userId);
+    await safeReplyOrPush(event.replyToken, userId, reply);
+    // 履歴にも保存
+    await saveChatHistory(userId, 'こころチャット', '見守りメニュー');
     return;
   }
   if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, makeRegistrationButtonsFlex(userId));
+    const reply = makeRegistrationButtonsFlex(userId);
+    await safeReplyOrPush(event.replyToken, userId, reply);
+    // 履歴にも保存
+    await saveChatHistory(userId, 'こころチャット', '会員登録メニュー');
     return;
   }
   
@@ -1346,7 +1398,7 @@ async function handleEvent(event) {
   const special = getSpecialReply(text);
   if (special) {
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
-    // F-A-L-L-T-H-R-O-U-G-H
+    await saveChatHistory(userId, 'こころチャット', special);
     return;
   }
 
@@ -1355,31 +1407,39 @@ async function handleEvent(event) {
   const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
   const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
   if (isOrgIntent || isHomepageIntent) {
-    const aiReply = await aiGeneralReply(text, rank);
+    const aiReply = await aiGeneralReply(text, rank, userId);
     if (aiReply) {
       await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+      await saveChatHistory(userId, 'こころチャット', aiReply.trim());
     } else {
       if (isOrgIntent) {
-        await safeReplyOrPush(event.replyToken, userId, [
+        const reply = [
           { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
           { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-        ]);
+        ];
+        await safeReplyOrPush(event.replyToken, userId, reply);
+        await saveChatHistory(userId, 'こころチャット', `${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸`);
       } else {
-        await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}` });
+        const reply = `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`;
+        await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: reply });
+        await saveChatHistory(userId, 'こころチャット', reply);
       }
     }
     return;
   }
 
   // 10) AIによる会話応答
-  const aiReply = await aiGeneralReply(text, rank);
+  const aiReply = await aiGeneralReply(text, rank, userId);
   if (aiReply) {
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+    await saveChatHistory(userId, 'こころチャット', aiReply.trim());
     return;
   }
 
   // 11) 既定の相槌（最後の手段）
-  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: pick(GENERIC_FOLLOWUPS) });
+  const fallbackReply = pick(GENERIC_FOLLOWUPS);
+  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
+  await saveChatHistory(userId, 'こころチャット', fallbackReply);
 }
 
 // ===== Server =====
