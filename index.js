@@ -1,15 +1,17 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, refined-2025-09-08-final)
+ index.js (angel-kokoro, refined-2025-09-08-final-plus)
  - 通常会話：Gemini 1.5 FlashとGPT-4o-miniを文字数で使い分け
- - 危険 > 詐欺 > 不適切語 > 共感 の優先判定
+ - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
  - 危険は2文+危険FLEX→見守りグループへFLEX通知
  - 詐欺は2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
  - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
  - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
  - リレー中（グループ↔本人）は“こころ返信停止”（本人↔事務局の会話を阻害しない）
  - 不適切語：1回目=お答え不可、2回目=警告、3回目=7日停止（停止中は初回のみ通知→以降サイレント）
+ - 悪意ある長文：即時7日停止
+ - ユーザーランクごとの利用回数制限とモデル切り替え
  - 通常会話：50文字以下→Gemini 1.5 Flash、50文字超→GPT-4o-miniで応答
 */
 
@@ -68,6 +70,7 @@ const maskPhone = (raw='') => {
 };
 const toArr = (m) => Array.isArray(m) ? m : [m];
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const todayJST = () => dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
 
 // ===== ENV =====
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -143,14 +146,6 @@ const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, chann
 const httpAgent = new httpMod.Agent({ keepAlive: true });
 const httpsAgent = new httpsMod.Agent({ keepAlive: true });
 const http = axios.create({ timeout: 6000, httpAgent, httpsAgent });
-
-// ===== App =====
-const PORT = process.env.PORT || 10000;
-const app = express();
-app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
-app.use(helmet());
-// 注意：/webhook には LINE の署名検証があるため、ここで app.use(express.json()) は付けない
-app.use('/webhook', rateLimit({ windowMs: 60_000, max: 100 }));
 
 // ===== Reply helpers =====
 function ensureMsgShape(messages) {
@@ -481,6 +476,79 @@ const inappropriateWords = [
   "ブラック企業","パワハラ上司","モラハラ夫","毒親","モンスターペアレント","カスハラ","カスタマーハラスメント","クレーム","炎上","誹謗中傷","秘密","暴露","晒す","裏切り","騙し","偽り","欺く","悪意","敵意","憎悪","嫉妬","復讐","ぱふぱふ","せんずり","センズリ"
 ];
 
+// 悪意ある長文判定
+const DOS_ATTACK_THRESHOLD = 5000;
+const isDoSAttack = (text) => {
+  const charLength = toGraphemes(text).length;
+  if (charLength > DOS_ATTACK_THRESHOLD) return true;
+  const isRepeating = /^(.)\1{100,}/.test(text.trim());
+  if (isRepeating && charLength > 200) return true;
+  return false;
+};
+const MAX_INPUT_LENGTH = 1000;
+
+// ===== 会員ランク・利用制限設定 =====
+const MEMBERSHIP_CONFIG = {
+  guest: {
+    dailyLimit: 5,
+    model: GEMINI_MODEL
+  },
+  member: {
+    dailyLimit: 20,
+    model: OPENAI_MODEL
+  },
+  subscriber: {
+    dailyLimit: -1, // 無制限
+    model: OPENAI_MODEL
+  },
+  admin: {
+    dailyLimit: -1,
+    model: OPENAI_MODEL
+  },
+};
+const DEFAULT_RANK = 'guest';
+
+// ユーザーの会員ランクを取得
+async function getUserRank(userId) {
+  const doc = await db.collection('users').doc(userId).get();
+  if (!doc.exists) return DEFAULT_RANK;
+  const u = doc.data() || {};
+  if (u.rank === 'admin') return 'admin';
+  if (u.rank === 'subscriber') return 'subscriber';
+  if (u.rank === 'member') return 'member';
+  return DEFAULT_RANK;
+}
+
+// 利用回数をチェックし、加算する
+async function checkAndIncrementCount(userId, rank) {
+  const ref = db.collection('users').doc(userId);
+  let canProceed = false;
+  let currentCount = 0;
+  await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    const u = s.exists ? (s.data() || {}) : {};
+    const meta = u.usageMeta || {};
+    const today = todayJST();
+    const count = (meta.lastDate === today) ? (meta.count || 0) : 0;
+    const limit = MEMBERSHIP_CONFIG[rank]?.dailyLimit || -1;
+    if (limit === -1 || count < limit) {
+      canProceed = true;
+      currentCount = count + 1;
+      tx.set(ref, {
+        usageMeta: {
+          lastDate: today,
+          count: currentCount,
+        },
+        profile: {
+          lastActiveAt: Timestamp.now()
+        },
+        rank: rank,
+      }, { merge: true });
+    }
+  });
+  return { canProceed, currentCount };
+}
+
 // ===== Inappropriate helper =====
 function hasInappropriate(text = '') {
   const t = normalizeJa(text);
@@ -546,9 +614,10 @@ const fallbackDangerTwo = ()=>'大丈夫だよ、まずは深呼吸しようね�
 const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
 
 // ===== AIによる通常会話応答 =====
-async function aiGeneralReply(userText, prevConv = []) {
+async function aiGeneralReply(userText, rank) {
   const charLength = _splitter.splitGraphemes(userText).length;
-  let modelName, aiClient;
+  const modelName = (charLength <= 50) ? GEMINI_MODEL : MEMBERSHIP_CONFIG[rank].model;
+  let aiClient;
 
   // 詳細なシステムプロンプトの定義
   const systemInstruction = `
@@ -626,11 +695,8 @@ async function aiGeneralReply(userText, prevConv = []) {
 
   const fullPrompt = `${systemInstruction}\n\n${empathyPrompt}`;
 
-  const messages = prevConv.concat({ role: 'user', parts: [{ text: userText }] });
-
-  if (charLength <= 50) {
+  if (modelName === GEMINI_MODEL) {
     if (!googleGenerativeAI) return null;
-    modelName = GEMINI_MODEL;
     aiClient = googleGenerativeAI.getGenerativeModel({ model: modelName });
     try {
       const result = await aiClient.generateContent({
@@ -644,7 +710,6 @@ async function aiGeneralReply(userText, prevConv = []) {
     }
   } else {
     if (!openai) return null;
-    modelName = OPENAI_MODEL;
     try {
       const r = await openai.chat.completions.create({
         model: modelName,
@@ -693,7 +758,6 @@ async function unsuspendUser(userId) {
 }
 
 // 不適切語：当日カウントをインクリメント
-function todayJST() { return dayjs().tz(JST_TZ).format('YYYY-MM-DD'); }
 async function incrInapCount(userId) {
   const ref = db.collection('users').doc(userId);
   let current = 0, dateStr = todayJST();
@@ -995,12 +1059,15 @@ async function handlePostbackEvent(event, userId) {
 async function handleFollowEvent(event) {
   audit('follow', { userId:event.source.userId });
   const userId = event.source.userId;
-  const profile = await getProfile(userId);
-  if (!profile) {
+  const rank = await getUserRank(userId);
+  if (rank === DEFAULT_RANK) {
     await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'こんにちは🌸 こころちゃんだよ。利用規約とプライバシーポリシーに同意の上、会員登録をお願いします。' });
+    await safePush(userId, makeRegistrationButtonsFlex(userId));
+  } else {
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'また会えて嬉しいな💖何か話したいことがあったら、いつでも話しかけてね🌸' });
   }
-  await safePush(userId, makeRegistrationButtonsFlex(userId));
 }
+
 async function handleUnfollowEvent(event) {
   audit('unfollow', { userId:event.source.userId });
   await db.collection('users').doc(event.source.userId).set({ 'profile.isDeleted': true }, { merge:true });
@@ -1016,32 +1083,6 @@ async function handleLeaveEvent(event) {
   if (event.source.groupId) await setActiveWatchGroupId(null);
 }
 
-async function answerOrgOrHomepage(event, userId, text) {
-  if (isHomepageIntent(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:`うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}` });
-    return true;
-  }
-  if (ORG_INTENT.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, [
-      { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
-      { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-    ]);
-    return true;
-  }
-  if (ORG_SUSPICIOUS.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, [
-      { type:'text', text:'そう思わせてしまったらごめんね💦 でも、私たちはみんなの力になりたくて誠実に活動しているよ🌸' },
-      { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-    ]);
-    return true;
-  }
-  if (/(会話(になって)?ない|噛み合ってない|おかしくない|かいわ)/i.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ごめんね、分かりにくかったかも…もう一度だけ案内するね🌸 必要なことを短く伝えてくれたら助かるよ。' });
-    return true;
-  }
-  return false;
-}
-
 // ===== メイン =====
 async function handleEvent(event) {
   const userId = event.source.userId;
@@ -1052,7 +1093,8 @@ async function handleEvent(event) {
 
   const text = event.message.type === 'text' ? (event.message.text || '') : '';
   const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
-  
+  const inputCharLength = toGraphemes(text).length;
+
   if (!text) {
     if (stickerId) {
       const udoc = await db.collection('users').doc(userId).get();
@@ -1072,6 +1114,26 @@ async function handleEvent(event) {
     return;
   }
 
+  // 0-a) 悪意ある長文/DoS攻撃の即時停止
+  if (isDoSAttack(text)) {
+    await suspendUser(userId, 7);
+    const untilTs = dayjs().tz(JST_TZ).add(7, 'day').hour(0).minute(0).second(0).millisecond(0).toDate();
+    const untilStr = fmtUntilJST(untilTs);
+    const msg = `ごめんね。不適切な入力があったため、アカウントを${untilStr}まで一時停止しました。再開のご相談は事務局へお願いします。`;
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
+    try {
+      const WATCH_GROUP_ID = await getActiveWatchGroupId();
+      const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
+      if (gid) await safePush(gid, { type:'text', text:`【一時停止(7日)】ユーザー末尾:${userId.slice(-6)} / 悪意ある長文` });
+    } catch(e){ briefErr('suspend notify failed', e); }
+    return;
+  }
+
+  // 0-b) 長文入力の制限
+  if (inputCharLength > MAX_INPUT_LENGTH) {
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ごめんね、一度に話せる文字は1000文字までだよ🌸 もう少し短くしてくれると嬉しいな💖' });
+    return;
+  }
 
   // group/room
   if (isGroup || isRoom) {
@@ -1086,7 +1148,7 @@ async function handleEvent(event) {
       const targetUserId = m[1];
       await relays.start(groupId, targetUserId, userId);
       await safePush(targetUserId, { type:'text', text:'事務局（見守りグループ）とつながりました。ここで会話できます🌸（終了は /end）' });
-      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'リレーを開始しました。このグループの発言は本人に届きます。終了は /end' });
+      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:`リレー開始：このグループ ↔ ${targetUserId.slice(-6)} さん` });
       return;
     }
     if (text.trim() === '/end') {
@@ -1115,7 +1177,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 0) リレー中は“こころ返信停止”＆本人→グループへ中継のみ
+  // 1) リレー中は“こころ返信停止”＆本人→グループへ中継のみ
   try {
     const WATCH_GROUP_ID = await getActiveWatchGroupId();
     const r = await relays.get(WATCH_GROUP_ID);
@@ -1125,7 +1187,7 @@ async function handleEvent(event) {
     }
   } catch (e) { briefErr('relay user->group failed', e); }
 
-  // 1) 停止中チェック（危険ワードは例外で通す）
+  // 2) 停止中チェック（危険ワードは例外で通す）
   const suspendedActive = await isSuspended(userId);
   if (suspendedActive && !isDangerMessage(text)) {
     const udoc = await db.collection('users').doc(userId).get();
@@ -1140,7 +1202,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 2) watch OK by text/sticker
+  // 3) watch OK by text/sticker
   const udoc = await db.collection('users').doc(userId).get();
   const u = udoc.exists ? (udoc.data() || {}) : {};
   const enabled = !!(u.watchService && u.watchService.enabled);
@@ -1158,7 +1220,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 3) 危険/詐欺/共感
+  // 4) 危険/詐欺/共感
   const danger = isDangerMessage(text);
   const scam   = !danger && isScamMessage(text);
   const empathyOnly = !danger && !scam && hasEmpathyWord(text);
@@ -1219,7 +1281,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 4) 不適切語
+  // 5) 不適切語
   if (hasInappropriate(text)) {
     const n = await incrInapCount(userId);
     if (n === 1) {
@@ -1243,19 +1305,19 @@ async function handleEvent(event) {
     return;
   }
 
-  // 5) 既定の固定応答
-  const special = getSpecialReply(text);
-  if (special) {
-    if (ORG_INTENT.test(text) || HOMEPAGE_INTENT.test(text)) {
-      await safeReplyOrPush(event.replyToken, userId, [{ type: 'text', text: special }]);
-      // F-A-L-L-T-H-R-O-U-G-H
-    } else {
-      await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
-      return;
-    }
+  // 6) 会員ランクと利用回数チェック
+  const rank = await getUserRank(userId);
+  const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank);
+  const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
+  if (!canProceed) {
+    let limitMsg = `ごめんね、今日の利用上限（${dailyLimit}回）に達したみたい💦 また明日来てね🌸`;
+    if (rank === 'guest') limitMsg += `\nもっとお話ししたいなら、会員登録してみてね！😊`;
+    if (rank === 'member') limitMsg += `\nサブスク会員になると、回数無制限で話せるよ💖`;
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: limitMsg });
+    return;
   }
-
-  // 6) 特定コマンド（見守り・会員登録）
+  
+  // 7) 特定コマンド（見守り・会員登録）
   if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
     const en = !!(u.watchService && u.watchService.enabled);
     await safeReplyOrPush(event.replyToken, userId, makeWatchToggleFlex(en, userId));
@@ -1266,12 +1328,20 @@ async function handleEvent(event) {
     return;
   }
   
-  // 7) 団体・HP案内（会話が成立していない場合にFLEXを出す）
+  // 8) 既定の固定応答
+  const special = getSpecialReply(text);
+  if (special) {
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
+    // F-A-L-L-T-H-R-O-U-G-H
+    return;
+  }
+
+  // 9) 団体・HP案内（会話が成立していない場合にFLEXを出す）
   const tnorm = normalizeJa(text);
   const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
   const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
   if (isOrgIntent || isHomepageIntent) {
-    const aiReply = await aiGeneralReply(text);
+    const aiReply = await aiGeneralReply(text, rank);
     if (aiReply) {
       await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
     } else {
@@ -1287,14 +1357,14 @@ async function handleEvent(event) {
     return;
   }
 
-  // 8) AIによる会話応答
-  const aiReply = await aiGeneralReply(text);
+  // 10) AIによる会話応答
+  const aiReply = await aiGeneralReply(text, rank);
   if (aiReply) {
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
     return;
   }
 
-  // 9) 既定の相槌（最後の手段）
+  // 11) 既定の相槌（最後の手段）
   await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: pick(GENERIC_FOLLOWUPS) });
 }
 
