@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, refined-2025-09-08-final-plus-beta)
+ index.js (angel-kokoro, refined-2025-09-08-final-plus-alpha)
  - 通常会話：Gemini 1.5 FlashとGPT-4o-miniを文字数で使い分け
  - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
  - 危険は2文+危険FLEX→見守りグループへFLEX通知
@@ -14,7 +14,6 @@
  - ユーザーランクごとの利用回数制限とモデル切り替え
  - 通常会話：50文字以下→Gemini 1.5 Flash、50文字超→GPT-4o-miniで応答
  - 「相談」または「そうだん」とだけ入力された場合、回数制限を無視しGemini 1.5 Proで1回だけ応答
- - **【New!】AIからの質問を減らし、ユーザーのペースに合わせた応答に調整**
 */
 
 const express = require('express');
@@ -55,6 +54,8 @@ const briefErr = (msg, e) => {
 // ===== Utils =====
 const normalizeFormUrl = s => {
   let v = String(s || '').trim();
+  if (!v) return '';
+  v = v.replace(/^usp=header\s*/i, '');
   if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
   try { new URL(v); return v; } catch { return ''; }
 };
@@ -436,7 +437,6 @@ const specialReplies = new Map([
   [/好きな(漫画|アニメ)/, "『ヴァイオレット・エヴァーガーデン』だよ📘 心があたたかくなる物語なの🌸"],
   [/好きな(音楽|アーティスト|歌手)/, "ClariSが好きだよ🎧 一番好きな曲は『コネクト』！元気をくれるんだ🌸"],
   [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
-  [/^(なんで)?質問(してくるの|やめて|やめてって言ってんの)？?|いやがらせ？?|しつこいな/i, "ごめんね💦 私の質問がいやだったかな？　気を悪くさせてしまって、本当に申し訳ないよ。これからはもっとあなたのペースに合わせて話すようにするね💖　何か他に話したいことあったら、教えてね🌸"]
 ]);
 
 function getSpecialReply(t) {
@@ -665,9 +665,7 @@ async function aiGeneralReply(userText, rank, userId, useProModel = false) {
   - 自分の名前・団体・活動内容には自信と誇りを持っています
   - ユーザーに安心感と信頼感を与えることが大切です
   - ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
-  - ユーザーの日常的な出来事やポジティブな内容を、ネガティブに捉えたり、共感しすぎたりしないでください。「大変だったね」「辛かったね」といった言葉は、本当に深刻な相談内容の場合のみ使用してください。
-  - **ユーザーが話してくれた内容には共感し、必要であれば次の話題を提案してください。ただし、詳細を深く掘り下げるような質問は避けてください。**
-  - **ユーザーが「質問しないで」「やめて」と言った場合は、すぐに質問を止めて、謝罪の気持ちを伝えてください。**
+  - **ユーザーの日常的な出来事やポジティブな内容を、ネガティブに捉えたり、共感しすぎたりしないでください。「大変だったね」「辛かったね」といった言葉は、本当に深刻な相談内容の場合のみ使用してください。**
   
   # 例
   Q: 君の名前は？
@@ -1236,11 +1234,10 @@ async function handleEvent(event) {
       return;
     }
     if (text.trim() === '/end') {
-    await relays.stop(groupId);
-    await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'リレーを終了しました。' });
-    return;
-  }
-}
+      await relays.stop(groupId);
+      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'リレーを終了しました。' });
+      return;
+    }
     if (/^\/unlock\s+/.test(text)) {
       const m = text.trim().match(/^\/unlock\s+([0-9A-Za-z_-]{10,})/);
       if (!m) {
