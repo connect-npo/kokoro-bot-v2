@@ -1,9 +1,9 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, final)
- - 通常会話：こころちゃんの“固定の好み”と優先応答テーブルで自然に返す
- - 危険 > 詐欺 > 不適切語 > 宿題（学生/未成年はヒントのみ）> 共感 の優先判定
+ index.js (angel-kokoro, refined-2025-09-08)
+ - 通常会話：予定・近況（つむぎ館/麻雀/病院/学校/仕事 等）を検知→自然応答
+ - 危険 > 詐欺 > 不適切語 > 宿題（未成年はヒントのみ）> 共感 の優先判定
  - 危険は2文+危険FLEX→見守りグループへFLEX通知
  - 詐欺は2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
  - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
@@ -24,11 +24,12 @@ const firebaseAdmin = require('firebase-admin');
 const crypto = require('crypto');
 const GraphemeSplitter = require('grapheme-splitter');
 const { URL, URLSearchParams } = require('url');
+const httpMod = require('http');
+const httpsMod = require('https');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-dayjs.extend(utc);
-dayjs.extend(timezone);
+dayjs.extend(utc); dayjs.extend(timezone);
 
 let openai = null;
 const _splitter = new GraphemeSplitter();
@@ -67,6 +68,7 @@ const maskPhone = (raw='') => {
   const tail = s.slice(-4); const head = s.slice(0, -4).replace(/[0-9]/g, '＊'); return head + tail;
 };
 const toArr = (m) => Array.isArray(m) ? m : [m];
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // ===== ENV =====
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -133,8 +135,8 @@ const Timestamp = firebaseAdmin.firestore.Timestamp;
 const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
 
 // ===== HTTP =====
-const httpAgent = new require('http').Agent({ keepAlive: true });
-const httpsAgent = new require('https').Agent({ keepAlive: true });
+const httpAgent = new httpMod.Agent({ keepAlive: true });
+const httpsAgent = new httpsMod.Agent({ keepAlive: true });
 const http = axios.create({ timeout: 6000, httpAgent, httpsAgent });
 
 // ===== App =====
@@ -192,9 +194,25 @@ const watchMessages = [
   "こころちゃんだよ🌸 今日も一日お疲れ様💖",
   "やっほー！ こころだよ🌸 素敵な日になりますように💖",
 ];
-const pickWatchMsg = () => watchMessages[Math.floor(Math.random() * watchMessages.length)];
+const pickWatchMsg = () => pick(watchMessages);
 const nextPingAtFrom = (fromDate) =>
   dayjs(fromDate).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate();
+
+async function scheduleNextPing(userId) {
+  try {
+    const ref = db.collection('users').doc(userId);
+    await ref.set({
+      watchService: {
+        awaitingReply: false,
+        nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(
+          nextPingAtFrom(dayjs().tz(JST_TZ).toDate())
+        ),
+        lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+        notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
+      }
+    }, { merge: true });
+  } catch (e) { briefErr('scheduleNextPing failed', e); }
+}
 
 // watch-group id store
 const getWatchGroupDoc = () => firebaseAdmin.firestore().collection('system').doc('watch_group');
@@ -206,12 +224,12 @@ async function getActiveWatchGroupId() {
   return /^C[0-9A-Za-z_-]{20,}$/.test(v) ? v : '';
 }
 async function setActiveWatchGroupId(gid) {
-  if (!gid) {
-    await getWatchGroupDoc().set({ groupId: firebaseAdmin.firestore.FieldValue.delete(), updatedAt: Timestamp.now() }, { merge: true });
-    return;
-  }
-  if (!/^C[0-9A-Za-z_-]{20,}$/.test(gid)) return;
-  await getWatchGroupDoc().set({ groupId: gid, updatedAt: Timestamp.now() }, { merge: true });
+  await getWatchGroupDoc().set(
+    gid
+      ? { groupId: gid, updatedAt: Timestamp.now() }
+      : { groupId: firebaseAdmin.firestore.FieldValue.delete(), updatedAt: Timestamp.now() },
+    { merge: true }
+  );
 }
 
 // ===== FLEX builders =====
@@ -324,6 +342,7 @@ const ORG_INFO_FLEX = () => ({
     ...(ORG_CONTACT_TEL ? [ telBtn('電話する', ORG_CONTACT_TEL) ] : [])
   ].filter(Boolean)}
 });
+
 // グループ通知FLEX（危険/詐欺/29h未応答 共通、モノトーン）
 const buildGroupAlertFlex = ({ kind='危険', name='—', userId='—', excerpt='—', selfPhone='', kinName='', kinPhone='' }) => {
   const telSelfBtn = selfPhone ? telBtn('本人に電話', selfPhone) : null;
@@ -388,7 +407,8 @@ const specialReplies = [
   [/(さよなら|バイバイ)/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
   [/何も答えないじゃない/i, "ごめんね…。わたし、もっと頑張るね💖 何について知りたいか、もう一度教えてもらえるかな？"],
   [/普通の会話が出来ない/i, "ごめんね💦 もっと自然に話せるようにがんばるね。今日はどんな一日だった？🌸"],
-  [/使い方|ヘルプ|メニュー/i, "使い方だね🌸 見守りの設定は『見守り』って送ってね。会員登録はメニューからできるよ😊"]
+  [/使い方|ヘルプ|メニュー/i, "使い方だね🌸 見守りの設定は『見守り』って送ってね。会員登録はメニューからできるよ😊"],
+  [/聞いてない(のか)?|会話にならない/i, "ごめんね、ちゃんと読んでるよ。要点を一言で教えてくれると助かるな🌸（例：今日は歯医者・今から病院など）"],
 ];
 function getSpecialReply(t) {
   for (const [re, ans] of specialReplies) {
@@ -398,7 +418,7 @@ function getSpecialReply(t) {
   return null;
 }
 
-// 好みの固定：アニメ/漫画=ヴァイオレット・エヴァーガーデン、音楽/アーティスト=ClariS（好きな曲=コネクト）
+// 好みの固定
 function replyLikes(text) {
   if (/好きな(漫画|アニメ)/.test(text)) {
     return "『ヴァイオレット・エヴァーガーデン』だよ📘 心があたたかくなる物語なの🌸";
@@ -409,6 +429,14 @@ function replyLikes(text) {
   return null;
 }
 const smallTalkRe = /(こんにちは|こんばんは|やっほー|やぁ|元気|調子どう)/i;
+
+// ===== 既定の相槌（連発防止）
+const GENERIC_ACKS = [
+  'そっか、教えてくれてありがとう🌸',
+  '共有ありがとう。無理せずいこうね😊',
+  '了解だよ。必要ならいつでも呼んでね🌸',
+  'OK、受け取ったよ。応援してるよ😊'
+];
 
 // ===== 判定 =====
 const EMPATHY_WORDS = [ '死にそう', '辛い', 'つらい' ];
@@ -424,8 +452,7 @@ const SCAM_CORE_WORDS = [
 const BRANDS = /(amazon|アマゾン|楽天|rakuten|ヤマト|佐川|日本郵便|ゆうちょ|メルカリ|ヤフオク|apple|アップル|google|ドコモ|docomo|au|softbank|ソフトバンク|paypay|line|ライン)/i;
 const BRAND_OK_CONTEXT = /(で(買い物|注文|購入|支払い|返品|返金|届いた|配達|発送)|プライム|タイムセール|レビュー|ギフト券|ポイント)/i;
 
-// 不適切ワード / 宿題トリガー（提供リスト）
-const inappropriateWords = [
+const inappropriateWords = [ /* 省略: 前掲の語彙リストを維持 */ 
   "セックス","セフレ","エッチ","AV","アダルト","ポルノ","童貞","処女","挿入","射精","勃起","パイズリ","フェラチオ","クンニ","オナニー","マスターベーション",
   "ペニス","チンコ","ヴァギナ","マンコ","クリトリス","乳首","おっぱい","お尻","うんち","おしっこ","小便","大便","ちんちん","おまんこ","ぶっかけ","変態",
   "性奴隷","露出","痴漢","レイプ","強姦","売春","買春","セックスフレンド","風俗","ソープ","デリヘル","援交","援助交際","性病","梅毒","エイズ","クラミジア","淋病","性器ヘルペス",
@@ -433,9 +460,7 @@ const inappropriateWords = [
   "暴力団","ヤクザ","マフィア","テロリスト","犯罪者","殺人鬼","性犯罪者","変質者","異常者","狂人","サイコパス","ソシオパス","ストーカー","不審者","危険人物",
   "ブラック企業","パワハラ上司","モラハラ夫","毒親","モンスターペアレント","カスハラ","カスタマーハラスメント","クレーム","炎上","誹謗中傷","秘密","暴露","晒す","裏切り","騙し","偽り","欺く","悪意","敵意","憎悪","嫉妬","復讐","ぱふぱふ","せんずり","センズリ"
 ];
-const empatheticTriggers = [
-  "辛い","しんどい","悲しい","苦しい","助けて","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい","消えたい","死にそう",
-];
+const empatheticTriggers = [ "辛い","しんどい","悲しい","苦しい","助けて","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい","消えたい","死にそう" ];
 const homeworkTriggers = ["宿題","勉強","問題","テスト","方程式","算数","数学","答え","解き方","教えて","計算","証明","公式","入試","受験"];
 
 const hasEmpathyWord = (text) => {
@@ -468,14 +493,32 @@ const isScamMessage = (text) => {
   return false;
 };
 
-// 不適切語ヘルパ
-function hasInappropriate(text) {
-  const t = normalizeJa(text);
-  return inappropriateWords.some(w => t.includes(normalizeJa(w)));
-}
+// ===== Status detectors (予定・近況) =====
+const STATUS_DICT = [
+  { kind:'dentist',   re: /(歯医者|歯科)/ },
+  { kind:'hospital',  re: /(病院|通院|診察|検査|リハビリ)/ },
+  { kind:'work',      re: /(仕事|出勤|残業|バイト)/ },
+  { kind:'school',    re: /(学校|授業|講義|テスト|試験)/ },
+  { kind:'shopping',  re: /(買い物|スーパー|ドラッグストア|家電量販店)/ },
+  { kind:'meeting',   re: /(打(ち)?合(わせ)?|面談|会議|アポ)/ },
+  { kind:'event',     re: /(ライブ|発表|説明会|セミナー)/ },
+  { kind:'mahjong',   re: /(麻雀|マージャン|健康麻雀)/ },
+  { kind:'community', re: /(つむぎ館|関戸つむぎ館|コミュニティ|ボランティア|認知症カフェ|コネクトルーム)/ },
+];
 
-// 今日の日付（JST）文字列
-const todayJST = () => dayjs().tz(JST_TZ).format('YYYY-MM-DD');
+const END_TRIGGERS = /(終わった|おわった|着いた|ついた|戻った|帰った)/;
+
+function detectStatus(text='') {
+  const t = normalizeJa(text);
+  const frame =
+    /(今日|きょう|今|これから|さっき|あとで)/.test(t) ||
+    /(行く|いく|行ってくる|してくる|向かう|むかう|行きます|です|でした|してくるよ|してきます)/.test(t);
+  if (!frame) return null;
+  for (const item of STATUS_DICT) {
+    if (item.re.test(t)) return { kind: item.kind, phrase: text };
+  }
+  return null;
+}
 
 // ===== GPT helpers（危険/詐欺の2文応答） =====
 async function gptTwoShorts(kind, userText) {
@@ -497,6 +540,7 @@ async function gptTwoShorts(kind, userText) {
 }
 const fallbackDangerTwo = ()=>'大丈夫だよ、まずは深呼吸しようね🌸 次に安全な場所で信頼できる人へ連絡してね。';
 const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
+
 // ===== Suspension helpers =====
 async function suspendUser(userId, days = 7) {
   const until = dayjs().tz(JST_TZ).add(days, 'day').hour(0).minute(0).second(0).millisecond(0).toDate();
@@ -506,7 +550,7 @@ async function suspendUser(userId, days = 7) {
       suspended: true,
       suspendedAt: Timestamp.now(),
       suspendedUntil: Timestamp.fromDate(until),
-      suspendNotifiedAt: firebaseAdmin.firestore.FieldValue.delete(), // 初回通知フラグはクリア
+      suspendNotifiedAt: firebaseAdmin.firestore.FieldValue.delete(),
       reason: 'policy-violation'
     }
   }, { merge: true });
@@ -531,6 +575,7 @@ async function unsuspendUser(userId) {
 }
 
 // 不適切語：当日カウントをインクリメント
+function todayJST() { return dayjs().tz(JST_TZ).format('YYYY-MM-DD'); }
 async function incrInapCount(userId) {
   const ref = db.collection('users').doc(userId);
   let current = 0, dateStr = todayJST();
@@ -540,8 +585,7 @@ async function incrInapCount(userId) {
     const st = u.status || {};
     const curDate = st.inapDate;
     const curCnt  = Number(st.inapCount || 0);
-    if (curDate === dateStr) current = curCnt + 1;
-    else current = 1;
+    if (curDate === dateStr) current = curCnt + 1; else current = 1;
     tx.set(ref, { status: { inapDate: dateStr, inapCount: current } }, { merge: true });
   });
   return current;
@@ -876,6 +920,7 @@ async function answerOrgOrHomepage(event, userId, text) {
   }
   return false;
 }
+
 // ===== メイン =====
 async function handleEvent(event) {
   const userId = event.source.userId;
@@ -935,7 +980,7 @@ async function handleEvent(event) {
     const r = await relays.get(WATCH_GROUP_ID);
     if (r?.isActive && r?.userId === userId && WATCH_GROUP_ID) {
       if (text) await safePush(WATCH_GROUP_ID, { type:'text', text:`【本人】${text}` });
-      return; // ← ここで通常返信は止める
+      return; // ← 通常返信は止める
     }
   } catch (e) { briefErr('relay user->group failed', e); }
 
@@ -986,6 +1031,69 @@ async function handleEvent(event) {
   // 5) 会員登録
   if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
     await safeReplyOrPush(event.replyToken, userId, makeRegistrationButtonsFlex(userId));
+    return;
+  }
+
+  // 5.5) 予定・近況（例: 今日はつむぎ館で麻雀）
+  const lastState = (u.lastStatus || {});
+  const status = detectStatus(text);
+  if (status) {
+    let msg;
+    switch (status.kind) {
+      case 'dentist':
+        msg = '今日は歯医者なんだね。緊張するよね…終わったら「終わった」って知らせてね🌸';
+        break;
+      case 'hospital':
+        msg = '通院おつかれさま。無理せず、終わったら一言教えてね😊';
+        break;
+      case 'work':
+        msg = 'お仕事いってらっしゃい。休める時は深呼吸してね🌸';
+        break;
+      case 'school':
+        msg = '学校がんばって！分からないことは少しずつで大丈夫だよ😊';
+        break;
+      case 'mahjong':
+        msg = '健康麻雀いいね！楽しんできてね。終わったら様子を教えてくれると嬉しいな🌸';
+        break;
+      case 'community':
+        msg = '地域の場に向かうんだね。みんなが笑顔になる時間になりますように😊 終わったら一言ちょうだい！';
+        break;
+      default:
+        msg = pick(GENERIC_ACKS);
+    }
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
+    await db.collection('users').doc(userId).set({
+      lastStatus: { kind: status.kind, phrase: status.phrase, at: Timestamp.now() }
+    }, { merge: true });
+    return;
+  }
+
+  // 5.6) 「終わった/着いた」→ 直前の lastStatus に応じて労い
+  if (END_TRIGGERS.test(text) && lastState?.kind) {
+    let msg;
+    switch (lastState.kind) {
+      case 'dentist':
+        msg = '歯医者おつかれさま！がんばったね。しばらくは刺激物ひかえて水分とってね🌸';
+        break;
+      case 'hospital':
+        msg = '通院おつかれさま。結果や気持ち、話したくなったらいつでもどうぞ😊';
+        break;
+      case 'work':
+        msg = 'お仕事おつかれさま！少し休もうね🌸';
+        break;
+      case 'school':
+        msg = 'おつかれさま！よくがんばったね。少しリラックスしよう😊';
+        break;
+      case 'mahjong':
+        msg = '健康麻雀おつかれさま！楽しかった？少し水分とって休もうね🌸';
+        break;
+      case 'community':
+        msg = 'おつかれさま！優しい時間になったね。様子をまた聞かせてね😊';
+        break;
+      default:
+        msg = 'おつかれさま！教えてくれてありがとう🌸';
+    }
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
     return;
   }
 
@@ -1087,7 +1195,6 @@ async function handleEvent(event) {
       await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'宿題の“答え”はお伝えできないけど、考え方やヒントなら一緒にできるよ🌸 どこでつまずいたか教えてね😊' });
       return;
     }
-    // 大人は通常会話（ここで直接の答え生成はしていない＝安全）
   }
 
   // 9) 通常会話（固定の好み・優先応答）
@@ -1102,13 +1209,12 @@ async function handleEvent(event) {
       'いいね！あなたのおすすめポイントも知りたいな😊',
       'わくわくするね！最初に好きになったきっかけは？🌸'
     ];
-    const pick = variants[Math.floor(Math.random()*variants.length)];
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick });
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick(variants) });
     return;
   }
 
-  // 10) 既定の相槌
-  await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ありがとう🌸 その気持ち、ちゃんと受け取ったよ。必要ならいつでも頼ってね😊' });
+  // 10) 既定の相槌（固定文の連発を避ける）
+  await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick(GENERIC_ACKS) });
 }
 
 // ===== Server =====
