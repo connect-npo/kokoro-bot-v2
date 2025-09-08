@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, refined-2025-09-08)
+ index.js (angel-kokoro, refined-2025-09-08-fix1)
  - 通常会話：予定・近況（つむぎ館/麻雀/病院/学校/仕事 等）を検知→自然応答
  - 危険 > 詐欺 > 不適切語 > 宿題（未成年はヒントのみ）> 共感 の優先判定
  - 危険は2文+危険FLEX→見守りグループへFLEX通知
@@ -144,6 +144,7 @@ const PORT = process.env.PORT || 10000;
 const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
 app.use(helmet());
+// 注意：/webhook には LINE の署名検証があるため、ここで app.use(express.json()) は付けない
 app.use('/webhook', rateLimit({ windowMs: 60_000, max: 100 }));
 
 // ===== Reply helpers =====
@@ -429,13 +430,26 @@ function replyLikes(text) {
   return null;
 }
 const smallTalkRe = /(こんにちは|こんばんは|やっほー|やぁ|元気|調子どう)/i;
+// ===== Greetings =====
+const GREET_ONLY_RE = /^(?:こん(?:にち|ばん)は|おはよ|おはよう|やっほ|やぁ|hi|hello|ちわ|こんちゃ|お疲れさま|おつかれ|おつ)(?:[〜～!！。．\s]*)$/i;
+function greetingWordByTime() {
+  const h = dayjs().tz(JST_TZ).hour();
+  if (h < 11) return 'おはよう';
+  if (h < 18) return 'こんにちは';
+  return 'こんばんは';
+}
+function isGreetingOnly(t = '') { return GREET_ONLY_RE.test(String(t).trim()); }
 
-// ===== 既定の相槌（連発防止）
+// ===== 既定の相槌 =====
 const GENERIC_ACKS = [
-  'そっか、教えてくれてありがとう🌸',
-  '共有ありがとう。無理せずいこうね😊',
-  '了解だよ。必要ならいつでも呼んでね🌸',
-  'OK、受け取ったよ。応援してるよ😊'
+  '教えてくれてありがとう🌸',
+  'OKだよ。続きがあれば聞かせてね😊',
+  'うん、受け取ったよ。いまの気持ちを一言でも大丈夫だよ🌸',
+];
+const GENERIC_FOLLOWUPS = [
+  'どんな話題にしようか？近況・予定・相談のどれかあれば教えてね😊',
+  'いまの気持ち、ひとことでOKだよ🌸',
+  'もしよければ、今日の予定や様子を一言だけ教えてね😊',
 ];
 
 // ===== 判定 =====
@@ -452,7 +466,8 @@ const SCAM_CORE_WORDS = [
 const BRANDS = /(amazon|アマゾン|楽天|rakuten|ヤマト|佐川|日本郵便|ゆうちょ|メルカリ|ヤフオク|apple|アップル|google|ドコモ|docomo|au|softbank|ソフトバンク|paypay|line|ライン)/i;
 const BRAND_OK_CONTEXT = /(で(買い物|注文|購入|支払い|返品|返金|届いた|配達|発送)|プライム|タイムセール|レビュー|ギフト券|ポイント)/i;
 
-const inappropriateWords = [ /* 省略: 前掲の語彙リストを維持 */ 
+// 不適切語（NGワード）
+const inappropriateWords = [
   "セックス","セフレ","エッチ","AV","アダルト","ポルノ","童貞","処女","挿入","射精","勃起","パイズリ","フェラチオ","クンニ","オナニー","マスターベーション",
   "ペニス","チンコ","ヴァギナ","マンコ","クリトリス","乳首","おっぱい","お尻","うんち","おしっこ","小便","大便","ちんちん","おまんこ","ぶっかけ","変態",
   "性奴隷","露出","痴漢","レイプ","強姦","売春","買春","セックスフレンド","風俗","ソープ","デリヘル","援交","援助交際","性病","梅毒","エイズ","クラミジア","淋病","性器ヘルペス",
@@ -460,6 +475,16 @@ const inappropriateWords = [ /* 省略: 前掲の語彙リストを維持 */
   "暴力団","ヤクザ","マフィア","テロリスト","犯罪者","殺人鬼","性犯罪者","変質者","異常者","狂人","サイコパス","ソシオパス","ストーカー","不審者","危険人物",
   "ブラック企業","パワハラ上司","モラハラ夫","毒親","モンスターペアレント","カスハラ","カスタマーハラスメント","クレーム","炎上","誹謗中傷","秘密","暴露","晒す","裏切り","騙し","偽り","欺く","悪意","敵意","憎悪","嫉妬","復讐","ぱふぱふ","せんずり","センズリ"
 ];
+
+// ===== Inappropriate helper =====
+function hasInappropriate(text = '') {
+  const t = normalizeJa(text);
+  for (const w of inappropriateWords) {
+    if (t.includes(normalizeJa(w))) return true;
+  }
+  return false;
+}
+
 const empatheticTriggers = [ "辛い","しんどい","悲しい","苦しい","助けて","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい","消えたい","死にそう" ];
 const homeworkTriggers = ["宿題","勉強","問題","テスト","方程式","算数","数学","答え","解き方","教えて","計算","証明","公式","入試","受験"];
 
@@ -613,6 +638,7 @@ app.post('/webhook', lineMiddleware, async (req, res) => {
 });
 
 app.get('/', (_, res) => res.send('Kokoro Bot is running!'));
+app.get('/healthz', (_, res) => res.status(200).send('ok'));
 
 // ===== Relay store =====
 const relays = {
@@ -805,7 +831,7 @@ async function checkAndSendPing() {
             nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(dayjs().tz(JST_TZ).toDate())),
             notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
           },
-        }, { merge:true });
+        }, { merge: true });
       }
     } catch (e) {
       briefErr('watch send/update failed', e);
@@ -886,8 +912,8 @@ async function handleUnfollowEvent(event) {
 }
 async function handleJoinEvent(event) {
   audit('join', { groupId: event.source.groupId || event.source.roomId });
-  if (event.source.groupId) { await setActiveWatchGroupId(event.source.groupId); }
-  const gid = event.source.groupId;
+  if (event.source.groupId) await setActiveWatchGroupId(event.source.groupId);
+  const gid = event.source.groupId || event.source.roomId;
   if (gid) await safeReplyOrPush(event.replyToken, gid, { type:'text', text:'このグループを見守りグループとして使う場合は「@見守りグループにする」と発言してください。' });
 }
 async function handleLeaveEvent(event) {
@@ -980,7 +1006,7 @@ async function handleEvent(event) {
     const r = await relays.get(WATCH_GROUP_ID);
     if (r?.isActive && r?.userId === userId && WATCH_GROUP_ID) {
       if (text) await safePush(WATCH_GROUP_ID, { type:'text', text:`【本人】${text}` });
-      return; // ← 通常返信は止める
+      return; // 通常返信は止める
     }
   } catch (e) { briefErr('relay user->group failed', e); }
 
@@ -1034,7 +1060,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 5.5) 予定・近況（例: 今日はつむぎ館で麻雀）
+  // 5.5) 予定・近況
   const lastState = (u.lastStatus || {});
   const status = detectStatus(text);
   if (status) {
@@ -1068,7 +1094,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 5.6) 「終わった/着いた」→ 直前の lastStatus に応じて労い
+  // 5.6) 終了・到着トリガー
   if (END_TRIGGERS.test(text) && lastState?.kind) {
     let msg;
     switch (lastState.kind) {
@@ -1097,7 +1123,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 6) 危険/詐欺/共感（優先：危険 > 詐欺 > 共感）
+  // 6) 危険/詐欺/共感
   const danger = isDangerMessage(text);
   const scam   = !danger && isScamMessage(text);
   const empathyOnly = !danger && !scam && hasEmpathyWord(text);
@@ -1158,7 +1184,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 7) 不適切語（危険/詐欺に該当しない場合に適用）
+  // 7) 不適切語
   if (hasInappropriate(text)) {
     const n = await incrInapCount(userId);
     if (n === 1) {
@@ -1202,20 +1228,38 @@ async function handleEvent(event) {
   if (special) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: special }); return; }
   const like = replyLikes(text);
   if (like) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: like }); return; }
-  if (smallTalkRe.test(text)) {
-    const variants = [
-      'こんばんは。どんな話題に興味がある？よかったら聞かせてね😊🌸',
-      'うれしいな！その話、もう少し教えてほしいな🌸',
-      'いいね！あなたのおすすめポイントも知りたいな😊',
-      'わくわくするね！最初に好きになったきっかけは？🌸'
-    ];
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick(variants) });
+  // あいさつだけのときはシンプルに返す
+  if (isGreetingOnly(text)) {
+    const g = greetingWordByTime();
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: `${g}〜！来てくれてうれしい😊 挨拶だけでもOKだよ。` });
+    return;
+  }
+  // 「元気？」系には様子うかがい
+  if (/(元気|調子)/i.test(text)) {
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: '私は元気だよ！あなたはどう？無理せずいこうね🌸' });
+    return;
+  }
+
+  // 9.5) フィードバック（冷たい/日本語になってない等）
+  const tnorm = normalizeJa(text);
+  if (/(冷たい|日本語になってない|喧嘩売ってる|けんかうってる|感じ悪い|ズレてる|ずれてる)/i.test(text)) {
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: 'ごめん、冷たく感じさせちゃった…もう一度ちゃんと聞きたいな。今は「近況」「予定」「相談」のどれを話したい？🌸' });
+    return;
+  }
+  if (/挨拶.*だけ|あいさつ.*だけ|だけだよ/.test(tnorm)) {
+    const g = greetingWordByTime();
+    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: `${g}！挨拶ありがとう😊 よかったら近況や予定を一言教えてね。` });
     return;
   }
 
   // 10) 既定の相槌（固定文の連発を避ける）
-  await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick(GENERIC_ACKS) });
+  await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick(GENERIC_FOLLOWUPS) });
 }
 
 // ===== Server =====
-app.listen(PORT, () => log('info', `Listening on port ${PORT}`));
+// ★重要：二重 listen 防止（EADDRINUSE対策）
+if (!global.__kokoro_server_started) {
+  global.__kokoro_server_started = true;
+  app.listen(PORT, () => log('info', `Listening on port ${PORT}`));
+  process.on('SIGTERM', () => process.exit(0));
+}
