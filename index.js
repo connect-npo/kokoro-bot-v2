@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, refined-2025-09-08-final-plus)
+ index.js (angel-kokoro, refined-2025-09-08-final-plus-alpha)
  - 通常会話：Gemini 1.5 FlashとGPT-4o-miniを文字数で使い分け
  - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
  - 危険は2文+危険FLEX→見守りグループへFLEX通知
@@ -13,6 +13,7 @@
  - 悪意ある長文：即時7日停止
  - ユーザーランクごとの利用回数制限とモデル切り替え
  - 通常会話：50文字以下→Gemini 1.5 Flash、50文字超→GPT-4o-miniで応答
+ - 「相談」または「そうだん」とだけ入力された場合、回数制限を無視しGemini 1.5 Proで1回だけ応答
 */
 
 const express = require('express');
@@ -82,7 +83,8 @@ const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+const GEMINI_FLASH_MODEL   = process.env.GEMINI_FLASH_MODEL || 'gemini-1.5-flash';
+const GEMINI_PRO_MODEL     = process.env.GEMINI_PRO_MODEL   || 'gemini-1.5-pro';
 
 const AGREEMENT_FORM_BASE_URL                 = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
 const ADULT_FORM_BASE_URL                     = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
@@ -446,7 +448,7 @@ function getSpecialReply(t) {
 
 const smallTalkRe = /(こんにちは|こんばんは|やっほー|やぁ|元気|調子どう)/i;
 // ===== Greetings =====
-const GREET_ONLY_RE = /^(?:こん(?:にち|ばん)は|おはよ|おはよう|やっほ|やぁ|hi|hello|ちわ|こんちゃ|お疲れさま|おつかれ|おつ)(?:[〜～!！。．\s]*)$/i;
+const GREET_ONLY_RE = /^(?:こん(?:にち|ばん)は|おはよ|おはよう|やっほ|やぁ|hi|hello|ちわ|こんちゃ|お疲れさま|おつかれ|おつ)(?:[〜〜!！。．\s]*)$/i;
 function greetingWordByTime() {
   const h = dayjs().tz(JST_TZ).hour();
   if (h < 11) return 'おはよう';
@@ -506,7 +508,7 @@ const MAX_INPUT_LENGTH = 1000;
 const MEMBERSHIP_CONFIG = {
   guest: {
     dailyLimit: 5,
-    model: GEMINI_MODEL
+    model: GEMINI_FLASH_MODEL
   },
   member: {
     dailyLimit: 20,
@@ -536,7 +538,7 @@ async function getUserRank(userId) {
 }
 
 // 利用回数をチェックし、加算する
-async function checkAndIncrementCount(userId, rank) {
+async function checkAndIncrementCount(userId, rank, isSpecialRequest = false) {
   const ref = db.collection('users').doc(userId);
   let canProceed = false;
   let currentCount = 0;
@@ -547,19 +549,30 @@ async function checkAndIncrementCount(userId, rank) {
     const today = todayJST();
     const count = (meta.lastDate === today) ? (meta.count || 0) : 0;
     const limit = MEMBERSHIP_CONFIG[rank]?.dailyLimit || -1;
-    if (limit === -1 || count < limit) {
+    
+    // ✅ 修正: isSpecialRequestがtrueの場合は回数制限を無視
+    if (isSpecialRequest || limit === -1 || count < limit) {
       canProceed = true;
-      currentCount = count + 1;
-      tx.set(ref, {
-        usageMeta: {
-          lastDate: today,
-          count: currentCount,
-        },
-        profile: {
-          lastActiveAt: Timestamp.now()
-        },
-        rank: rank,
-      }, { merge: true });
+      if (!isSpecialRequest) {
+        currentCount = count + 1;
+        tx.set(ref, {
+          usageMeta: {
+            lastDate: today,
+            count: currentCount,
+          },
+          profile: {
+            lastActiveAt: Timestamp.now()
+          },
+          rank: rank,
+        }, { merge: true });
+      } else {
+        tx.set(ref, {
+          profile: {
+            lastActiveAt: Timestamp.now()
+          },
+          rank: rank,
+        }, { merge: true });
+      }
     }
   });
   return { canProceed, currentCount };
@@ -576,6 +589,7 @@ function hasInappropriate(text = '') {
 
 const empatheticTriggers = [ "辛い","しんどい","悲しい","苦しい","助けて","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい","消えたい","死にそう" ];
 const homeworkTriggers = ["宿題","勉強","問題","テスト","方程式","算数","数学","答え","解き方","教えて","計算","証明","公式","入試","受験"];
+const SOODAN_TRIGGERS = ["そうだん", "相談"];
 
 const hasEmpathyWord = (text) => {
   const t = normalizeJa(text);
@@ -630,15 +644,15 @@ const fallbackDangerTwo = ()=>'大丈夫だよ、まずは深呼吸しようね�
 const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
 
 // ===== AIによる通常会話応答 =====
-// ✅ 修正: 過去の会話履歴を考慮する
-async function aiGeneralReply(userText, rank, userId) {
+async function aiGeneralReply(userText, rank, userId, useProModel = false) {
   const chatHistory = await getRecentChatHistory(userId, 5); // 過去5件の履歴を取得
   const chatHistoryFormatted = chatHistory.map(entry => {
     return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
   }).reverse().join('\n'); // タイムスタンプ付きでフォーマットし、新しい順に並べ替える
 
   const charLength = _splitter.splitGraphemes(userText).length;
-  const modelName = (charLength <= 50) ? GEMINI_MODEL : MEMBERSHIP_CONFIG[rank].model;
+  // ✅ 修正: 相談モードのモデル切り替え
+  const modelName = useProModel ? GEMINI_PRO_MODEL : (charLength <= 50 ? GEMINI_FLASH_MODEL : MEMBERSHIP_CONFIG[rank].model);
   let aiClient;
 
   // 詳細なシステムプロンプトの定義
@@ -712,27 +726,38 @@ async function aiGeneralReply(userText, rank, userId) {
   「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
   `;
 
-  const fullPrompt = `${systemInstruction}\n\n${empathyPrompt}`;
-
-  const messages = [{ role:'system', content: fullPrompt }];
-  // 過去履歴をメッセージに追加
+  const messages = [{ role:'system', content: systemInstruction }];
   chatHistory.forEach(h => {
     messages.push({ role: h.sender === 'ユーザー' ? 'user' : 'assistant', content: h.message });
   });
-  messages.push({ role: 'user', content: `ユーザー発言:「${userText}」` });
+  
+  const userMessage = { role: 'user', content: userText };
+  messages.push(userMessage);
 
-
-  if (modelName === GEMINI_MODEL) {
+  if (modelName.startsWith('gemini')) {
     if (!googleGenerativeAI) return null;
-    aiClient = googleGenerativeAI.getGenerativeModel({ model: modelName });
+    const transformedMessages = messages.map(m => {
+      const role = m.role === 'system' ? 'user' : m.role;
+      return { role, parts: [{ text: m.content }] };
+    });
+    
+    const combinedMessages = [];
+    for (const msg of transformedMessages) {
+      if (combinedMessages.length > 0 && combinedMessages[combinedMessages.length - 1].role === msg.role) {
+        combinedMessages[combinedMessages.length - 1].parts[0].text += '\n' + msg.parts[0].text;
+      } else {
+        combinedMessages.push(msg);
+      }
+    }
+    
     try {
-      const result = await aiClient.generateContent({
-        contents: messages,
+      const result = await googleGenerativeAI.getGenerativeModel({ model: modelName }).generateContent({
+        contents: combinedMessages,
         safetySettings: [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }],
       });
-      return result.response.text();
+      return result.response?.text() || null;
     } catch (e) {
-      briefErr('Gemini general reply failed', e);
+      briefErr(`Gemini general reply failed (${modelName})`, e);
       return null;
     }
   } else {
@@ -740,12 +765,12 @@ async function aiGeneralReply(userText, rank, userId) {
     try {
       const r = await openai.chat.completions.create({
         model: modelName,
-        messages: messages,
+        messages: messages.slice(1).map(m => ({ role: m.role === 'system' ? 'user' : m.content })),
         max_tokens: 250, temperature: 0.8
       });
       return r.choices?.[0]?.message?.content || null;
     } catch(e) {
-      briefErr('OpenAI general reply failed', e);
+      briefErr(`OpenAI general reply failed (${modelName})`, e);
       return null;
     }
   }
@@ -1294,7 +1319,6 @@ async function handleEvent(event) {
           const kinPhone   = u?.emergency?.contactPhone || '';
 
           const flexAlert = buildGroupAlertFlex({ kind:'危険', name, userId, excerpt, selfName, selfAddress, selfPhone, kinName, kinPhone });
-          // ✅ 修正: 即時プッシュ
           await safePush(gid, [
             { type:'text', text:`【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
             flexAlert
@@ -1323,7 +1347,6 @@ async function handleEvent(event) {
           const kinPhone   = u?.emergency?.contactPhone || '';
           
           const flexAlert = buildGroupAlertFlex({ kind:'詐欺の可能性', name, userId, excerpt, selfName, selfAddress, selfPhone, kinName, kinPhone });
-          // ✅ 修正: 即時プッシュ
           await safePush(gid, [
             { type:'text', text:`【詐欺の可能性】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
             flexAlert
@@ -1363,7 +1386,22 @@ async function handleEvent(event) {
     return;
   }
 
-  // 6) 会員ランクと利用回数チェック
+  // 6) 相談モードの判定と応答
+  const isSoudan = SOODAN_TRIGGERS.includes(text.trim());
+  if (isSoudan) {
+    const aiReply = await aiGeneralReply(text, rank, userId, true); // trueでGemini 1.5 Proを使う
+    if (aiReply) {
+      await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+      await saveChatHistory(userId, 'こころチャット', aiReply.trim());
+    } else {
+      const fallbackMsg = 'ごめんね、いまうまく相談にのれないみたい…💦 もう一度話しかけてくれる？🌸';
+      await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
+      await saveChatHistory(userId, 'こころチャット', fallbackMsg);
+    }
+    return;
+  }
+
+  // 7) 会員ランクと利用回数チェック
   const rank = await getUserRank(userId);
   const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank);
   const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
@@ -1372,29 +1410,26 @@ async function handleEvent(event) {
     if (rank === 'guest') limitMsg += `\nもっとお話ししたいなら、会員登録してみてね！😊`;
     if (rank === 'member') limitMsg += `\nサブスク会員になると、回数無制限で話せるよ💖`;
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: limitMsg });
-    // 履歴にも保存
     await saveChatHistory(userId, 'こころチャット', limitMsg);
     return;
   }
   
-  // 7) 特定コマンド（見守り・会員登録）
+  // 8) 特定コマンド（見守り・会員登録）
   if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
     const en = !!(u.watchService && u.watchService.enabled);
     const reply = makeWatchToggleFlex(en, userId);
     await safeReplyOrPush(event.replyToken, userId, reply);
-    // 履歴にも保存
     await saveChatHistory(userId, 'こころチャット', '見守りメニュー');
     return;
   }
   if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
     const reply = makeRegistrationButtonsFlex(userId);
     await safeReplyOrPush(event.replyToken, userId, reply);
-    // 履歴にも保存
     await saveChatHistory(userId, 'こころチャット', '会員登録メニュー');
     return;
   }
   
-  // 8) 既定の固定応答
+  // 9) 既定の固定応答
   const special = getSpecialReply(text);
   if (special) {
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
@@ -1402,7 +1437,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 9) 団体・HP案内（会話が成立していない場合にFLEXを出す）
+  // 10) 団体・HP案内（会話が成立していない場合にFLEXを出す）
   const tnorm = normalizeJa(text);
   const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
   const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
@@ -1428,7 +1463,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 10) AIによる会話応答
+  // 11) AIによる会話応答
   const aiReply = await aiGeneralReply(text, rank, userId);
   if (aiReply) {
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
@@ -1436,7 +1471,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 11) 既定の相槌（最後の手段）
+  // 12) 既定の相槌（最後の手段）
   const fallbackReply = pick(GENERIC_FOLLOWUPS);
   await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
   await saveChatHistory(userId, 'こころチャット', fallbackReply);
@@ -1444,7 +1479,6 @@ async function handleEvent(event) {
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
-// ★重要：二重 listen 防止（EADDRINUSE対策）
 if (!global.__kokoro_server_started) {
   global.__kokoro_server_started = true;
   app.listen(PORT, () => log('info', `Listening on port ${PORT}`));
