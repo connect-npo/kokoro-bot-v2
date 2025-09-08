@@ -422,33 +422,20 @@ function getSpecialReply(t) {
 function replyLikes(text) {
   if (/好きな(漫画|アニメ)/.test(text)) {
     return "『ヴァイオレット・エヴァーガーデン』だよ📘 心があたたかくなる物語なの🌸";
-    }
+  }
   if (/好きな(音楽|アーティスト|歌手)/.test(text)) {
     return "ClariSが好きだよ🎧 一番好きな曲は『コネクト』！元気をくれるんだ🌸";
   }
   return null;
 }
 const smallTalkRe = /(こんにちは|こんばんは|やっほー|やぁ|元気|調子どう)/i;
-// ===== Greetings (より自然に) =====
-const GREET_ONLY_RE = /^(?:こん(?:にち|ばん)は|おはよ|おはよう|やっほ|やぁ|hi|hello|ちわ|こんちゃ|お疲れさま|おつかれ|おつ)(?:[〜～!！。．\s]*)$/i;
-function greetingWordByTime() {
-  const h = dayjs().tz(JST_TZ).hour();
-  if (h < 11) return 'おはよう';
-  if (h < 18) return 'こんにちは';
-  return 'こんばんは';
-}
-function isGreetingOnly(t = '') { return GREET_ONLY_RE.test(String(t).trim()); }
 
 // ===== 既定の相槌（連発防止）
 const GENERIC_ACKS = [
-  '教えてくれてありがとう🌸',
-  'OKだよ。続きがあれば聞かせてね😊',
-  'うん、受け取ったよ。いまの気持ちを一言でも大丈夫だよ🌸',
-];
-const GENERIC_FOLLOWUPS = [
-  'どんな話題にしようか？近況・予定・相談のどれかあれば教えてね😊',
-  'いまの気持ち、ひとことでOKだよ🌸',
-  'もしよければ、今日の予定や様子を一言だけ教えてね😊',
+  'そっか、教えてくれてありがとう🌸',
+  '共有ありがとう。無理せずいこうね😊',
+  '了解だよ。必要ならいつでも呼んでね🌸',
+  'OK、受け取ったよ。応援してるよ😊'
 ];
 
 // ===== 判定 =====
@@ -465,8 +452,7 @@ const SCAM_CORE_WORDS = [
 const BRANDS = /(amazon|アマゾン|楽天|rakuten|ヤマト|佐川|日本郵便|ゆうちょ|メルカリ|ヤフオク|apple|アップル|google|ドコモ|docomo|au|softbank|ソフトバンク|paypay|line|ライン)/i;
 const BRAND_OK_CONTEXT = /(で(買い物|注文|購入|支払い|返品|返金|届いた|配達|発送)|プライム|タイムセール|レビュー|ギフト券|ポイント)/i;
 
-// 不適切語（NGワード）
-const inappropriateWords = [
+const inappropriateWords = [ /* 省略: 前掲の語彙リストを維持 */ 
   "セックス","セフレ","エッチ","AV","アダルト","ポルノ","童貞","処女","挿入","射精","勃起","パイズリ","フェラチオ","クンニ","オナニー","マスターベーション",
   "ペニス","チンコ","ヴァギナ","マンコ","クリトリス","乳首","おっぱい","お尻","うんち","おしっこ","小便","大便","ちんちん","おまんこ","ぶっかけ","変態",
   "性奴隷","露出","痴漢","レイプ","強姦","売春","買春","セックスフレンド","風俗","ソープ","デリヘル","援交","援助交際","性病","梅毒","エイズ","クラミジア","淋病","性器ヘルペス",
@@ -474,16 +460,6 @@ const inappropriateWords = [
   "暴力団","ヤクザ","マフィア","テロリスト","犯罪者","殺人鬼","性犯罪者","変質者","異常者","狂人","サイコパス","ソシオパス","ストーカー","不審者","危険人物",
   "ブラック企業","パワハラ上司","モラハラ夫","毒親","モンスターペアレント","カスハラ","カスタマーハラスメント","クレーム","炎上","誹謗中傷","秘密","暴露","晒す","裏切り","騙し","偽り","欺く","悪意","敵意","憎悪","嫉妬","復讐","ぱふぱふ","せんずり","センズリ"
 ];
-
-// ===== Inappropriate helper (MUST HAVE) =====
-function hasInappropriate(text = '') {
-  const t = normalizeJa(text);
-  for (const w of inappropriateWords) {
-    if (t.includes(normalizeJa(w))) return true;
-  }
-  return false;
-}
-
 const empatheticTriggers = [ "辛い","しんどい","悲しい","苦しい","助けて","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい","消えたい","死にそう" ];
 const homeworkTriggers = ["宿題","勉強","問題","テスト","方程式","算数","数学","答え","解き方","教えて","計算","証明","公式","入試","受験"];
 
@@ -910,8 +886,8 @@ async function handleUnfollowEvent(event) {
 }
 async function handleJoinEvent(event) {
   audit('join', { groupId: event.source.groupId || event.source.roomId });
-  if (event.source.groupId) await setActiveWatchGroupId(event.source.groupId);
-  const gid = event.source.groupId || event.source.roomId;
+  if (event.source.groupId) { await setActiveWatchGroupId(event.source.groupId); }
+  const gid = event.source.groupId;
   if (gid) await safeReplyOrPush(event.replyToken, gid, { type:'text', text:'このグループを見守りグループとして使う場合は「@見守りグループにする」と発言してください。' });
 }
 async function handleLeaveEvent(event) {
@@ -1058,7 +1034,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 5.5) 予定・近況
+  // 5.5) 予定・近況（例: 今日はつむぎ館で麻雀）
   const lastState = (u.lastStatus || {});
   const status = detectStatus(text);
   if (status) {
@@ -1092,7 +1068,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 5.6) 終了・到着トリガー
+  // 5.6) 「終わった/着いた」→ 直前の lastStatus に応じて労い
   if (END_TRIGGERS.test(text) && lastState?.kind) {
     let msg;
     switch (lastState.kind) {
@@ -1121,7 +1097,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 6) 危険/詐欺/共感
+  // 6) 危険/詐欺/共感（優先：危険 > 詐欺 > 共感）
   const danger = isDangerMessage(text);
   const scam   = !danger && isScamMessage(text);
   const empathyOnly = !danger && !scam && hasEmpathyWord(text);
@@ -1182,350 +1158,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 7) 不適切語
-  if (hasInappropriate(text)) {
-    const n = await incrInapCount(userId);
-    if (n === 1) {
-      await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ごめんね、その話題にはお答えできません。違う話をしようね😊🌸' });
-    } else if (n === 2) {
-      await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ガイドラインに反する内容はお答えできないよ。次はアカウント一時停止になるから気をつけてね🌸' });
-    } else {
-      await suspendUser(userId, 7);
-      const untilTs = dayjs().tz(JST_TZ).add(7, 'day').hour(0).minute(0).second(0).millisecond(0).toDate();
-      const untilStr = fmtUntilJST(untilTs);
-      const msg = ORG_CONTACT_TEL
-        ? `ガイドライン違反のため、アカウントを${untilStr}まで一時停止します。解除のご相談は事務局（${ORG_CONTACT_TEL}）へお願いします。`
-        : `ガイドライン違反のため、アカウントを${untilStr}まで一時停止します。解除のご相談は事務局へお願いします。`;
-      await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
-      try {
-        const WATCH_GROUP_ID = await getActiveWatchGroupId();
-        const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
-        if (gid) await safePush(gid, { type:'text', text:`【一時停止(7日)】ユーザー末尾:${userId.slice(-6)} / 不適切語3回/日` });
-      } catch(e){ briefErr('suspend notify failed', e); }
-    }
-    return;
-  }
-
-  // 8) 宿題（学生/未成年は答えNG→ヒントのみ）
-  const isStudentMinor = (() => {
-    const p = u?.profile || {};
-    if (p.isStudent === true) return true;
-    if (typeof p.age === 'number' && p.age <= 18) return true;
-    if (/(小学生|中学|高校|大学|生徒|学生)/.test(String(p.category||'') + String(p.note||'') + String(p.job||'') + String(p.school||''))) return true;
-    return false;
-  })();
-  if (homeworkTriggers.some(k => text.includes(k))) {
-    if (isStudentMinor) {
-      await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'宿題の“答え”はお伝えできないけど、考え方やヒントなら一緒にできるよ🌸 どこでつまずいたか教えてね😊' });
-      return;
-    }
-  }
-
-  // 9) 通常会話（固定の好み・優先応答）
-  const special = getSpecialReply(text);
-  if (special) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: special }); return; }
-  const like = replyLikes(text);
-  if (like) { await safeReplyOrPush(event.replyToken, userId, { type:'text', text: like }); return; }
-  // あいさつだけのときはシンプルに返す
-  if (isGreetingOnly(text)) {
-    const g = greetingWordByTime();
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: `${g}〜！来てくれてうれしい😊 挨拶だけでもOKだよ。` });
-    return;
-  }
-  // 「元気？」系には様子うかがい
-  if (/(元気|調子)/i.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: '私は元気だよ！あなたはどう？無理せずいこうね🌸' });
-    return;
-  }
-
-  // 9.5) フィードバック（冷たい/日本語になってない等）
-  const tnorm = normalizeJa(text);
-  if (/(冷たい|日本語になってない|喧嘩売ってる|けんかうってる|感じ悪い|ズレてる|ずれてる)/i.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: 'ごめん、冷たく感じさせちゃった…もう一度ちゃんと聞きたいな。今は「近況」「予定」「相談」のどれを話したい？🌸' });
-    return;
-  }
-  if (/挨拶.*だけ|あいさつ.*だけ|だけだよ/.test(tnorm)) {
-    const g = greetingWordByTime();
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: `${g}！挨拶ありがとう😊 よかったら近況や予定を一言教えてね。` });
-    return;
-  }
-
-  // 10) 既定の相槌（固定文の連発を避ける）
-  await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick(GENERIC_FOLLOWUPS) });
-}
-
-// ===== Server =====
-app.listen(PORT, () => log('info', `Listening on port ${PORT}`));
-
-async function handleLeaveEvent(event) {
-  audit('leave', { groupId: event.source.groupId || event.source.roomId });
-  if (event.source.groupId) await setActiveWatchGroupId(null);
-}
-
-async function answerOrgOrHomepage(event, userId, text) {
-  if (isHomepageIntent(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:`うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}` });
-    return true;
-  }
-  if (ORG_INTENT.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, [
-      { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
-      { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-    ]);
-    return true;
-  }
-  if (ORG_SUSPICIOUS.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, [
-      { type:'text', text:'そう思わせてしまったらごめんね💦 でも、私たちはみんなの力になりたくて誠実に活動しているよ🌸' },
-      { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-    ]);
-    return true;
-  }
-  if (/(会話(になって)?ない|噛み合ってない|おかしくない|かいわ)/i.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'ごめんね、分かりにくかったかも…もう一度だけ案内するね🌸 必要なことを短く伝えてくれたら助かるよ。' });
-    return true;
-  }
-  return false;
-}
-
-// ===== メイン =====
-async function handleEvent(event) {
-  const userId = event.source.userId;
-  const isUser  = event.source.type === 'user';
-  const isGroup = event.source.type === 'group';
-  const isRoom  = event.source.type === 'room';
-  const groupId = event.source.groupId || event.source.roomId || null;
-
-  const text = event.message.type === 'text' ? (event.message.text || '') : '';
-  const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
-
-  // group/room
-  if (isGroup || isRoom) {
-    if (text.includes('@見守りグループにする')) {
-      await setActiveWatchGroupId(groupId);
-      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'OK！このグループを見守りグループとして設定したよ😊' });
-      return;
-    }
-    if (/^\/relay\s+/.test(text)) {
-      const m = text.trim().match(/^\/relay\s+([0-9A-Za-z_-]{10,})/);
-      if (!m) { await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'使い方: /relay <ユーザーID>' }); return; }
-      const targetUserId = m[1];
-      await relays.start(groupId, targetUserId, userId);
-      await safePush(targetUserId, { type:'text', text:'事務局（見守りグループ）とつながりました。ここで会話できます🌸（終了は /end）' });
-      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'リレーを開始しました。このグループの発言は本人に届きます。終了は /end' });
-      return;
-    }
-    if (text.trim() === '/end') {
-      await relays.stop(groupId);
-      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'リレーを終了しました。' });
-      return;
-    }
-    if (/^\/unlock\s+/.test(text)) {
-      const m = text.trim().match(/^\/unlock\s+([0-9A-Za-z_-]{10,})/);
-      if (!m) {
-        await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'使い方: /unlock <ユーザーID>' });
-        return;
-      }
-      const targetUserId = m[1];
-      await unsuspendUser(targetUserId);
-      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:`解除しました：${targetUserId.slice(-6)}` });
-      try {
-        await safePush(targetUserId, { type:'text', text:'ご利用を再開できるようにしました。ガイドラインの順守をお願いします🌸' });
-      } catch (_) {}
-      return;
-    }
-    const r = await relays.get(groupId);
-    if (r?.isActive && r?.userId && event.message?.type === 'text') {
-      await safePush(r.userId, { type:'text', text:`【見守り】${text}` });
-    }
-    return;
-  }
-
-  // 0) リレー中は“こころ返信停止”＆本人→グループへ中継のみ
-  try {
-    const WATCH_GROUP_ID = await getActiveWatchGroupId();
-    const r = await relays.get(WATCH_GROUP_ID);
-    if (r?.isActive && r?.userId === userId && WATCH_GROUP_ID) {
-      if (text) await safePush(WATCH_GROUP_ID, { type:'text', text:`【本人】${text}` });
-      return; // ← 通常返信は止める
-    }
-  } catch (e) { briefErr('relay user->group failed', e); }
-
-  // 1) org/homepage first
-  if (await answerOrgOrHomepage(event, userId, text)) return;
-
-  // profile/watch
-  const udoc = await db.collection('users').doc(userId).get();
-  const u = udoc.exists ? (udoc.data() || {}) : {};
-  const enabled = !!(u.watchService && u.watchService.enabled);
-
-  // 2) 停止中チェック（危険ワードは例外で通す）
-  const suspendedActive = await isSuspended(userId);
-  if (suspendedActive && !isDangerMessage(text)) {
-    const st = (udoc.exists ? (udoc.data().status || {}) : {});
-    if (!st.suspendNotifiedAt) {
-      const untilStr = st.suspendedUntil?.toDate?.() ? fmtUntilJST(st.suspendedUntil.toDate()) : null;
-      const base = untilStr ? `現在このアカウントは${untilStr}まで一時停止中です。` : `現在このアカウントは一時停止中です。`;
-      const msg = ORG_CONTACT_TEL ? `${base} 解除のご相談は事務局（${ORG_CONTACT_TEL}）へお願いします。` : `${base} 解除のご相談は事務局へお願いします。`;
-      await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
-      await db.collection('users').doc(userId).set({ status: { suspendNotifiedAt: Timestamp.now() } }, { merge: true });
-    }
-    return;
-  }
-
-  // 3) watch OK by text/sticker
-  if (isUser && enabled && u.watchService?.awaitingReply && (
-    /(^(ok|大丈夫|はい|元気|おけ|おっけ|okだよ|問題ない|なんとか|ありがとう)$)/i.test(text.trim()) ||
-    /^(11537|11538|52002734|52002735|52002741|52002742|52002758|52002759|52002766|52002767)$/i.test(stickerId)
-  )) {
-    const ref = db.collection('users').doc(userId);
-    await ref.set({ watchService:{ awaitingReply:false, lastReplyAt: Timestamp.now() } }, { merge:true });
-    await scheduleNextPing(userId);
-    await safeReplyOrPush(event.replyToken, userId, [
-      { type:'text', text:'OK、受け取ったよ！💖 いつもありがとう😊' },
-      { type:'sticker', packageId:'6325', stickerId:'10979913' }
-    ]);
-    return;
-  }
-
-  // 4) 見守りメニュー
-  if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
-    const en = !!(u.watchService && u.watchService.enabled);
-    await safeReplyOrPush(event.replyToken, userId, makeWatchToggleFlex(en, userId));
-    return;
-  }
-
-  // 5) 会員登録
-  if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
-    await safeReplyOrPush(event.replyToken, userId, makeRegistrationButtonsFlex(userId));
-    return;
-  }
-
-  // 5.5) 予定・近況
-  const lastState = (u.lastStatus || {});
-  const status = detectStatus(text);
-  if (status) {
-    let msg;
-    switch (status.kind) {
-      case 'dentist':
-        msg = '今日は歯医者なんだね。緊張するよね…終わったら「終わった」って知らせてね🌸';
-        break;
-      case 'hospital':
-        msg = '通院おつかれさま。無理せず、終わったら一言教えてね😊';
-        break;
-      case 'work':
-        msg = 'お仕事いってらっしゃい。休める時は深呼吸してね🌸';
-        break;
-      case 'school':
-        msg = '学校がんばって！分からないことは少しずつで大丈夫だよ😊';
-        break;
-      case 'mahjong':
-        msg = '健康麻雀いいね！楽しんできてね。終わったら様子を教えてくれると嬉しいな🌸';
-        break;
-      case 'community':
-        msg = '地域の場に向かうんだね。みんなが笑顔になる時間になりますように😊 終わったら一言ちょうだい！';
-        break;
-      default:
-        msg = pick(GENERIC_ACKS);
-    }
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
-    await db.collection('users').doc(userId).set({
-      lastStatus: { kind: status.kind, phrase: status.phrase, at: Timestamp.now() }
-    }, { merge: true });
-    return;
-  }
-
-  // 5.6) 終了・到着トリガー
-  if (END_TRIGGERS.test(text) && lastState?.kind) {
-    let msg;
-    switch (lastState.kind) {
-      case 'dentist':
-        msg = '歯医者おつかれさま！がんばったね。しばらくは刺激物ひかえて水分とってね🌸';
-        break;
-      case 'hospital':
-        msg = '通院おつかれさま。結果や気持ち、話したくなったらいつでもどうぞ😊';
-        break;
-      case 'work':
-        msg = 'お仕事おつかれさま！少し休もうね🌸';
-        break;
-      case 'school':
-        msg = 'おつかれさま！よくがんばったね。少しリラックスしよう😊';
-        break;
-      case 'mahjong':
-        msg = '健康麻雀おつかれさま！楽しかった？少し水分とって休もうね🌸';
-        break;
-      case 'community':
-        msg = 'おつかれさま！優しい時間になったね。様子をまた聞かせてね😊';
-        break;
-      default:
-        msg = 'おつかれさま！教えてくれてありがとう🌸';
-    }
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
-    return;
-  }
-
-  // 6) 危険/詐欺/共感
-  const danger = isDangerMessage(text);
-  const scam   = !danger && isScamMessage(text);
-  const empathyOnly = !danger && !scam && hasEmpathyWord(text);
-
-  if (danger || scam || empathyOnly) {
-    if (danger) {
-      const two = await gptTwoShorts('danger', text) || fallbackDangerTwo();
-      const flex = makeDangerFlex();
-      await safeReplyOrPush(event.replyToken, userId, [ { type:'text', text: two }, flex ]);
-
-      try {
-        const WATCH_GROUP_ID = await getActiveWatchGroupId();
-        const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
-        if (gid && SEND_OFFICER_ALERTS !== false) {
-          const name     = u?.profile?.displayName || u?.displayName || '(不明)';
-          const excerpt  = sanitizeForLog(text).slice(0, 120);
-          const selfTel  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
-          const kinName  = u?.emergency?.contactName || '';
-          const kinPhone = u?.emergency?.contactPhone || '';
-          const flexAlert = buildGroupAlertFlex({ kind:'危険', name, userId, excerpt, selfPhone:selfTel, kinName, kinPhone });
-          await safePush(gid, [
-            { type:'text', text:`【危険ワード】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
-            flexAlert
-          ]);
-          audit('danger-alert-sent', { gid, uid: userId.slice(-6) });
-        }
-      } catch(e){ briefErr('alert to group failed', e); }
-      return;
-    }
-
-    if (scam) {
-      const two = await gptTwoShorts('scam', text) || fallbackScamTwo();
-      const flex = makeScamMessageFlex();
-      await safeReplyOrPush(event.replyToken, userId, [ { type:'text', text: two }, flex ]);
-
-      try {
-        const WATCH_GROUP_ID = await getActiveWatchGroupId();
-        const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
-        if (SCAM_ALERT_TO_WATCH_GROUP && gid) {
-          const name     = u?.profile?.displayName || u?.displayName || '(不明)';
-          const excerpt  = sanitizeForLog(text).slice(0, 120);
-          const selfTel  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
-          const kinName  = u?.emergency?.contactName || '';
-          const kinPhone = u?.emergency?.contactPhone || '';
-          const flexAlert = buildGroupAlertFlex({ kind:'詐欺の可能性', name, userId, excerpt, selfPhone:selfTel, kinName, kinPhone });
-          await safePush(gid, [
-            { type:'text', text:`【詐欺の可能性】\nユーザーID末尾: ${userId.slice(-6)}\nメッセージ: ${excerpt}` },
-            flexAlert
-          ]);
-          audit('scam-alert-sent', { gid, uid: userId.slice(-6) });
-        }
-      } catch(e){ briefErr('alert to group failed', e); }
-      return;
-    }
-
-    // empathyOnly
-    await safeReplyOrPush(event.replyToken, userId, { type:'text', text:'話してくれてありがとう🌸 まずは深呼吸しようね。ここにいるよ、少しずつで大丈夫だよ😊' });
-    return;
-  }
-
-  // 7) 不適切語
+  // 7) 不適切語（危険/詐欺に該当しない場合に適用）
   if (hasInappropriate(text)) {
     const n = await incrInapCount(userId);
     if (n === 1) {
