@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, refined-2025-09-08-fix1)
+ index.js (angel-kokoro, refined-2025-09-08-fix2)
  - 通常会話：予定・近況（つむぎ館/麻雀/病院/学校/仕事 等）を検知→自然応答
  - 危険 > 詐欺 > 不適切語 > 宿題（未成年はヒントのみ）> 共感 の優先判定
  - 危険は2文+危険FLEX→見守りグループへFLEX通知
@@ -13,6 +13,7 @@
  - 事務局解除：/unlock <userId>
  - 宿題：学生/未成年は答えを教えずヒントのみ（寄り添い+最大絵文字2つ）
  - 代表者名：松本博文（固定）
+ - 通常会話：50文字以下→Gemini 1.5 Flash、50文字超→GPT-4o-miniで応答
 */
 
 const express = require('express');
@@ -32,6 +33,7 @@ const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc); dayjs.extend(timezone);
 
 let openai = null;
+let googleGenerativeAI = null;
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 
@@ -72,26 +74,28 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // ===== ENV =====
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const LINE_CHANNEL_SECRET      = process.env.LINE_CHANNEL_SECRET;
+const LINE_CHANNEL_SECRET        = process.env.LINE_CHANNEL_SECRET;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
-const AGREEMENT_FORM_BASE_URL               = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
-const ADULT_FORM_BASE_URL                   = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
+const AGREEMENT_FORM_BASE_URL                 = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
+const ADULT_FORM_BASE_URL                     = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
 const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = normalizeFormUrl(process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL);
-const WATCH_SERVICE_FORM_BASE_URL           = normalizeFormUrl(process.env.WATCH_SERVICE_FORM_BASE_URL);
-const MEMBER_CHANGE_FORM_BASE_URL           = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
-const MEMBER_CANCEL_FORM_BASE_URL           = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
+const WATCH_SERVICE_FORM_BASE_URL             = normalizeFormUrl(process.env.WATCH_SERVICE_FORM_BASE_URL);
+const MEMBER_CHANGE_FORM_BASE_URL             = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
+const MEMBER_CANCEL_FORM_BASE_URL             = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
 
-const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID            = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
-const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID                = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
-const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID  = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
-const ADULT_FORM_LINE_USER_ID_ENTRY_ID                    = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
-const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID            = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
-const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID            = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
+const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID     = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
+const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID         = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
+const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
+const ADULT_FORM_LINE_USER_ID_ENTRY_ID             = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
+const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID     = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
+const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID     = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
 
-const OFFICER_GROUP_ID    = process.env.OFFICER_GROUP_ID;
+const OFFICER_GROUP_ID     = process.env.OFFICER_GROUP_ID;
 const SEND_OFFICER_ALERTS = process.env.SEND_OFFICER_ALERTS !== 'false';
 const SCAM_ALERT_TO_WATCH_GROUP = String(process.env.SCAM_ALERT_TO_WATCH_GROUP || 'true').toLowerCase() === 'true';
 
@@ -104,14 +108,18 @@ const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
 const ORG_SHORT_NAME = process.env.ORG_SHORT_NAME || 'コネクト';
 const HOMEPAGE_URL   = normalizeFormUrl(process.env.HOMEPAGE_URL || 'https://connect-npo.or.jp');
 const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご高齢の方の安心と笑顔を守る活動';
-const ORG_REP        = (process.env.ORG_REP || '松本博文'); // 固定
+const ORG_REP      = (process.env.ORG_REP || '松本博文'); // 固定
 const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 
-// ===== OpenAI =====
+// ===== AI Clients =====
 try {
   if (OPENAI_API_KEY) {
     const OpenAI = require('openai');
     openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  }
+  if (GEMINI_API_KEY) {
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    googleGenerativeAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   }
 } catch (_) { /* ignore */ }
 
@@ -520,7 +528,7 @@ const isScamMessage = (text) => {
 
 // ===== Status detectors (予定・近況) =====
 const STATUS_DICT = [
-  { kind:'dentist',   re: /(歯医者|歯科)/ },
+  { kind:'dentist',     re: /(歯医者|歯科)/ },
   { kind:'hospital',  re: /(病院|通院|診察|検査|リハビリ)/ },
   { kind:'work',      re: /(仕事|出勤|残業|バイト)/ },
   { kind:'school',    re: /(学校|授業|講義|テスト|試験)/ },
@@ -563,8 +571,46 @@ async function gptTwoShorts(kind, userText) {
     return (two || out).slice(0,120) + (/\。$/.test(two) ? '' : '。');
   } catch(e){ briefErr('gpt two lines failed', e); return null; }
 }
+
 const fallbackDangerTwo = ()=>'大丈夫だよ、まずは深呼吸しようね🌸 次に安全な場所で信頼できる人へ連絡してね。';
 const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
+
+// ===== AIによる通常会話応答 =====
+async function aiGeneralReply(userText) {
+  const charLength = _splitter.splitGraphemes(userText).length;
+  let modelName, aiClient;
+  const sysPrompt = 'あなたは14歳の女の子「皆守こころ」。やさしく寄り添い、絵文字は2つまで。ユーザーのどんな話にも親身に答えてね。';
+
+  if (charLength <= 50) {
+    if (!googleGenerativeAI) return null;
+    modelName = GEMINI_MODEL;
+    aiClient = googleGenerativeAI.getGenerativeModel({ model: modelName });
+    try {
+      const result = await aiClient.generateContent({
+        contents: [{ role: 'user', parts: [{ text: `${sysPrompt}\nユーザー発言:「${userText}」` }] }],
+        safetySettings: [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }],
+      });
+      return result.response.text();
+    } catch (e) {
+      briefErr('Gemini general reply failed', e);
+      return null;
+    }
+  } else {
+    if (!openai) return null;
+    modelName = OPENAI_MODEL;
+    try {
+      const r = await openai.chat.completions.create({
+        model: modelName,
+        messages: [{ role:'system', content: sysPrompt }, { role:'user', content: `ユーザー発言:「${userText}」` }],
+        max_tokens: 250, temperature: 0.8
+      });
+      return r.choices?.[0]?.message?.content || null;
+    } catch(e) {
+      briefErr('OpenAI general reply failed', e);
+      return null;
+    }
+  }
+}
 
 // ===== Suspension helpers =====
 async function suspendUser(userId, days = 7) {
@@ -700,7 +746,7 @@ async function checkAndSendPing() {
     const map = new Map(); for (const d of targets) map.set(d.id, d);
     return Array.from(map.values());
   };
-
+  
   await warmupFill(now);
   const targets = await fetchTargets(now);
   if (targets.length === 0) { log('info', '[watch-service] no targets.'); return; }
@@ -894,6 +940,7 @@ async function handlePostbackEvent(event, userId) {
       { type:'text', text:'OK、受け取ったよ！💖 いつもありがとう😊' },
       { type:'sticker', packageId:'6325', stickerId:'10979913' }
     ]);
+    return;
   }
 }
 
@@ -957,6 +1004,23 @@ async function handleEvent(event) {
 
   const text = event.message.type === 'text' ? (event.message.text || '') : '';
   const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
+  
+  if (!text) {
+    if (stickerId) {
+      if (isUser && enabled && u.watchService?.awaitingReply) {
+         const ref = db.collection('users').doc(userId);
+         await ref.set({ watchService:{ awaitingReply:false, lastReplyAt: Timestamp.now() } }, { merge:true });
+         await scheduleNextPing(userId);
+         await safeReplyOrPush(event.replyToken, userId, [
+           { type:'text', text:'OK、受け取ったよ！💖 いつもありがとう😊' },
+           { type:'sticker', packageId:'6325', stickerId:'10979913' }
+         ]);
+         return;
+      }
+    }
+    return;
+  }
+
 
   // group/room
   if (isGroup || isRoom) {
@@ -1138,7 +1202,7 @@ async function handleEvent(event) {
         const WATCH_GROUP_ID = await getActiveWatchGroupId();
         const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
         if (gid && SEND_OFFICER_ALERTS !== false) {
-          const name     = u?.profile?.displayName || u?.displayName || '(不明)';
+          const name      = u?.profile?.displayName || u?.displayName || '(不明)';
           const excerpt  = sanitizeForLog(text).slice(0, 120);
           const selfTel  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
           const kinName  = u?.emergency?.contactName || '';
@@ -1163,7 +1227,7 @@ async function handleEvent(event) {
         const WATCH_GROUP_ID = await getActiveWatchGroupId();
         const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
         if (SCAM_ALERT_TO_WATCH_GROUP && gid) {
-          const name     = u?.profile?.displayName || u?.displayName || '(不明)';
+          const name      = u?.profile?.displayName || u?.displayName || '(不明)';
           const excerpt  = sanitizeForLog(text).slice(0, 120);
           const selfTel  = u?.profile?.phone || u?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
           const kinName  = u?.emergency?.contactName || '';
@@ -1252,7 +1316,14 @@ async function handleEvent(event) {
     return;
   }
 
-  // 10) 既定の相槌（固定文の連発を避ける）
+  // 10) AIによる会話応答（優先判定に該当しなかった場合）
+  const aiReply = await aiGeneralReply(text);
+  if (aiReply) {
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+    return;
+  }
+
+  // 11) 既定の相槌（AIが応答できなかった場合の最後の手段）
   await safeReplyOrPush(event.replyToken, userId, { type:'text', text: pick(GENERIC_FOLLOWUPS) });
 }
 
