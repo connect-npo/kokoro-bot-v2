@@ -653,8 +653,7 @@ async function aiGeneralReply(userText, rank, userId, useProModel = false) {
   const charLength = _splitter.splitGraphemes(userText).length;
   // ✅ 修正: 相談モードのモデル切り替え
   const modelName = useProModel ? GEMINI_PRO_MODEL : (charLength <= 50 ? GEMINI_FLASH_MODEL : MEMBERSHIP_CONFIG[rank].model);
-  let aiClient;
-
+  
   // 詳細なシステムプロンプトの定義
   const systemInstruction = `
   あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
@@ -718,13 +717,6 @@ async function aiGeneralReply(userText, rank, userId, useProModel = false) {
   また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
   「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
   `;
-  const empathyPrompt = `
-  あなたは「皆守こころ（みなもりこころ）」という14歳のやさしい女の子キャラクターです。
-  ユーザーが深刻な悩みや命の危険を訴えた時、やさしく、寄り添いながら、相手に安心感を与えてください。
-  必要に応じて専門機関の連絡先を伝え、「ひとりじゃないよ」と伝えてください。
-  共感・安心・やさしさが最優先です。
-  「一人で抱え込まないでね」「いつでも私がそばにいるよ」「一緒に乗り越えようね」「専門の人が助けてくれるから安心して」といった言葉を使ってください。
-  `;
 
   const messages = [{ role:'system', content: systemInstruction }];
   chatHistory.forEach(h => {
@@ -741,6 +733,7 @@ async function aiGeneralReply(userText, rank, userId, useProModel = false) {
       return { role, parts: [{ text: m.content }] };
     });
     
+    // ロールをまとめる処理
     const combinedMessages = [];
     for (const msg of transformedMessages) {
       if (combinedMessages.length > 0 && combinedMessages[combinedMessages.length - 1].role === msg.role) {
@@ -763,9 +756,24 @@ async function aiGeneralReply(userText, rank, userId, useProModel = false) {
   } else {
     if (!openai) return null;
     try {
+      const formattedMessages = messages.map(m => ({
+        role: m.role === 'system' ? 'user' : m.role, // APIのロールに合わせて調整
+        content: m.content
+      }));
+
+      // ロールの結合
+      const consolidatedMessages = [];
+      formattedMessages.forEach(msg => {
+        if (consolidatedMessages.length > 0 && consolidatedMessages[consolidatedMessages.length - 1].role === msg.role) {
+          consolidatedMessages[consolidatedMessages.length - 1].content += '\n' + msg.content;
+        } else {
+          consolidatedMessages.push(msg);
+        }
+      });
+      
       const r = await openai.chat.completions.create({
         model: modelName,
-        messages: messages.slice(1).map(m => ({ role: m.role === 'system' ? 'user' : m.content })),
+        messages: consolidatedMessages,
         max_tokens: 250, temperature: 0.8
       });
       return r.choices?.[0]?.message?.content || null;
