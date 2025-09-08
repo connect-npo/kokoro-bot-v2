@@ -1236,10 +1236,11 @@ async function handleEvent(event) {
       return;
     }
     if (text.trim() === '/end') {
-      await relays.stop(groupId);
-      await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'リレーを終了しました。' });
-      return;
-    }
+    await relays.stop(groupId);
+    await safeReplyOrPush(event.replyToken, groupId, { type:'text', text:'リレーを終了しました。' });
+    return;
+  }
+}
     if (/^\/unlock\s+/.test(text)) {
       const m = text.trim().match(/^\/unlock\s+([0-9A-Za-z_-]{10,})/);
       if (!m) {
