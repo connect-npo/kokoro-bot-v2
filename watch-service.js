@@ -17,13 +17,37 @@ dayjs.extend(timezone);
 
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
-
 const { Client, middleware } = require('@line/bot-sdk');
 
+const normalizeFormUrl = s => {
+  let v = String(s || '').trim();
+  if (!v) return '';
+  v = v.replace(/^usp=header\s*/i, '');
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  try {
+    new URL(v);
+    return v;
+  } catch {
+    console.warn('[WARN] Invalid form URL in env:', s);
+    return '';
+  }
+};
+const prefillUrl = (base, params) => {
+  if (!base) return '#';
+  const url = new URL(base);
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value);
+  }
+  return url.toString();
+};
+
+// === Env ===
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const EMERGENCY_CONTACT_PHONE_NUMBER = process.env.EMERGENCY_CONTACT_PHONE_NUMBER;
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const OWNER_USER_ID = process.env.OWNER_USER_ID || null;
+const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 
 let creds = null;
 if (process.env.FIREBASE_CREDENTIALS_BASE64) {
@@ -33,53 +57,42 @@ if (!firebaseAdmin.apps.length) {
   if (!creds) {
     creds = require("./serviceAccountKey.json");
   }
-  firebaseAdmin.initializeApp({
-    credential: firebaseAdmin.credential.cert(creds),
-  });
+  firebaseAdmin.initializeApp({ credential: firebaseAdmin.credential.cert(creds) });
   console.log("✅ Firebase initialized");
 }
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
-const client = new Client({
-  channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: LINE_CHANNEL_SECRET,
-});
+const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
 
-const PORT = process.env.PORT || 3000;
 const app = express();
+const PORT = process.env.PORT || 3000;
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 2));
+app.use(helmet());
+app.use('/webhook', rateLimit({ windowMs: 60_000, max: 100 }));
 
+// === 見守り設定 ===
 const JST_TZ = 'Asia/Tokyo';
 const PING_INTERVAL_DAYS = 3;
 const REMINDER_AFTER_HOURS = 24;
 const ESCALATE_AFTER_HOURS = 29;
 
-// === 状態管理 ===
+// 状態管理
 const WATCH_STATUS = {
-  NONE: 'none',
-  WAITING: 'waiting',
-  REMINDED: 'reminded',
-  ALERTED: 'alerted'
+  WAITING: 'waiting',   // ping直後
+  REMINDED: 'reminded', // 24hリマインド済
+  ALERTED: 'alerted',   // 29h通報済
+  NONE: 'none'
 };
 const REMIND_GAP_HOURS = ESCALATE_AFTER_HOURS - REMINDER_AFTER_HOURS; // 5h
 
-const pickWatchMsg = () => {
-  const msgs = [
-    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
-    "やっほー！ こころだよ😊 いつも応援してるね！",
-    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
-    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
-    "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
-    "元気出してね！こころちゃん、あなたの味方だよ😊",
-    "こんにちは😊 困ったことはないかな？いつでも相談してね！",
-  ];
-  return msgs[Math.floor(Math.random() * msgs.length)];
-};
-
+// === ユーティリティ ===
+const pickWatchMsg = () => "こころちゃんだよ🌸";
 const nextPingAtFrom = (fromDate) =>
   dayjs(fromDate).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day').hour(15).minute(0).second(0).millisecond(0).toDate();
 
 async function scheduleNextPing(userId, fromDate = new Date()) {
-  const nextAt = nextPingAtFrom(fromDate);
+  const nextAt = dayjs(fromDate).tz(JST_TZ).add(PING_INTERVAL_DAYS, 'day')
+    .hour(15).minute(0).second(0).millisecond(0).toDate();
   await db.collection('users').doc(userId).set({
     watchService: {
       nextPingAt: Timestamp.fromDate(nextAt),
@@ -98,78 +111,35 @@ async function safePush(to, messages) {
   try {
     await client.pushMessage(to, arr);
   } catch (err) {
-    console.error('[ERR] LINE push failed', err?.response?.data || err);
+    console.error('[ERR] LINE push failed', err?.response?.data || err.message);
   }
 }
 
-const maskPhone = (raw = '') => {
-  const s = String(raw).replace(/[^0-9+]/g, '');
-  if (!s) return '';
-  const tail = s.slice(-4);
-  const head = s.slice(0, -4).replace(/[0-9]/g, '＊');
-  return head + tail;
-};
-
-const buildWatchFlex = (u, userId, elapsedHours, telRaw) => {
-  const name = u?.profile?.displayName || '(不明)';
-  const tel = String(telRaw || '').trim();
-  const masked = tel ? maskPhone(tel) : '未登録';
-  return {
-    type: 'flex',
-    altText: `🚨未応答: ${name} / ${elapsedHours}時間`,
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box', layout: 'vertical', spacing: 'md',
-        contents: [
-          { type: 'text', text: '🚨 見守り未応答', weight: 'bold', size: 'xl' },
-          { type: 'text', text: `ユーザー名：${name}`, wrap: true },
-          { type: 'text', text: `UserID：${userId}`, size: 'sm', color: '#888', wrap: true },
-          { type: 'text', text: `経過：${elapsedHours}時間`, wrap: true },
-          { type: 'separator', margin: 'md' },
-          { type: 'text', text: `連絡先（マスク）：${masked}`, wrap: true },
-        ]
-      },
-      footer: {
-        type: 'box', layout: 'vertical', spacing: 'md',
-        contents: tel ? [{
-          type: 'button', style: 'primary',
-          action: { type: 'uri', label: '📞 発信する', uri: `tel:${tel}` }
-        }] : [{ type: 'text', text: '※TEL未登録', size: 'sm', color: '#888' }]
-      }
-    }
-  };
-};
-
+// === 見守りロジック ===
 async function checkAndSendPing() {
   const now = dayjs().tz('UTC');
-  console.log(`[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
-
-  const snap = await db.collection('users')
-    .where('watchService.enabled', '==', true)
-    .limit(200)
-    .get();
+  const usersRef = db.collection('users');
+  const snap = await usersRef.where('watchService.enabled', '==', true).limit(200).get();
+  if (snap.empty) return;
 
   for (const doc of snap.docs) {
     const ref = doc.ref;
     const u = doc.data() || {};
     const ws = u.watchService || {};
     const awaiting = !!ws.awaitingReply;
+    const lastPingAt = ws.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
+    const lastReminderAt = ws.lastReminderAt?.toDate?.() ? dayjs(ws.lastReminderAt.toDate()) : null;
+    const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(ws.lastNotifiedAt.toDate()) : null;
     const status = ws.status || WATCH_STATUS.NONE;
-    const lastPingAt = ws.lastPingAt?.toDate ? dayjs(ws.lastPingAt.toDate()) : null;
-    const lastReminderAt = ws.lastReminderAt?.toDate ? dayjs(ws.lastReminderAt.toDate()) : null;
 
-    let mode = 'noop';
-
-    if (!awaiting && (!ws.nextPingAt || ws.nextPingAt.toDate() <= now.toDate())) {
-      mode = 'ping';
-    } else if (awaiting && lastPingAt) {
-      const hrsSincePing = dayjs().utc().diff(lastPingAt.utc(), 'hour');
+    let mode = (!awaiting) ? 'ping' : 'noop';
+    if (awaiting && lastPingAt) {
+      const hrsSincePing = dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour');
       if (status === WATCH_STATUS.WAITING && hrsSincePing >= REMINDER_AFTER_HOURS) {
         mode = 'remind';
       }
       if (status === WATCH_STATUS.REMINDED) {
-        const hrsSinceRemind = lastReminderAt ? dayjs().utc().diff(lastReminderAt.utc(), 'hour') : 0;
+        const hrsSinceRemind = lastReminderAt ? dayjs().utc().diff(dayjs(lastReminderAt).utc(), 'hour') : 0;
         if (hrsSinceRemind >= REMIND_GAP_HOURS || hrsSincePing >= ESCALATE_AFTER_HOURS) {
           mode = 'escalate';
         }
@@ -177,58 +147,23 @@ async function checkAndSendPing() {
     }
 
     if (mode === 'ping') {
-      await safePush(doc.id, [{
-        type: 'text',
-        text: `${pickWatchMsg()} 大丈夫なら「OKだよ💖」を押してね！`
-      }, {
-        type: 'flex',
-        altText: '見守りチェック',
-        contents: {
-          type: 'bubble',
-          body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: '見守りチェック', weight: 'bold', size: 'xl' }] },
-          footer: {
-            type: 'box', layout: 'vertical',
-            contents: [{
-              type: 'button', style: 'primary',
-              action: { type: 'postback', label: 'OKだよ💖', data: 'watch:ok', displayText: 'OKだよ💖' }
-            }]
-          }
-        }
-      }]);
+      await safePush(doc.id, { type: 'text', text: `${pickWatchMsg()} 大丈夫なら「OKだよ💖」を押してね！` });
       await ref.set({
         watchService: {
           lastPingAt: Timestamp.now(),
           awaitingReply: true,
-          status: WATCH_STATUS.WAITING
+          status: WATCH_STATUS.WAITING,
         }
       }, { merge: true });
-    }
-
-    if (mode === 'remind') {
-      await safePush(doc.id, [{
-        type: 'text',
-        text: `${pickWatchMsg()} 昨日の見守りのOKまだ受け取れてないの… 大丈夫ならボタン押してね！`
-      }]);
+    } else if (mode === 'remind') {
+      if (status === WATCH_STATUS.REMINDED) continue; // 1回だけ
+      await safePush(doc.id, { type: 'text', text: `${pickWatchMsg()} 昨日のOKまだ受け取れてないの…` });
       await ref.set({
-        watchService: {
-          lastReminderAt: Timestamp.now(),
-          status: WATCH_STATUS.REMINDED
-        }
+        watchService: { lastReminderAt: Timestamp.now(), status: WATCH_STATUS.REMINDED }
       }, { merge: true });
-    }
-
-    if (mode === 'escalate') {
-      const tel = u?.profile?.phone || u?.emergency?.contactPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
-      const elapsedH = lastPingAt ? dayjs().utc().diff(lastPingAt.utc(), 'hour') : ESCALATE_AFTER_HOURS;
-      const flex = buildWatchFlex(u, doc.id, elapsedH, tel);
-
-      if (OFFICER_GROUP_ID) {
-        await safePush(OFFICER_GROUP_ID, [
-          { type: 'text', text: '🚨見守り未応答が発生しました。対応お願いします。' },
-          flex
-        ]);
-      }
-
+    } else if (mode === 'escalate') {
+      if (!OFFICER_GROUP_ID) continue;
+      await safePush(OFFICER_GROUP_ID, { type: 'text', text: `🚨未応答ユーザー: ${doc.id}` });
       await ref.set({
         watchService: {
           lastNotifiedAt: Timestamp.now(),
@@ -239,12 +174,63 @@ async function checkAndSendPing() {
       }, { merge: true });
     }
   }
-
-  console.log(`[watch-service] end ${dayjs().tz('UTC').format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
 }
 
-cron.schedule('*/5 * * * *', () => {
-  checkAndSendPing().catch(err => console.error('Cron job error:', err));
-}, { scheduled: true, timezone: 'UTC' });
+// === Cron ===
+if (WATCH_RUNNER !== 'external') {
+  cron.schedule('*/5 * * * *', () => checkAndSendPing().catch(console.error), { timezone: 'UTC' });
+}
+
+// === Webhook ===
+const lineMiddleware = middleware({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
+app.post('/webhook', lineMiddleware, async (req, res) => {
+  res.sendStatus(200);
+  const events = req.body.events || [];
+  for (const ev of events) {
+    if (ev.type === 'postback') await handlePostbackEvent(ev, ev.source.userId);
+    if (ev.type === 'message') await handleEvent(ev);
+  }
+});
+
+// === Postback Handler ===
+async function handlePostbackEvent(event, userId) {
+  if (event.postback.data === 'watch:ok') {
+    const ref = db.collection('users').doc(userId);
+    await ref.set({
+      watchService: {
+        awaitingReply: false,
+        lastReplyAt: Timestamp.now(),
+        status: WATCH_STATUS.NONE
+      }
+    }, { merge: true });
+    await scheduleNextPing(userId);
+    await client.replyMessage(event.replyToken, [
+      { type: 'text', text: 'OK、受け取ったよ！💖 ありがとう😊' }
+    ]);
+  }
+}
+
+// === Message Handler ===
+async function handleEvent(event) {
+  const userId = event.source.userId;
+  const text = event.message.type === 'text' ? event.message.text : '';
+  const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
+
+  const u = (await db.collection('users').doc(userId).get()).data() || {};
+  if (u.watchService?.enabled && u.watchService?.awaitingReply) {
+    const okByText = /^(ok|okだよ|大丈夫|はい|元気)/i.test(text);
+    const okBySticker = /^(11537|11538|52002734|52002735)$/.test(stickerId);
+    if (okByText || okBySticker) {
+      const ref = db.collection('users').doc(userId);
+      await ref.set({
+        watchService: { awaitingReply: false, lastReplyAt: Timestamp.now(), status: WATCH_STATUS.NONE }
+      }, { merge: true });
+      await scheduleNextPing(userId);
+      await client.replyMessage(event.replyToken, [
+        { type: 'text', text: 'OK、受け取ったよ！💖 ありがとう😊' }
+      ]);
+    }
+  }
+}
 
 app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
