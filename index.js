@@ -1583,12 +1583,13 @@ if (!global.__kokoro_server_started) {
 
 // ===== Watch service cron job =====
 if (WATCH_RUNNER === 'internal') {
-  // 5分ごとに見守りサービスをチェック
-  cron.schedule('*/5 * * * *', async () => {
-    try {
-      await checkAndSendPing();
-    } catch (e) {
-      briefErr('watch service cron failed', e);
-    }
-  });
+  // 毎日午後3時（日本時間）に見守りサービスをチェック
+  // ※UTCの午前6時に相当
+  cron.schedule('0 6 * * *', async () => {
+    try {
+      await checkAndSendPing();
+    } catch (e) {
+      briefErr('watch service cron failed', e);
+    }
+  });
 }
