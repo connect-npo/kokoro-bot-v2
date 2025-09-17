@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- watch-service.js (9-8js 安定ロジック)
+ watch-service.js (修正版)
  - Renderスケジューラから "node watch-service.js" で呼び出す
  - 3日に1度 15:00 に見守りメッセージ送信
  - OKなら3日後に再スケジュール
@@ -11,7 +11,10 @@
 
 const axios = require('axios');
 const firebaseAdmin = require('firebase-admin');
-const { Client } = require('@line/bot-sdk');
+const { Client, middleware } = require('@line/bot-sdk');
+const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const httpMod = require('http');
 const httpsMod = require('https');
 const dayjs = require('dayjs');
@@ -23,6 +26,14 @@ dayjs.extend(timezone);
 
 const splitter = new GraphemeSplitter();
 const toGraphemes = (s) => splitter.splitGraphemes(String(s || ''));
+
+// === WATCH_RUNNER 正規化（未定義参照を防ぐ） ===
+/*
+ WATCH_RUNNER:
+  - 外部一発実行: 'external' または '外部'
+  - デフォルト: internal (webhook サーバー)
+*/
+const WATCH_RUNNER = (process.env.WATCH_RUNNER || '').toString().trim().toLowerCase();
 
 // === Env ===
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -184,6 +195,19 @@ async function safePush(to,messages){
   }catch(e){ logErr('LINE push failed',e); }
 }
 
+// --- ロギング（最小） ---
+function log(level, ...args){
+  const prefix = `[watch-service]`;
+  if(level === 'error' || level === 'err') {
+    console.error(prefix, ...args);
+  } else {
+    console.log(prefix, ...args);
+  }
+}
+function logErr(msg, err){
+  console.error('[watch-service][ERR]', msg, err && err.stack ? err.stack : err);
+}
+
 // === 見守り処理 ===
 async function checkAndSendPing(){
   const now = dayjs().tz(JST_TZ);
@@ -193,7 +217,6 @@ async function checkAndSendPing(){
   if(snap.empty) return;
 
   const groupId = await getWatchGroupDoc().then(s=>s.exists?(s.data().groupId||''):'');
-
   await Promise.all(snap.docs.map(async (doc)=>{
     const ref = doc.ref;
     const u = doc.data() || {};
@@ -248,7 +271,21 @@ async function checkAndSendPing(){
     }
     else if(mode==='escalate'){
       if(groupId){
-        await sendGroupAlert(u);
+        try {
+          await sendGroupAlert(u, groupId);
+        } catch(e){
+          logErr('sendGroupAlert failed', e);
+        }
+        await ref.set({
+          watchService:{
+            lastNotifiedAt: Timestamp.fromDate(now.toDate()),
+            awaitingReply:false,
+            status:WATCH_STATUS.ALERTED,
+            nextPingAt: Timestamp.fromDate(nextPingAtFrom(now.toDate()))
+          }
+        },{merge:true});
+      } else {
+        // グループが設定されていない場合でも次回の ping をセットしておく
         await ref.set({
           watchService:{
             lastNotifiedAt: Timestamp.fromDate(now.toDate()),
@@ -262,8 +299,33 @@ async function checkAndSendPing(){
   }));
 }
 
+// === グループ通報（シンプル実装） ===
+async function sendGroupAlert(userData, groupId){
+  // userData は Firestore の users ドキュメントの内容想定
+  const displayName = userData.displayName || 'ユーザー';
+  const phone = maskPhone(userData.phone || '');
+  const msg = [
+    { type:'text', text:`⚠️ 見守りアラート\n${displayName} さんからOKの応答がありません。` },
+    { type:'text', text:`登録電話: ${phone}\nFirestore UID: ${userData.uid || '不明'}` }
+  ];
+  await safePush(groupId, msg);
+}
+
+// === 次回 ping をスケジュール（シンプル） ===
+async function scheduleNextPing(userId){
+  const nextAt = nextPingAtFrom(dayjs().tz(JST_TZ).toDate());
+  try {
+    await db.collection('users').doc(userId).set({
+      watchService: { nextPingAt: Timestamp.fromDate(nextAt), awaitingReply:false }
+    }, { merge: true });
+    log('info', 'scheduled next ping for', userId, nextAt);
+  } catch(e){
+    logErr('scheduleNextPing failed', e);
+  }
+}
+
 // === 実行エントリポイント ===
-if (WATCH_RUNNER === 'external') {
+if (WATCH_RUNNER === 'external' || WATCH_RUNNER === '外部') {
   (async()=>{
     console.log("▶ ウォッチサービス 一発スタート");
     try {
@@ -271,7 +333,7 @@ if (WATCH_RUNNER === 'external') {
       console.log("✅ 見守りサービス 完了");
       process.exit(0);
     } catch(e){
-      console.error("❌ watch-service failed", e);
+      console.error("❌ watch-service failed", e && e.stack ? e.stack : e);
       process.exit(1);
     }
   })();
@@ -287,28 +349,37 @@ if (WATCH_RUNNER === 'external') {
     res.sendStatus(200);
     const events=req.body.events||[];
     for(const ev of events){
-      if(ev.type==='postback') await handlePostbackEvent(ev,ev.source.userId);
-      if(ev.type==='message')  await handleMessageEvent(ev);
+      try {
+        if(ev.type==='postback') await handlePostbackEvent(ev,ev.source.userId);
+        if(ev.type==='message')  await handleMessageEvent(ev);
+      } catch(e){
+        logErr('handling webhook event failed', e);
+      }
     }
   });
 
   async function handlePostbackEvent(event,userId){
-    if(event.postback.data==='watch:ok'){
+    if(event.postback && event.postback.data==='watch:ok'){
       const ref=db.collection('users').doc(userId);
       await ref.set({
         watchService:{ awaitingReply:false,lastReplyAt:Timestamp.now(),status:WATCH_STATUS.NONE }
       },{merge:true});
       await scheduleNextPing(userId);
-      await client.replyMessage(event.replyToken,[{type:'text',text:'OK、受け取ったよ！💖 ありがとう😊'}]);
+      try {
+        await client.replyMessage(event.replyToken,[{type:'text',text:'OK、受け取ったよ！💖 ありがとう😊'}]);
+      } catch(e){ logErr('replyMessage failed', e); }
     }
   }
 
   async function handleMessageEvent(event){
-    const userId=event.source.userId;
-    const text=event.message.type==='text'?event.message.text:'';
-    const stickerId=event.message.type==='sticker'?event.message.stickerId:'';
+    const userId=event.source && event.source.userId;
+    const text=event.message && event.message.type==='text'?event.message.text:'';
+    const stickerId=event.message && event.message.type==='sticker'?event.message.stickerId:'';
 
-    const u=(await db.collection('users').doc(userId).get()).data()||{};
+    if(!userId) return;
+
+    const docSnap = await db.collection('users').doc(userId).get();
+    const u = docSnap.exists ? (docSnap.data()||{}) : {};
     if(u.watchService?.enabled && u.watchService?.awaitingReply){
       const okByText=/^(ok|okだよ|大丈夫|はい|元気)/i.test(text);
       const okBySticker=/^(11537|11538|52002734|52002735)$/.test(stickerId);
@@ -318,7 +389,9 @@ if (WATCH_RUNNER === 'external') {
           watchService:{awaitingReply:false,lastReplyAt:Timestamp.fromDate(dayjs().tz(JST_TZ).toDate()),status:WATCH_STATUS.NONE}
         },{merge:true});
         await scheduleNextPing(userId);
-        await client.replyMessage(event.replyToken,[{type:'text',text:'OK、受け取ったよ💖 ありがとう😊'}]);
+        try {
+          await client.replyMessage(event.replyToken,[{type:'text',text:'OK、受け取ったよ💖 ありがとう😊'}]);
+        } catch(e){ logErr('reply to OK failed', e); }
       }
     }
   }
