@@ -1217,7 +1217,6 @@ async function handlePostbackEvent(event, userId) {
     await ref.set({ watchService:{ awaitingReply:false, lastReplyAt: Timestamp.now() } }, { merge:true });
     await scheduleNextPing(userId);
     await safeReplyOrPush(event.replyToken, userId, [
-    await safeReplyOrPush(event.replyToken, userId, [
       { type:'text', text:'OK、受け取ったよ！💖 いつもありがとう😊' },
       { type:'sticker', packageId:'6325', stickerId:'10979913' }
     ]);
