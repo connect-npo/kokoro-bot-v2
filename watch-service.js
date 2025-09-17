@@ -1,12 +1,12 @@
 'use strict';
 
 /*
- watch-service.js (修正版)
+ watch-service.js (修正版 with group alert flex)
  - Renderスケジューラから "node watch-service.js" で呼び出す
  - 3日に1度 15:00 に見守りメッセージ送信
  - OKなら3日後に再スケジュール
  - OKがない場合 24時間後にリマインド
- - リマインド後さらに5時間反応がなければグループ通知
+ - リマインド後さらに5時間反応がなければグループ通知（Flexで詳細表示）
 */
 
 const axios = require('axios');
@@ -28,11 +28,6 @@ const splitter = new GraphemeSplitter();
 const toGraphemes = (s) => splitter.splitGraphemes(String(s || ''));
 
 // === WATCH_RUNNER 正規化（未定義参照を防ぐ） ===
-/*
- WATCH_RUNNER:
-  - 外部一発実行: 'external' または '外部'
-  - デフォルト: internal (webhook サーバー)
-*/
 const WATCH_RUNNER = (process.env.WATCH_RUNNER || '').toString().trim().toLowerCase();
 
 // === Env ===
@@ -168,6 +163,34 @@ function buildRemindFlex(){
   };
 }
 
+// --- 追加: グループ通報用 Flex ビルダー ---
+function buildGroupAlertFlex({ kind='見守りアラート', name='不明', userId='unknown', excerpt='（メッセージなし）', selfName='不明', selfAddress='未登録', selfPhone='未登録', kinName='未登録', kinPhone='未登録' }) {
+  // userId の短縮表示用
+  const shortId = (userId && userId.toString().length>6) ? userId.toString().slice(-6) : userId.toString();
+  return {
+    type: "bubble",
+    body: {
+      type: "box", layout: "vertical", spacing: "sm", contents: [
+        { type: "text", text: `【${kind}】`, weight: "bold", size: "lg", color: "#cc0000" },
+        { type: "text", text: `名前: ${name}`, size: "sm" },
+        { type: "text", text: `ID末尾: ${shortId}`, size: "sm" },
+        { type: "text", text: `本人名: ${selfName}`, size: "sm" },
+        { type: "text", text: `本人住所: ${selfAddress}`, size: "sm" },
+        { type: "text", text: `本人電話: ${selfPhone}`, size: "sm" },
+        { type: "text", text: `近親者名: ${kinName}`, size: "sm" },
+        { type: "text", text: `近親者電話: ${kinPhone}`, size: "sm" },
+        { type: "text", text: `メッセージ: ${excerpt}`, size: "sm", wrap: true, margin: "md" }
+      ]
+    },
+    footer: {
+      type: "box", layout: "vertical", contents: [
+        { type: "button", style: "primary", action: { type: "postback", label: "リレー開始", data: `action=start_relay&uid=${encodeURIComponent(userId)}` } }
+      ]
+    }
+  };
+}
+
+// --- マスク関数など ---
 function maskPhone(num){
   if(!num) return '未登録';
   return num.replace(/(\d{3})(\d+)(\d{2})/, (m,a,b,c)=>`${a}****${c}`);
@@ -216,7 +239,9 @@ async function checkAndSendPing(){
     .limit(200).get();
   if(snap.empty) return;
 
-  const groupId = await getWatchGroupDoc().then(s=>s.exists?(s.data().groupId||''):'');
+  const groupDoc = await getWatchGroupDoc().get();
+  const groupId = groupDoc.exists ? (groupDoc.data().groupId||'') : '';
+
   await Promise.all(snap.docs.map(async (doc)=>{
     const ref = doc.ref;
     const u = doc.data() || {};
@@ -285,7 +310,6 @@ async function checkAndSendPing(){
           }
         },{merge:true});
       } else {
-        // グループが設定されていない場合でも次回の ping をセットしておく
         await ref.set({
           watchService:{
             lastNotifiedAt: Timestamp.fromDate(now.toDate()),
@@ -299,16 +323,54 @@ async function checkAndSendPing(){
   }));
 }
 
-// === グループ通報（シンプル実装） ===
+// === グループ通報（Flexを使った詳細通知） ===
 async function sendGroupAlert(userData, groupId){
   // userData は Firestore の users ドキュメントの内容想定
-  const displayName = userData.displayName || 'ユーザー';
-  const phone = maskPhone(userData.phone || '');
-  const msg = [
-    { type:'text', text:`⚠️ 見守りアラート\n${displayName} さんからOKの応答がありません。` },
-    { type:'text', text:`登録電話: ${phone}\nFirestore UID: ${userData.uid || '不明'}` }
-  ];
-  await safePush(groupId, msg);
+  // 期待フィールド例: displayName, phone, uid, profile, address, emergencyContact, lastMessageExcerpt
+  const displayName = userData.displayName || (userData.profile && userData.profile.name) || 'ユーザー';
+  const uid = userData.uid || userData.id || 'unknown';
+  const phone = maskPhone(userData.phone || (userData.profile && userData.profile.phone) || '');
+  const selfName = (userData.profile && userData.profile.name) || displayName;
+  const selfAddress = (userData.profile && userData.profile.address) || '未登録';
+  const selfPhone = userData.phone || (userData.profile && userData.profile.phone) || '未登録';
+
+  // 近親者情報がある想定
+  const kinName = (userData.emergencyContact && userData.emergencyContact.name) || '未登録';
+  const kinPhone = (userData.emergencyContact && userData.emergencyContact.phone) || '未登録';
+
+  // 直近のメッセージ抜粋（あれば）
+  const excerpt = (userData.lastMessageExcerpt) ? userData.lastMessageExcerpt : (userData.recent && userData.recent.message) ? userData.recent.message.slice(0,200) : '（最近のメッセージなし）';
+
+  // Build Flex bubble
+  const bubble = buildGroupAlertFlex({
+    kind: '見守りアラート',
+    name: displayName,
+    userId: uid,
+    excerpt,
+    selfName,
+    selfAddress,
+    selfPhone,
+    kinName,
+    kinPhone
+  });
+
+  // Send: flex + テキスト（テキストはフォールバック/通知の目立たせ用）
+  const altText = `⚠️ 見守りアラート: ${displayName} さんから応答なし`;
+  const flexMsg = { type:'flex', altText, contents: bubble };
+  const textMsg = { type:'text', text: `⚠️ 見守りアラート\n${displayName} さん（ID:${uid.slice(-6)}) からOKの応答がありません。登録電話: ${phone}` };
+
+  try {
+    await safePush(groupId, [textMsg, flexMsg]);
+    log('info','group alert sent', groupId, uid);
+  } catch(e){
+    logErr('failed to push group alert', e);
+    // 失敗時は簡易テキストのみ再送
+    try{
+      await safePush(groupId, [ { type:'text', text: `⚠️ 見守りアラート（簡易）\n${displayName} さん（ID:${uid.slice(-6)}) から応答なし。` } ]);
+    }catch(e2){
+      logErr('failed fallback group push', e2);
+    }
+  }
 }
 
 // === 次回 ping をスケジュール（シンプル） ===
@@ -368,6 +430,14 @@ if (WATCH_RUNNER === 'external' || WATCH_RUNNER === '外部') {
       try {
         await client.replyMessage(event.replyToken,[{type:'text',text:'OK、受け取ったよ！💖 ありがとう😊'}]);
       } catch(e){ logErr('replyMessage failed', e); }
+    }
+
+    // リレー開始等の postback を受け取る場合の簡易処理（必要なら拡張）
+    if(event.postback && event.postback.data && event.postback.data.startsWith('action=start_relay')){
+      // data 例: action=start_relay&uid=...
+      try {
+        await client.replyMessage(event.replyToken, [{type:'text', text:'リレー開始依頼を受け付けました。対応します。'}]);
+      } catch(e){ logErr('reply to start_relay failed', e); }
     }
   }
 
