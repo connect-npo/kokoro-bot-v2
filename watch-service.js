@@ -254,7 +254,8 @@ async function checkAndSendPing(){
     const nextPingAt = ws.nextPingAt?.toDate?.()? dayjs(ws.nextPingAt.toDate()).tz(JST_TZ): null;
 
     let mode='noop';
-    const due = !nextPingAt || now.isSameOrAfter(nextPingAt);
+    // 元コード: const due = !nextPingAt || now.isSameOrAfter(nextPingAt);
+    const due = !nextPingAt || now.isAfter(nextPingAt) || now.isSame(nextPingAt);
 
     if(!awaiting && due){
       mode='ping';
@@ -357,7 +358,7 @@ async function sendGroupAlert(userData, groupId){
   // Send: flex + テキスト（テキストはフォールバック/通知の目立たせ用）
   const altText = `⚠️ 見守りアラート: ${displayName} さんから応答なし`;
   const flexMsg = { type:'flex', altText, contents: bubble };
-  const textMsg = { type:'text', text: `⚠️ 見守りアラート\n${displayName} さん（ID:${uid.slice(-6)}) からOKの応答がありません。登録電話: ${phone}` };
+  const textMsg = { type:'text', text: `⚠️ 見守りアラート\n${displayName} さん（ID:${String(uid).slice(-6)}) からOKの応答がありません。登録電話: ${phone}` };
 
   try {
     await safePush(groupId, [textMsg, flexMsg]);
@@ -366,7 +367,7 @@ async function sendGroupAlert(userData, groupId){
     logErr('failed to push group alert', e);
     // 失敗時は簡易テキストのみ再送
     try{
-      await safePush(groupId, [ { type:'text', text: `⚠️ 見守りアラート（簡易）\n${displayName} さん（ID:${uid.slice(-6)}) から応答なし。` } ]);
+      await safePush(groupId, [ { type:'text', text: `⚠️ 見守りアラート（簡易）\n${displayName} さん（ID:${String(uid).slice(-6)}) から応答なし。` } ]);
     }catch(e2){
       logErr('failed fallback group push', e2);
     }
