@@ -838,21 +838,21 @@ const messages = [{ role:'system', content: systemInstruction }];
 // --- 修正箇所：ここがGeminiの正しい呼び出し方法に変わります ---
  if (modelName.startsWith('gemini')) {
     if (!googleGenerativeAI) {
-      log('error', `[AI-ERROR] GEMINI_API_KEY の初期化に失敗しています！`); 
-      return null;
+      log('error', `[AI-ERROR] GEMINI_API_KEY の初期化に失敗しています！`); 
+      return ''; // ⭐️ 修正4: nullではなく空文字列を返し、Fallbackを保証
     }
-    
-    // システムプロンプトを除外した、会話履歴のみを抽出
-    const historyOnly = messages.filter(m => m.role !== 'system'); 
-    
-    // Gemini形式のロール（user/model）に変換
+    
+    // システムプロンプトを除外した、会話履歴のみを抽出
+    const historyOnly = messages.filter(m => m.role !== 'system'); 
+    
+    // Gemini形式のロール（user/model）に変換
     const transformedMessages = historyOnly.map(m => {
       const role = (m.role === 'assistant') ? 'model' : m.role; // 'assistant'を'model'に変換
       return { role, parts: [{ text: m.content }] };
     });
-    
+    
     try {
-        // ✅ 修正：システムプロンプトをconfigのsystemInstructionで渡す
+        // ✅ 修正：システムプロンプトをconfigのsystemInstructionで渡す
         const response = await googleGenerativeAI.models.generateContent({
           model: modelName,
           contents: transformedMessages,
@@ -862,19 +862,25 @@ const messages = [{ role:'system', content: systemInstruction }];
             temperature: 0.8
           }
         });
-        return response.text;
+        
+        // ⭐️ 修正1: 正しい応答形式
+        const text = response.response.text();
+        log('info', `[Gemini response] ${text.slice(0, 50)}...`);
+        return text;
+
     } catch (e) {
       briefErr(`Gemini の 一般 応答 に失敗しました (${modelName})`, e);
-      return null;
+      log('error', `[Gemini error detail]`, e); // ⭐️ 修正2: 詳細ログの追加
+      return ''; // ⭐️ 修正2, 4: nullではなく空文字列を返し、Fallbackを保証
     }
  } else { // <-- OpenAIを使うブロック
     if (!openai) {
-      log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`); // ✅ ここを追記
-      return null;
+      log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`); 
+      return ''; // ⭐️ 修正4: nullではなく空文字列を返し、Fallbackを保証
     }
     try {
-      
-     // ロールの結合（OpenAI向けに、systemロールを含めて結合する）
+      
+     // ロールの結合（OpenAI向けに、systemロールを含めて結合する）
       const consolidatedMessages = [];
       messages.forEach(msg => {
         if (consolidatedMessages.length > 0 && consolidatedMessages[consolidatedMessages.length - 1].role === msg.role) {
@@ -883,17 +889,22 @@ const messages = [{ role:'system', content: systemInstruction }];
           consolidatedMessages.push(msg);
         }
       });
-      
+      
       // OpenAIの呼び出し
       const r = await openai.chat.completions.create({
         model: modelName,
         messages: consolidatedMessages,
         max_tokens: 250, temperature: 0.8
       });
-      return r.choices?.[0]?.message?.content || null;
+
+      const text = r.choices?.[0]?.message?.content || ''; // ⭐️ 修正3, 4: nullではなく空文字列を返す
+      log('info', `[OpenAI response] ${text ? text.slice(0, 50) : 'empty'}...`);
+      return text;
+
     } catch(e) {
       briefErr(`OpenAI general reply failed (${modelName})`, e);
-      return null;
+      log('error', `[OpenAI error detail]`, e); // ⭐️ 修正2: 詳細ログの追加
+      return ''; // ⭐️ 修正3, 4: nullではなく空文字列を返し、Fallbackを保証
     }
   }
 }
