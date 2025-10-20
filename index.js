@@ -836,8 +836,11 @@ const modelName = useProModel 
   messages.push(userMessage);
 
 // --- 修正箇所：ここがGeminiの正しい呼び出し方法に変わります ---
-  if (modelName.startsWith('gemini')) {
-    if (!googleGenerativeAI) return null;
+ if (modelName.startsWith('gemini')) {
+    if (!googleGenerativeAI) {
+      log('error', `[AI-ERROR] GEMINI_API_KEY の初期化に失敗しています！`); 
+      return null;
+    }
     
     // システムプロンプトを除外した、会話履歴のみを抽出
     const historyOnly = messages.filter(m => m.role !== 'system'); 
@@ -864,10 +867,14 @@ const modelName = useProModel 
       briefErr(`Gemini の 一般 応答 に失敗しました (${modelName})`, e);
       return null;
     }
-  } else { // <-- ここからOpenAIの処理が始まる
-    if (!openai) return null;
+ } else { // <-- OpenAIを使うブロック
+    if (!openai) {
+      log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`); // ✅ ここを追記
+      return null;
+    }
     try {
-      // ロールの結合（OpenAI向けに、systemロールを含めて結合する）
+      
+     // ロールの結合（OpenAI向けに、systemロールを含めて結合する）
       const consolidatedMessages = [];
       messages.forEach(msg => {
         if (consolidatedMessages.length > 0 && consolidatedMessages[consolidatedMessages.length - 1].role === msg.role) {
