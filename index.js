@@ -19,6 +19,9 @@
  - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
 */
 
+const GraphemeSplitter = require('grapheme-splitter');
+const _splitter = new GraphemeSplitter();
+const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 const express = require('express');
 const app = express();
 const axios = require('axios');
