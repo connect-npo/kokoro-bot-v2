@@ -522,9 +522,9 @@ const GENERIC_ACKS = [
   'うん、受け取ったよ。いまの気持ちを一言でも大丈夫だよ🌸',
 ];
 const GENERIC_FOLLOWUPS = [
-  'どんな話題にしようか？近況・予定・相談のどれかあれば教えてね😊',
-  'いまの気持ち、ひとことでOKだよ🌸',
-  'もしよければ、今日の予定や様子を一言だけ教えてね😊',
+  'うん、うん、そうなんだね🌸 聞かせてくれてありがとう😊',
+  'そっか！よかったら、もう少し詳しく聞かせてもらえる？💖',
+  'また次の話を聞かせてね😊',
 ];
 
 // ===== 判定 =====
@@ -1616,7 +1616,7 @@ async function handleEvent(event) {
   // 11) AIによる会話応答（通常会話）
   // 危険・詐欺・相談モードでなければ、文字数とランクに基づいてモデルを決定
   // 50文字以下なら全員が GEMINI_FLASH_MODEL
-  const modelName = (inputCharLength <= 50) ? GEMINI_FLASH_MODEL : MEMBERSHIP_CONFIG[rank].model; // 👈 モデル決定ロジック
+  const modelName = (inputCharLength <= 50) ? GEMINI_FLASH_MODEL : MEMBERSHIP_CONFIG[rank].model; 
   const aiReply = await aiGeneralReply(text, rank, userId, modelName); // 👈 修正: modelNameを渡す
   if (aiReply) {
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
@@ -1625,10 +1625,10 @@ async function handleEvent(event) {
   }
 
   // 12) 既定の相槌（最後の手段）
-  const fallbackReply = pick(GENERIC_FOLLOWUPS);
-  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
-  await saveChatHistory(userId, 'こころチャット', fallbackReply);
-}
+const fallbackMsg = 'ごめんね💦 いま、**うまく頭が回らなくて**会話に詰まっちゃったみたい…もう一度**短く**話しかけてくれると嬉しいな💖';
+await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
+await saveChatHistory(userId, 'こころチャット', fallbackMsg);
+return;
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
