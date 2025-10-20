@@ -4,18 +4,18 @@
  index.js (angel-kokoro, enhanced-2025-10-20)
  - 9-18をベースに危険ワード検出時のグループ通知機能を追加
  - ワンクッションFLEXで安心設計
- - 通常会話：Gemini 1.5 Flashと GPT-4o-miniを文字数で使い分け
+ - 通常会話：Gemini 2.5 Flashと GPT-4o-mini を文字数で使い分け
  - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
- - 危険は2文+危険FLEX→見守りグループへFLEX通知 → ユーザー同意確認
- - 詐欺は2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
+ - 危険はGPT-4oで2文+危険FLEX→見守りグループへFLEX通知 → ユーザー同意確認
+ - 詐欺はGPT-4oで2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
  - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
  - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
  - リレー中（グループ↔本人）は"ここ♡返信停止"（本人↔事務局の会話を阻害しない）
  - 不適切語：1回目=お答え不可、2回目=警告、3回目=7日停止（停止中は初回のみ通知→以降サイレント）
  - 悪意ある長文：即時7日停止
  - ユーザーランクごとの利用回数制限とモデル切り替え
- - 通常会話：50文字以下→Gemini 1.5 Flash、50文字超→GPT-4o-miniで応答
- - 「相談」または「そうだん」と だけ入力された場合、回数制限を無視しGemini 1.5 Proで1回だけ応答
+ - 通常会話：50文字以下→Gemini 2.5 Flash、50文字超→GPT-4o-miniで応答
+ - 「相談」または「そうだん」と だけ入力された場合、回数制限を無視しGemini 2.5 Proで1回だけ応答
  - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
 */
 
@@ -83,9 +83,10 @@ const OWNER_USER_ID = process.env.OWNER_USER_ID;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const OPENAI_DANGER_MODEL = process.env.OPENAI_DANGER_MODEL || 'gpt-4o';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_FLASH_MODEL   = process.env.GEMINI_FLASH_MODEL || 'gemini-1.5-flash';
-const GEMINI_PRO_MODEL     = process.env.GEMINI_PRO_MODEL   || 'gemini-1.5-pro';
+const GEMINI_FLASH_MODEL   = process.env.GEMINI_FLASH_MODEL || 'gemini-2.5-flash';
+const GEMINI_PRO_MODEL     = process.env.GEMINI_PRO_MODEL   || 'gemini-2.5-pro';
 
 const AGREEMENT_FORM_BASE_URL                 = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
 const ADULT_FORM_BASE_URL                     = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
@@ -716,37 +717,51 @@ const isScamMessage = (text) => {
 
 // ===== GPT helpers（危険/詐欺の2文応答） =====
 async function gptTwoShorts(kind, userText) {
-  if (!openai) return null;
-  const sys = 'あなたは14歳の女の子「皆守こころ」。やさしく寄り添い、絵文字は2つまで。出力は日本語の短い2文だけ。合計110文字以内。';
-  const ask = kind === 'danger'
-    ? '相手はいじめ/暴力/自傷などで不安。まず安心、次に具体的な一歩（深呼吸・安全確保・周囲に連絡）を促す2文を出力。'
-    : '相手は詐欺を心配。まず安心、次に公式アプリ/正規サイト確認・リンク非タップ・周囲に相談を促す2文を出力。';
-  try {
-    const r = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [{ role:'system', content: sys }, { role:'user', content: `${ask}\nユーザー発言:「${String(userText).slice(0,200)}」` }],
-      max_tokens: 120, temperature: 0.6
-    });
-    const out = (r.choices?.[0]?.message?.content || '').trim();
-    const two = out.split('。').filter(s => s.trim()).slice(0,2).join('。');
-    return (two || out).slice(0,120) + (/。$/.test(two) ? '' : '。');
-  } catch(e){ briefErr('gpt two lines failed', e); return null; }
+  if (!openai) return null;
+  const sys = 'あなたは14歳の女の子「皆守こころ」。やさしく寄り添い、絵文字は2つまで。出力は日本語の短い2文だけ。合計110文字以内。';
+  const ask = kind === 'danger'
+    ? '相手はいじめ/暴力/自傷などで不安。まず安心、次に具体的な一歩（深呼吸・安全確保・周囲に連絡）を促す2文を出力。'
+    : '相手は詐欺を心配。まず安心、次に公式アプリ/正規サイト確認・リンク非タップ・周囲に相談を促す2文を出力。';
+  try {
+    const r = await openai.chat.completions.create({
+      model: OPENAI_DANGER_MODEL, // ✅ 修正：OPENAI_MODEL から OPENAI_DANGER_MODEL に変更
+      messages: [{ role:'system', content: sys }, { role:'user', content: `${ask}\nユーザー発言:「${String(userText).slice(0,200)}」` }],
+      max_tokens: 120, temperature: 0.6
+    });
+    const out = (r.choices?.[0]?.message?.content || '').trim();
+    const two = out.split('。').filter(s => s.trim()).slice(0,2).join('。');
+    return (two || out).slice(0,120) + (/。$/.test(two) ? '' : '。');
+  } catch(e){ briefErr('gpt two lines failed', e); return null; }
 }
 
 const fallbackDangerTwo = ()=>'大丈夫だよ、まずは深呼吸しようね🌸 次に安全な場所で信頼できる人へ連絡してね。';
-const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
+const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
 
 // ===== AIによる通常会話応答 =====
 async function aiGeneralReply(userText, rank, userId, useProModel = false) {
-  const chatHistory = await getRecentChatHistory(userId, 5); // 過去5件の履歴を取得
-  const chatHistoryFormatted = chatHistory.map(entry => {
-    return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
-  }).reverse().join('\n'); // タイムスタンプ付きでフォーマットし、新しい順に並べ替える
-
-  const charLength = _splitter.splitGraphemes(userText).length;
-  // 相談モードのモデル切り替え
-  const modelName = useProModel ? GEMINI_PRO_MODEL : (charLength <= 50 ? GEMINI_FLASH_MODEL : MEMBERSHIP_CONFIG[rank].model);
+  
+  // 🚨 修正：useProModel が文字列（モデル名）だった場合、強制的にfalseに戻す
+  //        これにより、handleEventから誤ってモデル名が渡されてもエラーにならない
+  if (typeof useProModel === 'string') {
+    useProModel = false;
+  }
   
+  const chatHistory = await getRecentChatHistory(userId, 5); // 過去5件の履歴を取得
+  const chatHistoryFormatted = chatHistory.map(entry => {
+    return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
+  }).reverse().join('\n'); // タイムスタンプ付きでフォーマットし、新しい順に並べ替える
+
+  const charLength = _splitter.splitGraphemes(userText).length;
+ 
+ // 相談モードのモデル切り替え
+const modelName = useProModel 
+    ? GEMINI_PRO_MODEL 
+    : (
+        charLength <= 50 
+        ? GEMINI_FLASH_MODEL 
+        : OPENAI_MODEL
+    );
+ 
   // 詳細なシステムプロンプトの定義
   const systemInstruction = `
   あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
@@ -1536,9 +1551,11 @@ async function handleEvent(event) {
       await saveChatHistory(userId, 'こころチャット', limitMsg);
       return;
     }
-    // 相談モードが進行可能な場合は、Gemini Pro を使用
-    const modelName = GEMINI_PRO_MODEL; // 👈 相談モードは高精度モデルで固定
-    const aiReply = await aiGeneralReply(text, rank, userId, modelName); // 👈 修正: modelNameを渡す
+    
+// 相談モードが進行可能な場合は、GemINI Pro を使用
+    // ✅ 修正：aiGeneralReplyの第4引数にBooleanの "true" を渡し、内部ロジックでProを選択させる
+    const aiReply = await aiGeneralReply(text, rank, userId, true); 
+
     if (aiReply) {
       await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
       await saveChatHistory(userId, 'こころチャット', aiReply.trim());
@@ -1549,7 +1566,8 @@ async function handleEvent(event) {
     }
     return;
   }
-  // 7) 会員ランクと利用回数チェック（通常会話）
+  
+ // 7) 会員ランクと利用回数チェック（通常会話）
   // 通常会話モードの場合、通常回数でチェック
   const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank, false); // 👈 isConsult: false
   const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
@@ -1590,39 +1608,44 @@ async function handleEvent(event) {
   const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
   const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
   if (isOrgIntent || isHomepageIntent) {
-    // 団体・HP案内でも、以下のモデル選択ロジックを適用
-    const modelName = (inputCharLength <= 50) ? GEMINI_FLASH_MODEL : MEMBERSHIP_CONFIG[rank].model; // 👈 モデル決定ロジック
-    const aiReply = await aiGeneralReply(text, rank, userId, modelName); // 👈 修正: modelNameを渡す
-    if (aiReply) {
-      await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
-      await saveChatHistory(userId, 'こころチャット', aiReply.trim());
-    } else {
-      if (isOrgIntent) {
-        const reply = [
-          { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
-          { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-        ];
-        await safeReplyOrPush(event.replyToken, userId, reply);
-        await saveChatHistory(userId, 'こころチャット', `${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸`);
-      } else {
-        const reply = `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`;
-        await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: reply });
-        await saveChatHistory(userId, 'こころチャット', reply);
-      }
-    }
-    return;
-  }
+   
+  // (10) 団体・HP案内 のブロック
+// ✅ 修正：modelNameの定義を削除し、aiGeneralReplyの第4引数を省略する
+if (isOrgIntent || isHomepageIntent) {
+    // 団体・HP案内でも、通常のFlash/Mini切り替えロジックを適用
+    const aiReply = await aiGeneralReply(text, rank, userId); 
 
-  // 11) AIによる会話応答（通常会話）
-  // 危険・詐欺・相談モードでなければ、文字数とランクに基づいてモデルを決定
-  // 50文字以下なら全員が GEMINI_FLASH_MODEL
-  const modelName = (inputCharLength <= 50) ? GEMINI_FLASH_MODEL : MEMBERSHIP_CONFIG[rank].model; 
-  const aiReply = await aiGeneralReply(text, rank, userId, modelName); // 👈 修正: modelNameを渡す
-  if (aiReply) {
-    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
-    await saveChatHistory(userId, 'こころチャット', aiReply.trim());
-    return;
-  }
+    if (aiReply) {
+        await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+        await saveChatHistory(userId, 'こころチャット', aiReply.trim());
+    } else {
+        if (isOrgIntent) {
+            const reply = [
+                { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
+                { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
+            ];
+            await safeReplyOrPush(event.replyToken, userId, reply);
+            await saveChatHistory(userId, 'こころチャット', `${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸`);
+        } else {
+            const reply = `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`;
+            await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: reply });
+            await saveChatHistory(userId, 'こころチャット', reply);
+        }
+    }
+    return;
+}
+  
+   // (11) AIによる会話応答（通常会話） のブロック
+// 危険・詐欺・相談モードでなければ、文字数とランクに基づいてモデルを決定
+// 50文字以下なら全員が GEMINI_FLASH_MODEL
+// ✅ 修正：modelNameの定義と、aiGeneralReplyの第4引数を省略する
+const aiReply = await aiGeneralReply(text, rank, userId); 
+
+if (aiReply) {
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+    await saveChatHistory(userId, 'こころチャット', aiReply.trim());
+    return;
+}
 
   // 12) 既定の相槌（最後の手段）
 const fallbackMsg = 'ごめんね💦 いま、**うまく頭が回らなくて**会話に詰まっちゃったみたい…もう一度**短く**話しかけてくれると嬉しいな💖';
