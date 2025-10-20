@@ -1646,22 +1646,22 @@ try {
 }
 
 // 🧪 確認ステップA: AI応答結果のログ出力
-log('info', `[AI応答結果] aiReply: ${aiReply}`); 
+log('info', `[AI応答結果] aiReply: ${aiReply}`); 
 
 if (aiReply && aiReply.trim()) {
     const replyText = aiReply.trim();
-    
-    try {
-        // ✅ 修正後の正常な応答処理
+    
+    try {
+        // ✅ 修正後の正常な応答処理
         await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: replyText });
         await saveChatHistory(userId, 'こころチャット', replyText);
         log('info', `[LINE応答] 正常にAI応答を送信しました`); // 🧪 成功ログを追加
         return;
     } catch (replyErr) {
-        // 🧪 LINEへの返信失敗ログを追加
-        log('error', "[LINE返信失敗]", replyErr); 
-        // return しないで後続処理へ移る（最後の手段のメッセージへ）
-    }
+        // 🧪 LINEへの返信失敗ログを追加
+        log('error', "[LINE返信失敗]", replyErr); 
+        // return しないで後続処理へ移る（最後の手段のメッセージへ）
+    }
 }
 
 // 12) 既定の相槌（最後の手段）
@@ -1669,16 +1669,19 @@ const fallbackMsg = 'ごめんね💦 いま、**うまく頭が回らなくて*
 
 try {
     // ✅ 最後の手段の返信処理
-    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
     await saveChatHistory(userId, 'こころチャット', fallbackMsg);
     log('info', `[LINE応答] 最後の手段の相槌を送信しました`); // 🧪 成功ログを追加
     return;
 } catch (finalErr) {
-    // 🧪 最後の手段の返信失敗ログを追加
-    log('error', "[LINE最終返信失敗]", finalErr);
-    // これ以上、LINEに返信する手段がないため、ここで終了
-    return;
+    // 🧪 最後の手段の返信失敗ログを追加
+    log('error', "[LINE最終返信失敗]", finalErr);
+    // これ以上、LINEに返信する手段がないため、ここで終了
+    return;
 }
+
+// ここに、handleEvent 関数を閉じるための閉じ括弧が必要です
+} // <-- ✅ 修正：handleEvent 関数を閉じる閉じ括弧
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
