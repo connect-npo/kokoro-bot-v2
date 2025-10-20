@@ -19,6 +19,7 @@
  - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
 */
 
+const GraphemeSplitter = require('grapheme-splitter');
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 const express = require('express');
@@ -29,7 +30,6 @@ const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const firebaseAdmin = require('firebase-admin');
 const crypto = require('crypto');
-const GraphemeSplitter = require('grapheme-splitter');
 const { URL, URLSearchParams } = require('url');
 const httpMod = require('http');
 const httpsMod = require('https');
