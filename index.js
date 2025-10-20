@@ -1636,25 +1636,49 @@ if (isOrgIntent || isHomepageIntent) {
 // 危険・詐欺・相談モードでなければ、文字数とランクに基づいてモデルを決定
 // 50文字以下なら全員が GEMINI_FLASH_MODEL
 // ✅ 修正：modelNameの定義と、aiGeneralReplyの第4引数を省略する
-const aiReply = await aiGeneralReply(text, rank, userId); 
 
-if (aiReply) {
-    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
-    await saveChatHistory(userId, 'こころチャット', aiReply.trim());
-    return;
+let aiReply;
+try {
+    aiReply = await aiGeneralReply(text, rank, userId);
+} catch (err) {
+    log('error', "[AI呼び出しエラー]", err); // 🧪 aiGeneralReply 内の catch で拾えない例外を記録
+    aiReply = "ごめんね、今ちょっと調子が悪いみたい💦"; // 応急対応メッセージ
+}
+
+// 🧪 確認ステップA: AI応答結果のログ出力
+log('info', `[AI応答結果] aiReply: ${aiReply}`); 
+
+if (aiReply && aiReply.trim()) {
+    const replyText = aiReply.trim();
+    
+    try {
+        // ✅ 修正後の正常な応答処理
+        await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: replyText });
+        await saveChatHistory(userId, 'こころチャット', replyText);
+        log('info', `[LINE応答] 正常にAI応答を送信しました`); // 🧪 成功ログを追加
+        return;
+    } catch (replyErr) {
+        // 🧪 LINEへの返信失敗ログを追加
+        log('error', "[LINE返信失敗]", replyErr); 
+        // return しないで後続処理へ移る（最後の手段のメッセージへ）
+    }
 }
 
 // 12) 既定の相槌（最後の手段）
 const fallbackMsg = 'ごめんね💦 いま、**うまく頭が回らなくて**会話に詰まっちゃったみたい…もう一度**短く**話しかけてくれると嬉しいな💖';
-await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
-await saveChatHistory(userId, 'こころチャット', fallbackMsg);
-return;
-} // <-- 修正：ここで handleEvent 内のイベント処理ブロック（forEachやtry）が閉じる
 
-// ✅ 修正：handleEvent 関数の閉じ括弧（これが抜けていた可能性大）
-// handleEvent 関数の最後にこの閉じ括弧を一つだけ追加します
-} 
-
+try {
+    // ✅ 最後の手段の返信処理
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
+    await saveChatHistory(userId, 'こころチャット', fallbackMsg);
+    log('info', `[LINE応答] 最後の手段の相槌を送信しました`); // 🧪 成功ログを追加
+    return;
+} catch (finalErr) {
+    // 🧪 最後の手段の返信失敗ログを追加
+    log('error', "[LINE最終返信失敗]", finalErr);
+    // これ以上、LINEに返信する手段がないため、ここで終了
+    return;
+}
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
