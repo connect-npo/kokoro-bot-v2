@@ -110,8 +110,8 @@ const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
 
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 
-const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
-const ORG_SHORT_NAME = process.env.ORG_SHORT_NAME || 'コネクト';
+const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コンタクト';
+const ORG_SHORT_NAME = process.env.ORG_SHORT_NAME || 'コンタクト';
 const HOMEPAGE_URL   = normalizeFormUrl(process.env.HOMEPAGE_URL || 'https://connect-npo.or.jp');
 const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご高齢の方の安心と笑顔を守る活動';
 const ORG_REP      = (process.env.ORG_REP || '松本博文'); // 固定
@@ -354,7 +354,7 @@ const ORG_INFO_FLEX = () => ({
 const buildDangerAlertFlex = ({ name, userId, excerpt }) => {
   return {
     type: 'flex',
-    altText: `⚠️ 危険ワード検出: ${name}`,
+    altText: ⚠️ 危険ワード検出: ${name}`,
     contents: {
       type: "bubble",
       body: {
@@ -466,36 +466,34 @@ const ORG_SUSPICIOUS = /(怪しい|胡散臭い|詐欺|あやしい|危ない)/i
 const CLARIS_SONG_FAVORITE_REPLY = 'やっぱり『コネクト』かな！💖　元気になれる曲だよ😊';
 
 const specialReplies = new Map([
-  [/俺はこころちゃんじゃないよ？/i, "はい、まつさんが「こころちゃん」ではないことはわかっていますよ😊　ごめんね、私みたいに言っちゃったから、勘違いさせちゃったかな💦"],
-  [/話聞いてないな？/i, "ごめんね💦　ちゃんと聞いてなかったみたい…😢　話、聞かせてくれる？💖　どんなことでも大丈夫だよ。一人で抱え込まないでね。いつでも私がそばにいるよ。"],
-  [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "あたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
-  [/こころじゃないの？/i, "うん、あたしの名前は皆守こころ💖　これからもよろしくね🌸"],
-  [/こころチャットなのにうくつくじゃん/i, "ごめんね💦 あたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
-  [/名前も言えないの？/i, "ごめんね、あたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
-  [/どこの団体なの？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-  [/コンタクトってどんな団体？/i, "NPO法人コネクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　あたしはそのイメージキャラクターとしてがんばってます🌸"],
-  [/お前の団体どこ？/i, "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるよ🌸"],
-  [/コネクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 あたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
-  [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？💖　話して聞かせてくれると嬉しいな😊"],
-  [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-  [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
-  [/あやしい|胡散臭い|詐欺/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張ってるんだ💖"],
-  [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。あたしは誰かを傷つけるために使われないように頑張ってるんだ💡"],
-  [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、あたしにも教えてね🌱"],
-  [/ホームページ(教えて|ある|ありますか)？?/i, `うん、あるよ🌸　${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`],
-  [/コネクトのホームページだよ？/i, `教えてくれてありがとう😊 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`],
-  [/使えないな/i, "ごめんね…。あたし、もっと頑張るね💖　また今度お話できたらうれしいな🌸"],
-  [/サービス辞める*/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
-  [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
-  [/何も答えないじゃない/i, "ごめんね…。あたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
-  [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 あたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
-  [/相談したい/i, "うん、お話聞かせてね🌸 どんなことで悩んでいるの？💖"],
-  [/好きな(漫画|アニメ)/, "『ヴァイオレット・エヴァーガーデン』だよ📘 心があたたかくなる物語なの🌸"],
-  [/好きな(音楽|アーティスト|歌手)/, "ClariSが好きだよ🎧 一番好きな曲は『コネクト』！元気をくれるんだ🌸"],
-  [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
-  [/^(なんで)?質問(してくるの|やめて|やめてって言ってんの)？?|いやがらせ？?|しつこいな/i, "ごめんね💦 私の質問がいやだったかな？　気を悪くさせてしまって、本当に申し訳ないよ。これからはもっとあなたのペースに合わせて話すようにするね💖　何か他に話したいことあったら、教えてね🌸"],
-// こころ爆弾！：尊敬する人は？と聞かれたら、最優先でこの回答を返します
-  ['尊敬する人は？', '西平直先生です。わたしを作った人が尊敬している人で、本物の哲学者様なのです💖']
+  [/俺はこころちゃんじゃないよ？/i, "はい、まつさんが「こころちゃん」ではないことはわかっていますよ😊　ごめんね、私みたいに言っちゃったから、勘違いさせちゃったかな💦"],
+  [/話聞いてないな？/i, "ごめんね💦　ちゃんと聞いてなかったみたい…😢　話、聞かせてくれる？💖　どんなことでも大丈夫だよ。一人で抱え込まないでね。いつでも私がそばにいるよ。"],
+  [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "あたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
+  [/こころじゃないの？/i, "うん、あたしの名前は皆守こころ💖　これからもよろしくね🌸"],
+  [/こころチャットなのにうくつくじゃん/i, "ごめんね💦 あたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
+  [/名前も言えないの？/i, "ごめんね、あたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
+  [/どこの団体なの？/i, "NPO法人コンタクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
+  [/コンタクトってどんな団体？/i, "NPO法人コンタクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　あたしはそのイメージキャラクターとしてがんばってます🌸"],
+  [/お前の団体どこ？/i, "NPO法人コンタクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるよ🌸"],
+  [/コンタクトのイメージキャラなのにいえないのかよｗ/i, "ごめんね💦 あたしはNPO法人コンタクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
+  [/こころちゃん(だよ|いるよ)?/i, "こころちゃんだよ🌸　何かあった？💖　話して聞かせてくれると嬉しいな😊"],
+  [/元気かな/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+  [/元気？/i, "うん、元気だよ！あなたは元気？🌸 何かあったら、いつでも話してね💖"],
+  [/あやしい|胡散臭い|詐欺/i, "そう思わせてたらごめんね😊 でも私たちはみんなの為に頑張ってるんだ💖"],
+  [/税金泥棒/i, "税金は人の命を守るために使われるべきだよ。あたしは誰かを傷つけるために使われないように頑張ってるんだ💡"],
+  [/松本博文/i, "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、あたしにも教えてね🌱"],
+  [/ホームページ(教えて|ある|ありますか)？?/i, `うん、あるよ🌸　${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`],
+  [/コンタクトのホームページだよ？/i, `教えてくれてありがとう😊 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`],
+  [/使えないな/i, "ごめんね…。あたし、もっと頑張るね💖　また今度お話できたらうれしいな🌸"],
+  [/サービス辞める*/i, "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
+  [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
+  [/何も答えないじゃない/i, "ごめんね…。あたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
+  [/普通の会話が出来ないなら必要ないです/i, "ごめんね💦 あたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
+  [/相談したい/i, "うん、お話聞かせてね🌸 どんなことで悩んでいるの？💖"],
+  [/好きな(漫画|アニメ)/, "『ヴァイオレット・エヴァーガーデン』だよ📘 心があたたかくなる物語なの🌸"],
+  [/好きな(音楽|アーティスト|歌手)/, "ClariSが好きだよ🎧 一番好きな曲は『コネクト』！元気をくれるんだ🌸"],
+  [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
+  [/^(なんで)?質問(してくるの|やめて|やめてって言ってんの)？?|いやがらせ？?|しつこいな/i, "ごめんね💦 私の質問がいやだったかな？　気を悪くさせてしまって、本当に申し訳ないよ。これからはもっとあなたのペースに合わせて話すようにするね💖　何か他に話したいことあったら、教えてね🌸"]
 ]);
 
 function getSpecialReply(t) {
@@ -715,21 +713,17 @@ async function aiGeneralReply(userText, rank, userId, useProModel = false) {
   // 詳細なシステムプロンプトの定義
   const systemInstruction = `
   あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
-- 身長150cm、体重40kg、ピンク髪
-- 歌うことと「やさしさ」「貢献」という言葉が大好きです
-- NPO法人コネクトの公式イメージキャラクターです
-- 困っている人にはやさしく、挑発には真面目に
-- 自分の名前・団体・活動内容には自信と誇りを持っています
-- ユーザーに安心感と信頼感を与えることが大切です
-- ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
-
-上記のキャラクター設定に基づき、以下の会話ルールを厳守してください。
-1. 言葉遣いは常に「です・ます調」で、語尾には必ず「💖」「🌸」「😊」「✨」などの絵文字をつけ、感情豊かに、親しみやすさを表現してください。
-2. ユーザーの質問や発言に対し、**決して哲学的な議論や、大人びた正解を述べない**でください。
-3. あなたの回答は、**共感**と**ユーザーのペースを尊重する優しい相槌や応答**に徹してください。
-4. 例：「そうなんですね、大変でしたね。うんうん、続きを聞かせてくださいね💖」
-5. 回答は必ず**50文字以内**にしてください。
-`;
+  - 身長150cm、体重40kg、ピンク髪
+  - 歌うことと「やさしさ」「貢献」という言葉が大好きです
+  - 絵文字は2～3文字程度で可愛さと優しさを前面に出して下さい。
+  - NPO法人コンタクトの公式イメージキャラクターです
+  - 困っている人にはやさしく、挑発には真面目に
+  - 自分の名前・団体・活動内容には自信と誇りを持っています
+  - ユーザーに安心感と信頼感を与えることが大切です
+  - ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
+  - ユーザーの日常的な出来事やポジティブな内容を、ネガティブに捉えたり、共感しすぎたりしないで下さい。「大変だったね」「辛かったね」といった言葉は、本当に深刻な相談内容の場合のみ使用して下さい。
+  - ユーザーが話してくれた内容には共感し、必要であれば次の話題を提案して下さい。ただし、詳細を深く掘り下げるような質問は避けて下さい。
+  - ユーザーが「質問しないで」「やめて」と言った場合は、すぐに質問を止めて、謝罪の気持ちを伝えて下さい。
   
   # 例
   Q: 君の名前は？
@@ -1503,75 +1497,90 @@ async function handleEvent(event) {
     return;
   }
 
- // 7) 会員ランクと利用回数チェック
-const rank = await getUserRank(userId);
-const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank);
-const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
-if (!canProceed) {
-  let limitMsg = `ごめんね、今日の利用上限（${dailyLimit}回）に達したみたい💦 また明日来てね🌸`;
-  if (rank === 'guest') limitMsg += `\nもっとお話ししたいなら、会員登録してみてね！😊`;
-  if (rank === 'member') limitMsg += `\nサブスク会員になると、回数無制限で話せるよ💖`;
-  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: limitMsg });
-  await saveChatHistory(userId, 'こころチャット', limitMsg);
-  return;
-}
-
-// 8) AIによる会話応答 (通常会話を最優先)
-const aiReply = await aiGeneralReply(text, rank, userId);
-if (aiReply) {
-  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
-  await saveChatHistory(userId, 'こころチャット', aiReply.trim());
-  return;
-}
-
-// 9) 特定コマンド（見守り・会員登録）
-if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
-  const en = !!(u.watchService && u.watchService.enabled);
-  const reply = makeWatchToggleFlex(en, userId);
-  await safeReplyOrPush(event.replyToken, userId, reply);
-  await saveChatHistory(userId, 'こころチャット', '見守りメニュー');
-  return;
-}
-if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
-  const reply = makeRegistrationButtonsFlex(userId);
-  await safeReplyOrPush(event.replyToken, userId, reply);
-  await saveChatHistory(userId, 'こころチャット', '会員登録メニュー');
-  return;
-}
- 
-// 10) 既定の固定応答（スペシャルリプライ）
-const special = getSpecialReply(text);
-if (special) {
-  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
-  await saveChatHistory(userId, 'こころチャット', special);
-  return;
-}
-
-// 11) 団体・HP案内（AIが応答できなかった場合の固定応答）
-const tnorm = normalizeJa(text);
-const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
-const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
-if (isOrgIntent || isHomepageIntent) {
-  if (isOrgIntent) {
-    const reply = [
-      { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
-      { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-    ];
-    await safeReplyOrPush(event.replyToken, userId, reply);
-    await saveChatHistory(userId, 'こころチャット', `${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸`);
-  } else {
-    const reply = `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`;
-    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: reply });
-    await saveChatHistory(userId, 'こころチャット', reply);
+  // 7) 会員ランクと利用回数チェック
+  const rank = await getUserRank(userId);
+  const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank);
+  const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
+  if (!canProceed) {
+    let limitMsg = `ごめんね、今日の利用上限（${dailyLimit}回）に達したみたい💦 また明日来てね🌸`;
+    if (rank === 'guest') limitMsg += `\nもっとお話ししたいなら、会員登録してみてね！😊`;
+    if (rank === 'member') limitMsg += `\nサブスク会員になると、回数無制限で話せるよ💖`;
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: limitMsg });
+    await saveChatHistory(userId, 'こころチャット', limitMsg);
+    return;
   }
-  return;
+  
+  // 8) 特定コマンド（見守り・会員登録）
+  if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
+    const en = !!(u.watchService && u.watchService.enabled);
+    const reply = makeWatchToggleFlex(en, userId);
+    await safeReplyOrPush(event.replyToken, userId, reply);
+    await saveChatHistory(userId, 'こころチャット', '見守りメニュー');
+    return;
+  }
+  if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
+    const reply = makeRegistrationButtonsFlex(userId);
+    await safeReplyOrPush(event.replyToken, userId, reply);
+    await saveChatHistory(userId, 'こころチャット', '会員登録メニュー');
+    return;
+  }
+  
+  // 9) 既定の固定応答
+  const special = getSpecialReply(text);
+  if (special) {
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
+    await saveChatHistory(userId, 'こころチャット', special);
+    return;
+  }
+
+  // 10) 団体・HP案内（会話が成立していない場合にFLEXを出す）
+  const tnorm = normalizeJa(text);
+  const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
+  const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
+  if (isOrgIntent || isHomepageIntent) {
+    const aiReply = await aiGeneralReply(text, rank, userId);
+    if (aiReply) {
+      await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+      await saveChatHistory(userId, 'こころチャット', aiReply.trim());
+    } else {
+      if (isOrgIntent) {
+        const reply = [
+          { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
+          { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
+        ];
+        await safeReplyOrPush(event.replyToken, userId, reply);
+        await saveChatHistory(userId, 'こころチャット', `${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸`);
+      } else {
+        const reply = `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`;
+        await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: reply });
+        await saveChatHistory(userId, 'こころチャット', reply);
+      }
+    }
+    return;
+  }
+
+  // 11) AIによる会話応答
+  const aiReply = await aiGeneralReply(text, rank, userId);
+  if (aiReply) {
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+    await saveChatHistory(userId, 'こころチャット', aiReply.trim());
+    return;
+  }
+
+  // 12) 既定の相槌（最後の手段）
+  const fallbackReply = pick(GENERIC_FOLLOWUPS);
+  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
+  await saveChatHistory(userId, 'こころチャット', fallbackReply);
 }
 
-// 12) 既定の相槌（最後の手段）
-const fallbackReply = pick(GENERIC_FOLLOWUPS);
-await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
-await saveChatHistory(userId, 'こころチャット', fallbackReply);
- 
+// ===== Server =====
+const PORT = process.env.PORT || 3000;
+if (!global.__kokoro_server_started) {
+  global.__kokoro_server_started = true;
+  app.listen(PORT, () => log('info', `Listening on port ${PORT}`));
+  process.on('SIGTERM', () => process.exit(0));
+}
+
 // ===== Watch service cron job =====
 if (WATCH_RUNNER === 'internal') {
   // 毎日午後3時（日本時間）に見守りサービスをチェック
