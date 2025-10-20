@@ -1504,7 +1504,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 7) 会員ランクと利用回数チェック
+ // 7) 会員ランクと利用回数チェック
 const rank = await getUserRank(userId);
 const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank);
 const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
@@ -1572,14 +1572,7 @@ if (isOrgIntent || isHomepageIntent) {
 const fallbackReply = pick(GENERIC_FOLLOWUPS);
 await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
 await saveChatHistory(userId, 'こころチャット', fallbackReply);
-
-// ===== Server =====
-const PORT = process.env.PORT || 3000;
-if (!global.__kokoro_server_started) {
-  global.__kokoro_server_started = true;
-  app.listen(PORT, () => log('info', `Listening on port ${PORT}`));
-  process.on('SIGTERM', () => process.exit(0));
-}
+} 
 
 // ===== Watch service cron job =====
 if (WATCH_RUNNER === 'internal') {
