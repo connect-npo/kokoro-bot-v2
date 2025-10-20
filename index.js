@@ -1680,8 +1680,11 @@ try {
     return;
 }
 
-// ここに、handleEvent 関数を閉じるための閉じ括弧が必要です
-} // <-- ✅ 修正：handleEvent 関数を閉じる閉じ括弧
+// ここで handleEvent(event) 関数を閉じる
+} // <-- ✅ 1つ目の閉じ括弧 (handleEvent関数を閉じる)
+
+// ここで app.post('/webhook', ...) のコールバック関数を閉じる
+} // <-- ✅ 2つ目の閉じ括弧 (app.postのコールバック関数を閉じる)
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
