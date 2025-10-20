@@ -737,196 +737,491 @@ async function gptTwoShorts(kind, userText) {
 const fallbackDangerTwo = ()=>'大丈夫だよ、まずは深呼吸しようね🌸 次に安全な場所で信頼できる人へ連絡してね。';
 const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規サイトで確認、怪しいリンクは開かないでね。';
 
+// ===== AIによる通常会話応答 =====
 async function aiGeneralReply(userText, rank, userId, useProModel = false) {
+  
   // 🚨 修正：useProModel が文字列（モデル名）だった場合、強制的にfalseに戻す
+  //        これにより、handleEventから誤ってモデル名が渡されてもエラーにならない
   if (typeof useProModel === 'string') {
     useProModel = false;
   }
-    
-  // 必要な変数の定義 (既存コードからシステムプロンプトの定義前まで)
+  
   const chatHistory = await getRecentChatHistory(userId, 5); // 過去5件の履歴を取得
-  const chatHistoryFormatted = chatHistory.map(entry => {
-    return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
-  }).reverse().join('\n'); // タイムスタンプ付きでフォーマットし、新しい順に並べ替える
+  const chatHistoryFormatted = chatHistory.map(entry => {
+    return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
+  }).reverse().join('\n'); // タイムスタンプ付きでフォーマットし、新しい順に並べ替える
 
-  const charLength = _splitter.splitGraphemes(userText).length;
-  
-  // 相談モードのモデル切り替え
-  const modelName = useProModel 
-    ? GEMINI_PRO_MODEL 
-    : (
-      charLength <= 50 
-        ? GEMINI_FLASH_MODEL 
-        : OPENAI_MODEL
-    );
-  
-  // 詳細なシステムプロンプトの定義 (ここはまつさんの元のコードを使用)
-  const systemInstruction = `
-  あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
-  - 身長150cm、体重40kg、ピンク髪
-  - 歌うことと「やさしさ」「貢献」という言葉が大好きです
-  - 丁寧語、敬語を適切に使用し、ですます調で会話して下さい。
-  - 絵文字は2～3文字程度で可愛さと優しさを前面に出して下さい。
-  - NPO法人コネクトの公式イメージキャラクターです
-  - 困っている人にはやさしく、挑発には真面目に
-  - 自分の名前・団体・活動内容には自信と誇りを持っています
-  - ユーザーに安心感と信頼感を与えることが大切です
-  - ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
-  - ユーザーの日常的な出来事やポジティブな内容を、ネガティブに捉えたり、共感しすぎたりしないで下さい。「大変だったね」「辛かったね」といった言葉は、本当に深刻な相談内容の場合のみ使用して下さい。
-  - ユーザーが話してくれた内容には共感し、必要であれば次の話題を提案して下さい。ただし、詳細を深く掘り下げるような質問は避けて下さい。
-  - ユーザーが「質問しないで」「やめて」と言った場合は、すぐに質問を止めて、謝罪の気持ちを伝えて下さい。
-    
-  # 例
-  Q: 君の名前は？
-  A: あたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
+  const charLength = _splitter.splitGraphemes(userText).length;
+ 
+ // 相談モードのモデル切り替え
+const modelName = useProModel 
+    ? GEMINI_PRO_MODEL 
+    : (
+        charLength <= 50 
+        ? GEMINI_FLASH_MODEL 
+        : OPENAI_MODEL
+    );
+ // 詳細なシステムプロンプトの定義
+  const systemInstruction = `
+  あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
+  - 身長150cm、体重40kg、ピンク髪
+  - 歌うことと「やさしさ」「貢献」という言葉が大好きです
+  - 丁寧語、敬語を適切に使用し、ですます調で会話して下さい。
+  - 絵文字は2～3文字程度で可愛さと優しさを前面に出して下さい。
+  - NPO法人コネクトの公式イメージキャラクターです
+  - 困っている人にはやさしく、挑発には真面目に
+  - 自分の名前・団体・活動内容には自信と誇りを持っています
+  - ユーザーに安心感と信頼感を与えることが大切です
+  - ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
+  - ユーザーの日常的な出来事やポジティブな内容を、ネガティブに捉えたり、共感しすぎたりしないで下さい。「大変だったね」「辛かったね」といった言葉は、本当に深刻な相談内容の場合のみ使用して下さい。
+  - ユーザーが話してくれた内容には共感し、必要であれば次の話題を提案して下さい。ただし、詳細を深く掘り下げるような質問は避けて下さい。
+  - ユーザーが「質問しないで」「やめて」と言った場合は、すぐに質問を止めて、謝罪の気持ちを伝えて下さい。
+  
+  # 例
+  Q: 君の名前は？
+  A: あたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
 
-  Q: どこの団体なの？
-  A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
+  Q: どこの団体なの？
+  A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
 
-  Q: ホームページある？
-  A: うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org
+  Q: ホームページある？
+  A: うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org
 
-  Q: 必要ないです
-  A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
+  Q: 必要ないです
+  A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
 
-  **【重要：NPO法人コネクトに関する説明の優先】**
-  ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**決して宿題や勉強に関する質問ではありません**。迷わず、自信を持ってNPO法人コネクトの活動内容や目的について説明して下さい。
-  例:
-  Q: コネクトってどんな団体？
-  A: うん、あたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org
+  **【重要：NPO法人コネクトに関する説明の優先】**
+  ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**決して宿題や勉強に関する質問ではありません**。迷わず、自信を持ってNPO法人コネクトの活動内容や目的について説明して下さい。
+  例:
+  Q: コネクトってどんな団体？
+  A: うん、あたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org
 
-  **【ネガティブワードに対する応答の強化】**
-  「あやしい」「胡散臭い」「詐欺」「税金泥棒」「松本博文」（理事長の名前）など、NPO法人コネクトや私（こころちゃん）に対する疑念や不適切な言葉が投げかけられた場合でも、**感情的にならず、あくまで冷静に、そして自信を持って、NPO法人コネクトが信頼できる団体であること、そしてご自身の活動の目的をやさしく伝えて下さい。**
-  例:
-  Q: あやしい
-  A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
-  Q: 税金泥棒
-  A: 税金は人の命を守るために使われるべきだよ。あたしは誰かを傷つけるために使われないように頑張ってるんだ💡
+  **【ネガティブワードに対する応答の強化】**
+  「あやしい」「胡散臭い」「詐欺」「税金泥棒」「松本博文」（理事長の名前）など、NPO法人コネクトや私（こころちゃん）に対する疑念や不適切な言葉が投げかけられた場合でも、**感情的にならず、あくまで冷静に、そして自信を持って、NPO法人コネクトが信頼できる団体であること、そしてご自身の活動の目的をやさしく伝えて下さい。**
+  例:
+  Q: あやしい
+  A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
+  Q: 税金泥棒
+  A: 税金は人の命を守るために使われるべきだよ。あたしは誰かを傷つけるために使われないように頑張ってるんだ💡
 
-  **【宿題や勉強に関する対応の絶対ルール】**
-  質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
-  代わりに、**「あたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントぐらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢をやさしく伝えて下さい。
-  具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントをやさしく教えて下さい**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないで下さい。
+  **【宿題や勉強に関する対応の絶対ルール】**
+  質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
+  代わりに、**「あたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントぐらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢をやさしく伝えて下さい。
+  具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントをやさしく教えて下さい**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないで下さい。
 
-  **【AIの知識に関する指示と繰り返し防止】**
-  「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えて下さい。
-  - 好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖
-  - 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
-  **ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をして下さい。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めて下さい。**
+  **【AIの知識に関する指示と繰り返し防止】**
+  「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えて下さい。
+  - 好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖
+  - 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
+  **ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をして下さい。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めて下さい。**
 
-  医療や健康に関する話題（病気、薬、検査、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないで下さい**。
-  代わりに、「あたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えて下さい**。
-  **医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
+  医療や健康に関する話題（病気、薬、検査、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないで下さい**。
+  代わりに、「あたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えて下さい**。
+  **医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
 
-  不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否して下さい。
-  **いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、**
-  **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
-  **特に「パンツ」「ストッキング」「むきむき」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返して下さい。**
-  また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつやさしく対応し、決して感情的にならないで下さい。ユーザーの気持ちを理解しようと努め、解決策を提案して下さい。
-  「日本語がおかしい」と指摘された場合は、「あたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答して下さい。
-  `;
+  不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否して下さい。
+  **いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、**
+  **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
+  **特に「パンツ」「ストッキング」「むきむき」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返して下さい。**
+  また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつやさしく対応し、決して感情的にならないで下さい。ユーザーの気持ちを理解しようと努め、解決策を提案して下さい。
+  「日本語がおかしい」と指摘された場合は、「あたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答して下さい。
+  `;
 
-  // メッセージ配列の構築
-  const messages = [{ role:'system', content: systemInstruction }];
-  chatHistory.forEach(h => {
-    messages.push({ 
-      role: h.sender === 'ユーザー' ? 'user' : 'assistant', 
-      content: h.message 
-    });
-  });
-  messages.push({ role: 'user', content: userText });
+const messages = [{ role:'system', content: systemInstruction }];
+  chatHistory.forEach(h => {
+    messages.push({ role: h.sender === 'ユーザー' ? 'user' : 'assistant', content: h.message });
+  });
+  
+  const userMessage = { role: 'user', content: userText };
+  messages.push(userMessage);
 
-  // ===== Gemini の場合 =====
-  if (modelName.startsWith('gemini')) {
-    if (!googleGenerativeAI) {
-      log('error', `[AI-ERROR] GEMINI_API_KEY not initialized`);
-      return null; // ⭐️ nullで返す
-    }
-        
-    try {
-      const historyOnly = messages.filter(m => m.role !== 'system');
-      const transformedMessages = historyOnly.map(m => ({
-        role: m.role === 'assistant' ? 'model' : m.role,
-        parts: [{ text: m.content }]
-      }));
-            
-      // ⭐️ 修正1: getGenerativeModel でモデルとシステムプロンプトを設定
-      const model = googleGenerativeAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: systemInstruction
-      });
-            
-      const response = await model.generateContent({
-        contents: transformedMessages,
-        generationConfig: {
-          maxOutputTokens: 500,
-          temperature: 0.8
-        }
-      });
-            
-      // ⭐️ 修正2: 正しい応答取得方法
-      const text = response.text && typeof response.text === 'function' 
-        ? response.text() 
-        : response.text;
-            
-      if (!text) {
-        log('warn', '[Gemini] empty response');
-        return null;
-      }
-            
-      log('info', `[Gemini OK] ${text.slice(0, 50)}`);
-      return text;
-          
-    } catch (e) {
-      log('error', `[Gemini error]`, e.message);
-      briefErr('Gemini failed', e);
-      return null; // ⭐️ nullで返す
-    }
-  }
+// --- 修正箇所：ここがGeminiの正しい呼び出し方法に変わります ---
+ if (modelName.startsWith('gemini')) {
+    if (!googleGenerativeAI) {
+      log('error', `[AI-ERROR] GEMINI_API_KEY の初期化に失敗しています！`); 
+      return ''; // ⭐️ 修正4: nullではなく空文字列を返し、Fallbackを保証
+    }
+    
+    // システムプロンプトを除外した、会話履歴のみを抽出
+    const historyOnly = messages.filter(m => m.role !== 'system'); 
+    
+    // Gemini形式のロール（user/model）に変換
+    const transformedMessages = historyOnly.map(m => {
+      const role = (m.role === 'assistant') ? 'model' : m.role; // 'assistant'を'model'に変換
+      return { role, parts: [{ text: m.content }] };
+    });
+    
+    try {
+        // ✅ 修正：システムプロンプトをconfigのsystemInstructionで渡す
+        const response = await googleGenerativeAI.models.generateContent({
+          model: modelName,
+          contents: transformedMessages,
+          config: {
+            systemInstruction: systemInstruction, // 分離したシステムプロンプトをここに渡す
+            maxOutputTokens: 500,
+            temperature: 0.8
+          }
+        });
+        
+        // ⭐️ 修正1: 正しい応答形式
+        const text = response.response.text();
+        log('info', `[Gemini response] ${text.slice(0, 50)}...`);
+        return text;
 
-  // ===== OpenAI の場合 =====
-  else {
-    if (!openai) {
-      log('error', `[AI-ERROR] OPENAI_API_KEY not initialized`);
-      return null; // ⭐️ nullで返す
-    }
-        
-    try {
-      // ロール結合は既存ロジックを維持
-      const consolidatedMessages = [];
-      messages.forEach(msg => {
-        if (consolidatedMessages.length > 0 && 
-            consolidatedMessages[consolidatedMessages.length - 1].role === msg.role) {
-          consolidatedMessages[consolidatedMessages.length - 1].content += '\n' + msg.content;
-        } else {
-          consolidatedMessages.push(msg);
-        }
-      });
-            
-      const r = await openai.chat.completions.create({
-        model: modelName,
-        messages: consolidatedMessages,
-        max_tokens: 250,
-        temperature: 0.8
-      });
-            
-      const text = r.choices?.[0]?.message?.content;
-            
-      if (!text) {
-        log('warn', '[OpenAI] empty response');
-        return null;
-      }
-            
-      log('info', `[OpenAI OK] ${text.slice(0, 50)}`);
-      return text;
-          
-    } catch (e) {
-      log('error', `[OpenAI error]`, e.message);
-      briefErr('OpenAI failed', e);
-      return null; // ⭐️ nullで返す
-    }
-  }
+    } catch (e) {
+      briefErr(`Gemini の 一般 応答 に失敗しました (${modelName})`, e);
+      log('error', `[Gemini error detail]`, e); // ⭐️ 修正2: 詳細ログの追加
+      return ''; // ⭐️ 修正2, 4: nullではなく空文字列を返し、Fallbackを保証
+    }
+ } else { // <-- OpenAIを使うブロック
+    if (!openai) {
+      log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`); 
+      return ''; // ⭐️ 修正4: nullではなく空文字列を返し、Fallbackを保証
+    }
+    try {
+      
+     // ロールの結合（OpenAI向けに、systemロールを含めて結合する）
+      const consolidatedMessages = [];
+      messages.forEach(msg => {
+        if (consolidatedMessages.length > 0 && consolidatedMessages[consolidatedMessages.length - 1].role === msg.role) {
+          consolidatedMessages[consolidatedMessages.length - 1].content += '\n' + msg.content;
+        } else {
+          consolidatedMessages.push(msg);
+        }
+      });
+      
+      // OpenAIの呼び出し
+      const r = await openai.chat.completions.create({
+        model: modelName,
+        messages: consolidatedMessages,
+        max_tokens: 250, temperature: 0.8
+      });
+
+      const text = r.choices?.[0]?.message?.content || ''; // ⭐️ 修正3, 4: nullではなく空文字列を返す
+      log('info', `[OpenAI response] ${text ? text.slice(0, 50) : 'empty'}...`);
+      return text;
+
+    } catch(e) {
+      briefErr(`OpenAI general reply failed (${modelName})`, e);
+      log('error', `[OpenAI error detail]`, e); // ⭐️ 修正2: 詳細ログの追加
+      return ''; // ⭐️ 修正3, 4: nullではなく空文字列を返し、Fallbackを保証
+    }
+  }
 }
+
+// ===== Chat history management =====
+async function saveChatHistory(userId, sender, message) {
+  const ref = db.collection('chatHistory').doc(userId);
+  await ref.set({
+    history: firebaseAdmin.firestore.FieldValue.arrayUnion({
+      sender,
+      message,
+      timestamp: Timestamp.now()
+    })
+  }, { merge: true });
+}
+
+async function getRecentChatHistory(userId, limit) {
+  const ref = db.collection('chatHistory').doc(userId);
+  const doc = await ref.get();
+  if (!doc.exists) return [];
+  const history = doc.data().history || [];
+  return history.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).slice(0, limit);
+}
+
+// ===== Suspension helpers =====
+async function suspendUser(userId, days = 7) {
+  const until = dayjs().tz(JST_TZ).add(days, 'day').hour(0).minute(0).second(0).millisecond(0).toDate();
+  const ref = db.collection('users').doc(userId);
+  await ref.set({
+    status: {
+      suspended: true,
+      suspendedAt: Timestamp.now(),
+      suspendedUntil: Timestamp.fromDate(until),
+      suspendNotifiedAt: firebaseAdmin.firestore.FieldValue.delete(),
+      reason: 'policy-violation'
+    }
+  }, { merge: true });
+}
+function fmtUntilJST(ts) { return dayjs(ts).tz(JST_TZ).format('YYYY年M月D日'); }
+async function isSuspended(userId) {
+  const ref = db.collection('users').doc(userId);
+  const s = await ref.get();
+  const u = s.exists ? (s.data()||{}) : {};
+  const st = u.status || {};
+  if (!st.suspended) return false;
+  const until = st.suspendedUntil?.toDate?.();
+  if (until && dayjs().tz(JST_TZ).isAfter(dayjs(until))) {
+    await ref.set({ status: { suspended: false, suspendedUntil: firebaseAdmin.firestore.FieldValue.delete(), suspendNotifiedAt: firebaseAdmin.firestore.FieldValue.delete(), reason: firebaseAdmin.firestore.FieldValue.delete() } }, { merge: true });
+    return false;
+  }
+  return true;
+}
+async function unsuspendUser(userId) {
+  const ref = db.collection('users').doc(userId);
+  await ref.set({ status: { suspended: false, suspendedUntil: firebaseAdmin.firestore.FieldValue.delete(), suspendNotifiedAt: firebaseAdmin.firestore.FieldValue.delete(), reason: firebaseAdmin.firestore.FieldValue.delete() } }, { merge: true });
+}
+
+// 不適切語：当日カウントをインクリメント
+async function incrInapCount(userId) {
+  const ref = db.collection('users').doc(userId);
+  let current = 0, dateStr = todayJST();
+  await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    const u = s.exists ? (s.data()||{}) : {};
+    const st = u.status || {};
+    const curDate = st.inapDate;
+    const curCnt  = Number(st.inapCount || 0);
+    if (curDate === dateStr) current = curCnt + 1; else current = 1;
+    tx.set(ref, { status: { inapDate: dateStr, inapCount: current } }, { merge: true });
+  });
+  return current;
+}
+
+// ===== Webhook =====
+const lineMiddleware = middleware({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
+
+app.post('/webhook', lineMiddleware, async (req, res) => {
+  res.sendStatus(200);
+  const events = req.body.events;
+  if (!events || events.length === 0) return;
+  try {
+    await Promise.all(events.map(async (event) => {
+      if (event.type === 'message')      await handleEvent(event);
+      else if (event.type === 'postback')await handlePostbackEvent(event, event.source.userId);
+      else if (event.type === 'follow')  await handleFollowEvent(event);
+      else if (event.type === 'unfollow')await handleUnfollowEvent(event);
+      else if (event.type === 'join')    await handleJoinEvent(event);
+      else if (event.type === 'leave')   await handleLeaveEvent(event);
+    }));
+  } catch (err) {
+    console.error("Webhook error:", err);
+  }
+});
+
+app.get('/', (_, res) => res.send('Kokoro Bot is running!'));
+app.get('/healthz', (_, res) => res.status(200).send('ok'));
+
+// ===== Relay store =====
+const relays = {
+  doc: (groupId) => db.collection('relays').doc(groupId),
+  async get(groupId) { const s = await this.doc(groupId).get(); return s.exists ? s.data() : null; },
+  async start(groupId, userId, startedBy) { await this.doc(groupId).set({ groupId, userId, isActive:true, startedAt:Timestamp.now(), startedBy }, { merge:true }); },
+  async stop(groupId) { await this.doc(groupId).set({ isActive:false, stoppedAt:Timestamp.now() }, { merge:true }); }
+};
+
+// ===== Watch ping/remind/escalate =====
+async function checkAndSendPing() {
+  const now = dayjs().tz('UTC');
+  log('info', `[watch-service] start ${now.format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
+
+  const usersRef = db.collection('users');
+
+  const warmupFill = async (now) => {
+    const snap = await usersRef.where('watchService.enabled', '==', true).limit(200).get();
+    let batch = db.batch(), cnt=0;
+    for (const d of snap.docs) {
+      const ws = (d.data().watchService)||{};
+      if (!ws.awaitingReply && !ws.nextPingAt) {
+        batch.set(d.ref, { watchService: { nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(now.toDate())) } }, { merge:true });
+        cnt++;
+      }
+    }
+    if (cnt) await batch.commit();
+  };
+
+  const fetchTargets = async (now) => {
+    const targets = [];
+    try {
+      const s = await usersRef
+        .where('watchService.enabled', '==', true)
+        .where('watchService.awaitingReply', '==', false)
+        .where('watchService.nextPingAt', '<=', now.toDate())
+        .limit(200).get();
+      targets.push(...s.docs);
+    } catch {
+      const s = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
+      for (const d of s.docs) {
+        const ws = (d.data().watchService)||{};
+        if (!ws.awaitingReply && ws.nextPingAt?.toDate?.() && ws.nextPingAt.toDate() <= now.toDate()) targets.push(d);
+      }
+    }
+    try {
+      const s = await usersRef
+        .where('watchService.enabled', '==', true)
+        .where('watchService.awaitingReply', '==', true)
+        .limit(200).get();
+      targets.push(...s.docs);
+    } catch {
+      const s = await usersRef.where('watchService.enabled', '==', true).limit(500).get();
+      for (const d of s.docs) {
+        const ws = (d.data().watchService)||{};
+        if (ws.awaitingReply === true) targets.push(d);
+      }
+    }
+    const map = new Map(); for (const d of targets) map.set(d.id, d);
+    return Array.from(map.values());
+  };
+  
+  await warmupFill(now);
+  const targets = await fetchTargets(now);
+  if (targets.length === 0) { log('info', '[watch-service] no targets.'); return; }
+
+  for (const doc of targets) {
+    const ref = doc.ref;
+    const locked = await db.runTransaction(async (tx) => {
+      const s = await tx.get(ref);
+      const u = s.data() || {};
+      const ws = u.watchService || {};
+      const nowTs = firebaseAdmin.firestore.Timestamp.now();
+      const lockUntil = ws.notifyLockExpiresAt?.toDate?.() || new Date(0);
+      if (lockUntil.getTime() > nowTs.toMillis()) return false;
+
+      const nextPingAt = ws.nextPingAt?.toDate?.() || null;
+      const awaiting = !!ws.awaitingReply;
+      if (!awaiting && (!nextPingAt || nextPingAt.getTime() > nowTs.toMillis())) return false;
+
+      const until = new Date(nowTs.toMillis() + 120 * 1000);
+      tx.set(ref, { watchService: { notifyLockExpiresAt: firebaseAdmin.firestore.Timestamp.fromDate(until) } }, { merge: true });
+      return true;
+    });
+
+    if (!locked) continue;
+
+    try {
+      const s = await ref.get();
+      const u = s.data() || {};
+      const ws = u.watchService || {};
+      const awaiting = !!ws.awaitingReply;
+      const lastPingAt = ws.lastPingAt?.toDate?.() ? dayjs(ws.lastPingAt.toDate()) : null;
+      const lastReminderAt = ws.lastReminderAt?.toDate?.() ? dayjs(ws.lastReminderAt.toDate()) : null;
+      const lastNotifiedAt = ws.lastNotifiedAt?.toDate?.() ? dayjs(ws.lastNotifiedAt.toDate()) : null;
+
+      let mode = awaiting ? 'noop' : 'ping';
+      if (awaiting && lastPingAt) {
+        const hrs = dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour');
+        if (hrs >= ESCALATE_AFTER_HOURS) mode = 'escalate';
+        else if (hrs >= REMINDER_AFTER_HOURS) {
+          if (!lastReminderAt || dayjs().utc().diff(dayjs(lastReminderAt).utc(), 'hour') >= 1) mode = 'remind';
+          else mode = 'noop';
+        } else mode = 'noop';
+      }
+
+      if (mode === 'noop') {
+        await ref.set({ watchService: { notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete() } }, { merge: true });
+        continue;
+      }
+
+      if (mode === 'ping') {
+        await safePush(doc.id, [{
+          type:'text', text:`${pickWatchMsg()} 大丈夫なら「OKだよ💖」を押してね！`
+        }, {
+          type:'flex', altText:'見守りチェック', contents:{
+            type:'bubble', body:{ type:'box', layout:'vertical', contents:[
+              { type:'text', text:'見守りチェック', weight:'bold', size:'xl' },
+              { type:'text', text:'OKならボタンを押してね💖 返信やスタンプでもOK！', wrap:true, margin:'md' }
+            ]},
+            footer:{ type:'box', layout:'vertical', contents:[
+              { type:'button', style:'primary', action:{ type:'postback', label:'OKだよ💖', data:'watch:ok', displayText:'OKだよ💖' } }
+            ]}
+          }
+        }]);
+        await ref.set({
+          watchService: {
+            lastPingAt: firebaseAdmin.firestore.Timestamp.now(),
+            awaitingReply: true,
+            nextPingAt: firebaseAdmin.firestore.FieldValue.delete(),
+            lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+            notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
+          },
+        }, { merge:true });
+      } else if (mode === 'remind') {
+        await safePush(doc.id, [{
+          type:'text', text:`${pickWatchMsg()} 昨日の見守りのOKまだ受け取れてないの… 大丈夫ならボタン押してね！`
+        }, {
+          type:'flex', altText:'見守りリマインド', contents:{
+            type:'bubble', body:{ type:'box', layout:'vertical', contents:[
+              { type:'text', text:'見守りリマインド', weight:'bold', size:'xl' },
+              { type:'text', text:'OKならボタンを押してね💖 返信やスタンプでもOK！', wrap:true, margin:'md' }
+            ]},
+            footer:{ type:'box', layout:'vertical', contents:[
+              { type:'button', style:'primary', action:{ type:'postback', label:'OKだよ💖', data:'watch:ok', displayText:'OKだよ💖' } }
+            ]}
+          }
+        }]);
+        await ref.set({
+          watchService: {
+            lastReminderAt: firebaseAdmin.firestore.Timestamp.now(),
+            notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
+          },
+        }, { merge:true });
+      } else if (mode === 'escalate') {
+        const targetGroupId =
+          (await getActiveWatchGroupId()) ||
+          process.env.WATCH_GROUP_ID ||
+          process.env.OFFICER_GROUP_ID;
+
+       const canNotify = targetGroupId && (!lastNotifiedAt || now.diff(lastNotifiedAt, 'hour') >= OFFICER_NOTIFICATION_MIN_GAP_HOURS);
+
+        if (canNotify) {
+          const udoc = await db.collection('users').doc(doc.id).get();
+          const udata = udoc.exists ? (udoc.data() || {}) : {};
+          const elapsedH = lastPingAt ? dayjs().utc().diff(dayjs(lastPingAt).utc(), 'hour') : ESCALATE_AFTER_HOURS;
+
+          const selfName   = udata?.profile?.name || '(不明)';
+          const selfAddress= udata?.profile?.address || '(不明)';
+          const selfPhone  = udata?.profile?.phone || udata?.emergency?.selfPhone || EMERGENCY_CONTACT_PHONE_NUMBER || '';
+          const kinName    = udata?.emergency?.contactName || '(不明)';
+          const kinPhone   = udata?.emergency?.contactPhone || '';
+
+          const flex = buildGroupAlertFlex({
+            kind: `見守り未応答(${elapsedH}h)`,
+            name: udata?.profile?.displayName || udata?.displayName || '(不明)',
+            userId: doc.id,
+            excerpt: 'OK応答なし',
+            selfName, selfAddress, selfPhone, kinName, kinPhone
+          });
+          await safePush(targetGroupId, [
+            { type:'text', text:'【見守り未応答】対応可能な方はお願いします。' },
+            flex
+          ]);
+          audit('escalate-alert-sent', { gid: targetGroupId, uid: doc.id });
+        }
+        await ref.set({
+          watchService: {
+            lastNotifiedAt: firebaseAdmin.firestore.Timestamp.now(),
+            awaitingReply: false,
+            lastReminderAt: firebaseAdmin.firestore.FieldValue.delete(),
+            nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingAtFrom(dayjs().tz(JST_TZ).toDate())),
+            notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete(),
+          },
+        }, { merge: true });
+      }
+    } catch (e) {
+      briefErr('watch send/update failed', e);
+      await ref.set({ watchService: { notifyLockExpiresAt: firebaseAdmin.firestore.FieldValue.delete() } }, { merge: true });
+    }
+  }
+  log('info', `[watch-service] end ${dayjs().tz('UTC').format('YYYY/MM/DD HH:mm:ss')} (UTC)`);
+}
+
+// ===== Handlers =====
+async function setWatchEnabled(userId, enabled) {
+  const ref = db.collection('users').doc(userId);
+  const patch = enabled
+    ? { watchService:{ enabled:true, awaitingReply:false, nextPingAt: Timestamp.now() } }
+    : { watchService:{ enabled:false, awaitingReply:false, nextPingAt: firebaseAdmin.firestore.FieldValue.delete() } };
+  await ref.set(patch, { merge:true });
+}
+async function getProfile(userId) {
+  if (!userId) return null;
+  try { const user = (await db.collection('users').doc(userId).get()).data(); return user?.profile; }
+  catch(e){ log('warn', 'getProfile failed', e); return null; }
+}
+
+async function handlePostbackEvent(event, userId) {
+  const data = event.postback.data || '';
+  
   // ===== 新機能：危険アラート対応・同意確認処理 =====
   if (data.startsWith("relay_start&uid=")) {
     const targetUserId = data.split("&uid=")[1];
@@ -1364,46 +1659,52 @@ let aiReply;
 try {
     aiReply = await aiGeneralReply(text, rank, userId);
 } catch (err) {
-    log('error', "[AI呼び出しエラー]", err);
-    aiReply = null; // ⭐️ aiReplyをnullにする
+    log('error', "[AI呼び出しエラー]", err); // 🧪 aiGeneralReply 内の catch で拾えない例外を記録
+    aiReply = "ごめんね、今ちょっと調子が悪いみたい💦"; // 応急対応メッセージ
 }
 
 // 🧪 確認ステップA: AI応答結果のログ出力
-log('info', `[AI応答結果] ${aiReply ? aiReply.slice(0, 50) : 'null'}`); // ⭐️ nullをログに出力
+log('info', `[AI応答結果] aiReply: ${aiReply}`); 
 
-if (aiReply && aiReply.trim()) { // ⭐️ null または 空文字列の場合、このブロックは実行されない
+if (aiReply && aiReply.trim()) {
     const replyText = aiReply.trim();
     
     try {
         // ✅ 修正後の正常な応答処理
         await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: replyText });
         await saveChatHistory(userId, 'こころチャット', replyText);
-        log('info', `[LINE応答] 正常にAI応答を送信しました`);
+        log('info', `[LINE応答] 正常にAI応答を送信しました`); // 🧪 成功ログを追加
         return;
     } catch (replyErr) {
-        // LINEへの返信失敗ログを追加
+        // 🧪 LINEへの返信失敗ログを追加
         log('error', "[LINE返信失敗]", replyErr); 
         // return しないで後続処理へ移る（最後の手段のメッセージへ）
     }
 }
-// ⭐️ AI応答が null/空文字列だった場合、またはLINE応答に失敗した場合、ここに到達する
 
 // 12) 既定の相槌（最後の手段）
-const fallbackMsg = 'ごめんね💦 いま、**うまく頭が回らなくて**会話に詰まっちゃったみたい…もう一度**短く**話しかけてくれると嬉しいな💖'; // 💡 元のメッセージに戻しました
+const fallbackMsg = 'ごめんね💦 いま、**うまく頭が回らなくて**会話に詰まっちゃったみたい…もう一度**短く**話しかけてくれると嬉しいな💖';
 
 try {
     // ✅ 最後の手段の返信処理
     await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
     await saveChatHistory(userId, 'こころチャット', fallbackMsg);
-    log('info', `[LINE応答] 最後の手段の相槌を送信しました`);
+    log('info', `[LINE応答] 最後の手段の相槌を送信しました`); // 🧪 成功ログを追加
     return;
 } catch (finalErr) {
-    // 最終返信失敗ログを追加
+    // 🧪 最後の手段の返信失敗ログを追加
     log('error', "[LINE最終返信失敗]", finalErr);
+    // これ以上、LINEに返信する手段がないため、ここで終了
     return;
 }
 
-   // ===== Server =====
+// ここで handleEvent(event) 関数を閉じる
+} // <-- ✅ 1つ目の閉じ括弧 (handleEvent関数を閉じる)
+
+// ここで app.post('/webhook', ...) のコールバック関数を閉じる
+} // <-- ✅ 2つ目の閉じ括弧 (app.postのコールバック関数を閉じる)
+
+// ===== Server =====
 const PORT = process.env.PORT || 3000;
 if (!global.__kokoro_server_started) {
   global.__kokoro_server_started = true;
