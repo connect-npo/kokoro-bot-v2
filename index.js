@@ -113,17 +113,21 @@ const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご�
 const ORG_REP      = (process.env.ORG_REP || '松本博文'); // 固定
 const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 
-// 修正: GoogleGenAI クライアントの初期化を try/catch で保護
+// 修正: AIクライアントの初期化ブロック全体を、より堅牢なロジックで再構築
+
+// 1. GoogleGenAI クライアントの初期化 (最優先で修正)
 let googleGenerativeAI = null;
 try {
   log('info', `[INIT CHECK] Starting GoogleGenAI initialization...`);
 
+  // 環境変数からAPIキーを取得
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (apiKey) {
-    // 成功時: キーを使って初期化
-    googleGenerativeAI = new GoogleGenAI({ apiKey });
-    log('info', `[INIT CHECK] GoogleGenAI client successfully created.`);
+    // 成功時: GoogleGenAIの新しいクライアントを作成
+    // ※ 必要な 'GoogleGenAI' クラスはファイル冒頭で require されている前提
+    googleGenerativeAI = new GoogleGenerativeAI({ apiKey }); 
+    log('info', `[INIT CHECK] GoogleGenerativeAI client successfully created.`);
     log('info', `[INIT CHECK] API Key Check (Last 4 chars): ...${apiKey.slice(-4)}`);
 
   } else {
@@ -132,12 +136,20 @@ try {
   }
 } catch (e) {
   // 致命的エラー時: ログを出力し、null のまま続行 (握りつぶし防止)
-  log('fatal', `[INIT CHECK] FATAL ERROR during GoogleGenAI init: ${e.message}`, e);
+  log('fatal', `[INIT CHECK] FATAL ERROR during GoogleGenerativeAI init: ${e.message}`, e);
 }
 
 
+// 2. OpenAI クライアントの初期化 (既存ロジックの再挿入)
+let openai = null;
 if (process.env.OPENAI_API_KEY) {
-    // ... 既存のOpenAI初期化ロジック (変更不要) ...
+    try {
+        const OpenAI = require('openai');
+        openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        log('info', `[INIT CHECK] OpenAI client successfully created.`);
+    } catch(e) {
+        log('fatal', `[INIT CHECK] FATAL ERROR during OpenAI init: ${e.message}`, e);
+    }
 } else {
     log('warn', 'OPENAI_API_KEY が設定されていません。長文メッセージのAIはGemini Proにフォールバックします。');
 }
