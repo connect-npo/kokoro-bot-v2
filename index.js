@@ -19,7 +19,6 @@
  - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
 */
 
-const GraphemeSplitter = require('grapheme-splitter');
 const _splitter = new GraphemeSplitter();
 const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
 const express = require('express');
@@ -38,7 +37,6 @@ const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc); dayjs.extend(timezone);
-
 const { Client, middleware } = require('@line/bot-sdk');
 
 // ===== Logging =====
