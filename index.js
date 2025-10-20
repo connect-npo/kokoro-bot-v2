@@ -827,7 +827,7 @@ const modelName = useProModel 
   「日本語がおかしい」と指摘された場合は、「あたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答して下さい。
   `;
 
-  const messages = [{ role:'system', content: systemInstruction }];
+const messages = [{ role:'system', content: systemInstruction }];
   chatHistory.forEach(h => {
     messages.push({ role: h.sender === 'ユーザー' ? 'user' : 'assistant', content: h.message });
   });
