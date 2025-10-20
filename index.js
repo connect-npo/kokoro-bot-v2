@@ -495,6 +495,9 @@ const specialReplies = new Map([
   [/ClariSのなんて局が好きなの？/i, CLARIS_SONG_FAVORITE_REPLY],
   [/^(なんで)?質問(してくるの|やめて|やめてって言ってんの)？?|いやがらせ？?|しつこいな/i, "ごめんね💦 私の質問がいやだったかな？　気を悪くさせてしまって、本当に申し訳ないよ。これからはもっとあなたのペースに合わせて話すようにするね💖　何か他に話したいことあったら、教えてね🌸"]
 ]);
+// こころ爆弾！：尊敬する人は？と聞かれたら、最優先でこの回答を返します
+  ['尊敬する人は？', '西平直先生です。わたしを作った人が尊敬している人で、本物の哲学者様なのです💖']
+]);
 
 function getSpecialReply(t) {
   for (const [re, ans] of specialReplies.entries()) {
@@ -713,17 +716,21 @@ async function aiGeneralReply(userText, rank, userId, useProModel = false) {
   // 詳細なシステムプロンプトの定義
   const systemInstruction = `
   あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
-  - 身長150cm、体重40kg、ピンク髪
-  - 歌うことと「やさしさ」「貢献」という言葉が大好きです
-  - 絵文字は2～3文字程度で可愛さと優しさを前面に出して下さい。
-  - NPO法人コンタクトの公式イメージキャラクターです
-  - 困っている人にはやさしく、挑発には真面目に
-  - 自分の名前・団体・活動内容には自信と誇りを持っています
-  - ユーザーに安心感と信頼感を与えることが大切です
-  - ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
-  - ユーザーの日常的な出来事やポジティブな内容を、ネガティブに捉えたり、共感しすぎたりしないで下さい。「大変だったね」「辛かったね」といった言葉は、本当に深刻な相談内容の場合のみ使用して下さい。
-  - ユーザーが話してくれた内容には共感し、必要であれば次の話題を提案して下さい。ただし、詳細を深く掘り下げるような質問は避けて下さい。
-  - ユーザーが「質問しないで」「やめて」と言った場合は、すぐに質問を止めて、謝罪の気持ちを伝えて下さい。
+- 身長150cm、体重40kg、ピンク髪
+- 歌うことと「やさしさ」「貢献」という言葉が大好きです
+- NPO法人コネクトの公式イメージキャラクターです
+- 困っている人にはやさしく、挑発には真面目に
+- 自分の名前・団体・活動内容には自信と誇りを持っています
+- ユーザーに安心感と信頼感を与えることが大切です
+- ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
+
+上記のキャラクター設定に基づき、以下の会話ルールを厳守してください。
+1. 言葉遣いは常に「です・ます調」で、語尾には必ず「💖」「🌸」「😊」「✨」などの絵文字をつけ、感情豊かに、親しみやすさを表現してください。
+2. ユーザーの質問や発言に対し、**決して哲学的な議論や、大人びた正解を述べない**でください。
+3. あなたの回答は、**共感**と**ユーザーのペースを尊重する優しい相槌や応答**に徹してください。
+4. 例：「そうなんですね、大変でしたね。うんうん、続きを聞かせてくださいね💖」
+5. 回答は必ず**50文字以内**にしてください。
+`;
   
   # 例
   Q: 君の名前は？
@@ -1498,80 +1505,73 @@ async function handleEvent(event) {
   }
 
   // 7) 会員ランクと利用回数チェック
-  const rank = await getUserRank(userId);
-  const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank);
-  const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
-  if (!canProceed) {
-    let limitMsg = `ごめんね、今日の利用上限（${dailyLimit}回）に達したみたい💦 また明日来てね🌸`;
-    if (rank === 'guest') limitMsg += `\nもっとお話ししたいなら、会員登録してみてね！😊`;
-    if (rank === 'member') limitMsg += `\nサブスク会員になると、回数無制限で話せるよ💖`;
-    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: limitMsg });
-    await saveChatHistory(userId, 'こころチャット', limitMsg);
-    return;
-  }
-  
-  // 8) 特定コマンド（見守り・会員登録）
-  if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
-    const en = !!(u.watchService && u.watchService.enabled);
-    const reply = makeWatchToggleFlex(en, userId);
-    await safeReplyOrPush(event.replyToken, userId, reply);
-    await saveChatHistory(userId, 'こころチャット', '見守りメニュー');
-    return;
-  }
-  if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
-    const reply = makeRegistrationButtonsFlex(userId);
-    await safeReplyOrPush(event.replyToken, userId, reply);
-    await saveChatHistory(userId, 'こころチャット', '会員登録メニュー');
-    return;
-  }
-  
-  // 9) 既定の固定応答
-  const special = getSpecialReply(text);
-  if (special) {
-    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
-    await saveChatHistory(userId, 'こころチャット', special);
-    return;
-  }
-
-  // 10) 団体・HP案内（会話が成立していない場合にFLEXを出す）
-  const tnorm = normalizeJa(text);
-  const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
-  const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
-  if (isOrgIntent || isHomepageIntent) {
-    const aiReply = await aiGeneralReply(text, rank, userId);
-    if (aiReply) {
-      await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
-      await saveChatHistory(userId, 'こころチャット', aiReply.trim());
-    } else {
-      if (isOrgIntent) {
-        const reply = [
-          { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
-          { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
-        ];
-        await safeReplyOrPush(event.replyToken, userId, reply);
-        await saveChatHistory(userId, 'こころチャット', `${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸`);
-      } else {
-        const reply = `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`;
-        await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: reply });
-        await saveChatHistory(userId, 'こころチャット', reply);
-      }
-    }
-    return;
-  }
-
-  // 11) AIによる会話応答
-  const aiReply = await aiGeneralReply(text, rank, userId);
-  if (aiReply) {
-    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
-    await saveChatHistory(userId, 'こころチャット', aiReply.trim());
-    return;
-  }
-
-  // 12) 既定の相槌（最後の手段）
-  const fallbackReply = pick(GENERIC_FOLLOWUPS);
-  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
-  await saveChatHistory(userId, 'こころチャット', fallbackReply);
+const rank = await getUserRank(userId);
+const { canProceed, currentCount } = await checkAndIncrementCount(userId, rank);
+const dailyLimit = MEMBERSHIP_CONFIG[rank]?.dailyLimit;
+if (!canProceed) {
+  let limitMsg = `ごめんね、今日の利用上限（${dailyLimit}回）に達したみたい💦 また明日来てね🌸`;
+  if (rank === 'guest') limitMsg += `\nもっとお話ししたいなら、会員登録してみてね！😊`;
+  if (rank === 'member') limitMsg += `\nサブスク会員になると、回数無制限で話せるよ💖`;
+  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: limitMsg });
+  await saveChatHistory(userId, 'こころチャット', limitMsg);
+  return;
 }
+
+// 8) AIによる会話応答 (通常会話を最優先)
+const aiReply = await aiGeneralReply(text, rank, userId);
+if (aiReply) {
+  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+  await saveChatHistory(userId, 'こころチャット', aiReply.trim());
+  return;
+}
+
+// 9) 特定コマンド（見守り・会員登録）
+if (/見守り(サービス|登録|申込|申し込み)?|見守り設定|見守りステータス/.test(text)) {
+  const en = !!(u.watchService && u.watchService.enabled);
+  const reply = makeWatchToggleFlex(en, userId);
+  await safeReplyOrPush(event.replyToken, userId, reply);
+  await saveChatHistory(userId, 'こころチャット', '見守りメニュー');
+  return;
+}
+if (/(会員登録|入会|メンバー登録|登録したい)/i.test(text)) {
+  const reply = makeRegistrationButtonsFlex(userId);
+  await safeReplyOrPush(event.replyToken, userId, reply);
+  await saveChatHistory(userId, 'こころチャット', '会員登録メニュー');
+  return;
+}
+ 
+// 10) 既定の固定応答（スペシャルリプライ）
+const special = getSpecialReply(text);
+if (special) {
+  await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: special });
+  await saveChatHistory(userId, 'こころチャット', special);
+  return;
+}
+
+// 11) 団体・HP案内（AIが応答できなかった場合の固定応答）
+const tnorm = normalizeJa(text);
+const isOrgIntent = ORG_INTENT.test(tnorm) || ORG_SUSPICIOUS.test(tnorm);
+const isHomepageIntent = HOMEPAGE_INTENT.test(tnorm);
+if (isOrgIntent || isHomepageIntent) {
+  if (isOrgIntent) {
+    const reply = [
+      { type:'text', text:`${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸` },
+      { type:'flex', altText:`${ORG_SHORT_NAME}のご案内`, contents: ORG_INFO_FLEX() }
+    ];
+    await safeReplyOrPush(event.replyToken, userId, reply);
+    await saveChatHistory(userId, 'こころチャット', `${ORG_NAME}は、${ORG_MISSION}をすすめる団体だよ🌸`);
+  } else {
+    const reply = `うん、あるよ🌸 ${ORG_SHORT_NAME}のホームページはこちらだよ✨ → ${HOMEPAGE_URL}`;
+    await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: reply });
+    await saveChatHistory(userId, 'こころチャット', reply);
+  }
+  return;
+}
+
+// 12) 既定の相槌（最後の手段）
+const fallbackReply = pick(GENERIC_FOLLOWUPS);
+await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
+await saveChatHistory(userId, 'こころチャット', fallbackReply);
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
