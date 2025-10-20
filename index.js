@@ -1571,8 +1571,7 @@ if (isOrgIntent || isHomepageIntent) {
 const fallbackReply = pick(GENERIC_FOLLOWUPS);
 await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackReply });
 await saveChatHistory(userId, 'こころチャット', fallbackReply);
-} 
-
+ 
 // ===== Watch service cron job =====
 if (WATCH_RUNNER === 'internal') {
   // 毎日午後3時（日本時間）に見守りサービスをチェック
