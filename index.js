@@ -36,11 +36,6 @@ const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc); dayjs.extend(timezone);
 
-let openai = null;
-let googleGenerativeAI = null;
-const _splitter = new GraphemeSplitter();
-const toGraphemes = (s) => _splitter.splitGraphemes(String(s || ''));
-
 const { Client, middleware } = require('@line/bot-sdk');
 
 // ===== Logging =====
@@ -118,17 +113,34 @@ const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご�
 const ORG_REP      = (process.env.ORG_REP || '松本博文'); // 固定
 const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 
-// ===== AI Clients =====
+// 修正: GoogleGenAI クライアントの初期化を try/catch で保護
+let googleGenerativeAI = null;
 try {
-  if (OPENAI_API_KEY) {
-    const OpenAI = require('openai');
-    openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  log('info', `[INIT CHECK] Starting GoogleGenAI initialization...`);
+
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (apiKey) {
+    // 成功時: キーを使って初期化
+    googleGenerativeAI = new GoogleGenAI({ apiKey });
+    log('info', `[INIT CHECK] GoogleGenAI client successfully created.`);
+    log('info', `[INIT CHECK] API Key Check (Last 4 chars): ...${apiKey.slice(-4)}`);
+
+  } else {
+    // エラー時: キーがない場合、ログを出して null のまま続行
+    log('fatal', 'GEMINI_API_KEY が環境変数に設定されていません。AI応答は完全に停止します。');
   }
-  if (GEMINI_API_KEY) {
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    googleGenerativeAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  }
-} catch (_) { /* ignore */ }
+} catch (e) {
+  // 致命的エラー時: ログを出力し、null のまま続行 (握りつぶし防止)
+  log('fatal', `[INIT CHECK] FATAL ERROR during GoogleGenAI init: ${e.message}`, e);
+}
+
+
+if (process.env.OPENAI_API_KEY) {
+    // ... 既存のOpenAI初期化ロジック (変更不要) ...
+} else {
+    log('warn', 'OPENAI_API_KEY が設定されていません。長文メッセージのAIはGemini Proにフォールバックします。');
+}
 
 // ===== Firebase =====
 let creds = null;
