@@ -110,8 +110,8 @@ const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
 
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 
-const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コンタクト';
-const ORG_SHORT_NAME = process.env.ORG_SHORT_NAME || 'コンタクト';
+const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
+const ORG_SHORT_NAME = process.env.ORG_SHORT_NAME || 'コネクト';
 const HOMEPAGE_URL   = normalizeFormUrl(process.env.HOMEPAGE_URL || 'https://connect-npo.or.jp');
 const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご高齢の方の安心と笑顔を守る活動';
 const ORG_REP      = (process.env.ORG_REP || '松本博文'); // 固定
