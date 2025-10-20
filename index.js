@@ -1629,6 +1629,7 @@ const fallbackMsg = 'ごめんね💦 いま、**うまく頭が回らなくて*
 await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: fallbackMsg });
 await saveChatHistory(userId, 'こころチャット', fallbackMsg);
 return;
+}
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
