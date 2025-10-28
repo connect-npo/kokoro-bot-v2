@@ -155,6 +155,7 @@ if (OPENAI_API_KEY) { // 既に const OPENAI_API_KEY = process.env.OPENAI_API_KE
 } else {
     log('warn', 'OPENAI_API_KEY が設定されていません。長文メッセージのAIはGemini Proにフォールバックします。');
 }
+console.log(`✅ AI Clients Initialized: Gemini=${googleGenerativeAI ? 'OK' : 'FAIL'}, OpenAI=${openai ? 'OK' : 'FAIL'}`);
 
 // ===== Firebase =====
 let creds = null;
