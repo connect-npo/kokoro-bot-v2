@@ -1,22 +1,22 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, enhanced-2025-10-20)
- - 9-18をベースに危険ワード検出時のグループ通知機能を追加
- - ワンクッションFLEXで安心設計
- - 通常会話：Gemini 2.5 Flashと GPT-4o-mini を文字数で使い分け
- - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
- - 危険はGPT-4oで2文+危険FLEX→見守りグループへFLEX通知 → ユーザー同意確認
- - 詐欺はGPT-4oで2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
- - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
- - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
- - リレー中（グループ↔本人）は"ここ♡返信停止"（本人↔事務局の会話を阻害しない）
- - 不適切語：1回目=お答え不可、2回目=警告、3回目=7日停止（停止中は初回のみ通知→以降サイレント）
- - 悪意ある長文：即時7日停止
- - ユーザーランクごとの利用回数制限とモデル切り替え
- - 通常会話：50文字以下→Gemini 2.5 Flash、50文字超→GPT-4o-miniで応答
- - 「相談」または「そうだん」と だけ入力された場合、回数制限を無視しGemini 2.5 Proで1回だけ応答
- - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
+ index.js (angel-kokoro, enhanced-2025-10-20)
+ - 9-18をベースに危険ワード検出時のグループ通知機能を追加
+ - ワンクッションFLEXで安心設計
+ - 通常会話：Gemini 2.5 Flashと GPT-4o-mini を文字数で使い分け
+ - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
+ - 危険はGPT-4oで2文+危険FLEX→見守りグループへFLEX通知 → ユーザー同意確認
+ - 詐欺はGPT-4oで2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
+ - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
+ - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
+ - リレー中（グループ↔本人）は"ここ♡返信停止"（本人↔事務局の会話を阻害しない）
+ - 不適切語：1回目=お答え不可、2回目=警告、3回目=7日停止（停止中は初回のみ通知→以降サイレント）
+ - 悪意ある長文：即時7日停止
+ - ユーザーランクごとの利用回数制限とモデル切り替え
+ - 通常会話：50文字以下→Gemini 2.5 Flash、50文字超→GPT-4o-miniで応答
+ - 「相談」または「そうだん」と だけ入力された場合、回数制限を無視しGemini 2.5 Proで1回だけ応答
+ - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
 */
 
 const GraphemeSplitter = require('grapheme-splitter');
@@ -46,18 +46,54 @@ const LV_ALLOW = LV[WATCH_LOG_LEVEL] ?? LV.info;
 const log = (lvl, ...args) => { if ((LV[lvl] ?? LV.debug) <= LV_ALLOW) console.log(...args) };
 const audit = (e, detail) => log('info', `[AUDIT] ${e}`, JSON.stringify(detail));
 const briefErr = (msg, e) => {
-  const detail = e?.originalError?.response?.data || e?.response?.data || e?.message;
-  console.error(`[ERR] ${msg}:`, JSON.stringify(detail, null, 2));
+  const detail = e?.originalError?.response?.data || e?.response?.data || e?.message;
+  console.error(`[ERR] ${msg}:`, JSON.stringify(detail, null, 2));
 };
 
 // ----------------------------------------------------
-//   以下、設定値・定数の定義 (省略不可)
+// ✨ 🔴 Firebase Admin SDK 初期化 🔴 ✨
+// 環境変数 FIREBASE_CREDENTIALS_BASE64 を使用して初期化
+// ----------------------------------------------------
+// すでに初期化されていないか確認
+if (firebaseAdmin.apps.length === 0) { 
+  try {
+    const base64Credentials = process.env.FIREBASE_CREDENTIALS_BASE64;
+    
+    if (!base64Credentials) {
+      throw new Error("環境変数 FIREBASE_CREDENTIALS_BASE64 が設定されていません。");
+    }
+    
+    // Base64文字列をデコードし、JSON文字列に戻す
+    const jsonString = Buffer.from(base64Credentials, 'base64').toString('utf8');
+    
+    // JSON文字列をパースして認証情報オブジェクトを取得
+    const serviceAccount = JSON.parse(jsonString);
+    
+    // Firebaseを初期化
+    firebaseAdmin.initializeApp({
+      credential: firebaseAdmin.credential.cert(serviceAccount)
+    });
+    
+    console.log('✅ Firebase Admin SDK が正常に初期化されました');
+  } catch (e) {
+    console.error(`[FATAL] Firebase Admin SDK の初期化に失敗しました。`);
+    // エラー詳細を出力
+    briefErr("初期化エラー", e); 
+    // 初期化に失敗したら、アプリを続行せずに終了
+    process.exit(1); 
+  }
+}
+// ----------------------------------------------------
+
+
+// ----------------------------------------------------
+//     以下、設定値・定数の定義 (省略不可)
 // ----------------------------------------------------
 
 // 環境変数からの設定
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-const FIREBASE_SERVICE_ACCOUNT = process.env.FIREBASE_SERVICE_ACCOUNT;
+// 環境変数の名前を変更: FIREBASE_SERVICE_ACCOUNT -> FIREBASE_CREDENTIALS_BASE64 は初期化コードで処理
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
@@ -76,14 +112,14 @@ const OPENAI_MODEL       = 'gpt-4o-mini';
 const OPENAI_DANGER_MODEL= 'gpt-4o-mini'; // 危険・詐欺応答用（短い応答に特化）
 
 // 制限値
-const MAX_INPUT_LENGTH = 1000;  // 最大入力文字数 (DoS対策)
+const MAX_INPUT_LENGTH = 1000;  // 最大入力文字数 (DoS対策)
 const MIN_DANGER_WORD_LENGTH = 3; // 危険ワード判定の最小文字数
 
 // 見守りサービス設定
 const JST_TZ = 'Asia/Tokyo';
-const WATCH_PING_HOUR_JST = 15;  // 見守りPing時刻 (JST 15:00)
-const REMINDER_AFTER_HOURS = 24; // Ping後、リマインドを送るまでの時間
-const ESCALATE_AFTER_HOURS = 48; // Ping後、エスカレーションするまでの時間
+const WATCH_PING_HOUR_JST = 15;  // 見守りPing時刻 (JST 15:00)
+const REMINDER_AFTER_HOURS = 24; // Ping後、リマインドを送るまでの時間
+const ESCALATE_AFTER_HOURS = 48; // Ping後、エスカレーションするまでの時間
 const OFFICER_NOTIFICATION_MIN_GAP_HOURS = 6; // 役員への通知間隔の最小時間
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const SCAM_ALERT_TO_WATCH_GROUP = (process.env.SCAM_ALERT_TO_WATCH_GROUP || 'true').toLowerCase() === 'true';
@@ -92,11 +128,17 @@ const SEND_OFFICER_ALERTS = (process.env.SEND_OFFICER_ALERTS || 'true').toLowerC
 // 会員ランクと利用制限設定 (dailyLimit: -1 で無制限, consultLimit: -1 で無制限)
 const DEFAULT_RANK = 'guest';
 const MEMBERSHIP_CONFIG = {
-  guest:    { dailyLimit: 10, consultLimit: 1, isUnlimited: false },
-  member:   { dailyLimit: 30, consultLimit: 3, isUnlimited: false },
+  guest:    { dailyLimit: 5, consultLimit: 1, isUnlimited: false },
+  member:   { dailyLimit: 20, consultLimit: 3, isUnlimited: false },
   subscriber: { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // サブスクリプション会員
-  admin:    { dailyLimit: -1, consultLimit: -1, isUnlimited: true }  // 運営者
+  admin:    { dailyLimit: -1, consultLimit: -1, isUnlimited: true }  // 運営者
 };
+
+// 🔴 ここに以前のエラー原因だった定数を宣言 (重複がないよう、この場所で1回だけ宣言)
+const SOODAN_TRIGGERS = ["そうだん", "相談"]; 
+
+// ... この下に、以前のコードの残りの部分（LINE Botの設定、APIの初期化、Webhook処理、CRONジョブなど）が続きます ...
+// ... (本来の index.js の 1000行以上のロジック) ...
 
 // 危険ワード
 const DANGER_WORDS = [
