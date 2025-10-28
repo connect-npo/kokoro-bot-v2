@@ -192,22 +192,37 @@ function ensureMsgShape(messages) {
     return m;
   });
 }
+
 async function safeReplyOrPush(replyToken, to, messages) {
   const arr = ensureMsgShape(messages);
-  try { await client.replyMessage(replyToken, arr); }
-  catch (err) {
+  try {
+    // 🚨 修正: replyMessageの成功をログに記録
+    await client.replyMessage(replyToken, arr);
+    log('info', `[LINE応答成功] REPLY SENT for token: ${replyToken.slice(0, 8)}`); 
+  } catch (err) {
     const msg = err?.originalError?.response?.data?.message || err?.message || '';
     if (/Invalid reply token/i.test(msg) || err?.statusCode === 400) {
       await safePush(to, arr);
+      // PUSHにフォールバックしたことをログに記録
+      log('warn', `[LINE応答失敗→PUSH] Invalid Token, PUSHING to: ${to.slice(-4)}`); 
     } else {
+      // 予期せぬエラーを詳細に記録
       briefErr('reply failed', err);
+      log('error', `[LINE応答失敗] Generic Error: ${err.message}`, err);
     }
   }
 }
+
 async function safePush(to, messages) {
   const arr = ensureMsgShape(messages);
-  try { await client.pushMessage(to, arr); }
-  catch (err) { briefErr('LINE push failed', err); }
+  try { 
+    await client.pushMessage(to, arr); 
+    log('info', `[LINE PUSH成功] PUSH SENT to: ${to.slice(-4)}`); 
+  }
+  catch (err) { 
+    briefErr('LINE push failed', err); 
+    log('error', `[LINE PUSH失敗] ${err.message}`, err);
+  }
 }
 
 // ===== Watch service =====
@@ -889,12 +904,16 @@ const messages = [{ role:'system', content: systemInstruction }];
     temperature: 0.8,
   },
 });
+
+// 🚨 修正1: Geminiの生データをログに出力（AIが動いたかを確認する最重要ログ）
+log('info', '[DEBUG Gemini Raw Response]', JSON.stringify(response, null, 2)); 
+
 const text =
   response?.text || 
   response?.candidates?.[0]?.content?.parts?.[0]?.text || 
   '';
 
-log('info', `[Gemini response] ${text.slice(0, 50)}...`); // ログを残します
+log('info', `[Gemini response] ${text.slice(0, 50)}...`); // 抽出されたテキストをログに残します
 return text;
 
     } catch (e) {
