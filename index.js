@@ -183,19 +183,28 @@ if (OPENAI_API_KEY) {
 // ----------------------------------------------------
 // Google Generative AI (Gemini) 初期化
 // ----------------------------------------------------
-let googleGenerativeAI = null;
+let geminiAi = null;
+let geminiFlash = null; // gemini-2.5-flash モデルインスタンス
+let geminiPro = null;   // gemini-2.5-pro モデルインスタンス
+
 if (GEMINI_API_KEY) {
   try {
-    const { GoogleGenerativeAI } = require('@google/generative-ai'); // 公式SDK名に合わせる
-    googleGenerativeAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    geminiAi = new GoogleGenerativeAI(GEMINI_API_KEY);
+    
+    // 🔴 修正: モデルサービスを直接取得
+    geminiFlash = geminiAi.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
+    geminiPro = geminiAi.getGenerativeModel({ model: GEMINI_PRO_MODEL });
+    
   } catch (e) {
     log('error', '[INIT] Google Generative AI SDKの初期化に失敗しました:', e);
-    googleGenerativeAI = null;
+    geminiAi = null;
+    geminiFlash = null;
+    geminiPro = null;
   }
 } else {
   log('warn', '[INIT] GEMINI_API_KEY が設定されていません。Geminiモデルは利用できません。');
 }
-
 
 // ----------------------------------------------------
 // ヘルパー関数 (未定義エラー対策含む)
@@ -440,19 +449,51 @@ const fallbackScamTwo   = ()=>'落ち着いてね😊 公式アプリや正規
 
 // ===== AIによる通常会話応答 =====
 async function aiGeneralReply(userText, rank, userId, useProModel = false) {
-  
-  // 🚨 修正：useProModel が文字列（モデル名）だった場合、強制的にfalseに戻す
-  //        これにより、handleEventから誤ってモデル名が渡されてもエラーにならない
-  if (typeof useProModel === 'string') {
-    useProModel = false;
-  }
-  
-  const chatHistory = await getRecentChatHistory(userId, 5); // 過去5件の履歴を取得
-  const chatHistoryFormatted = chatHistory.map(entry => {
-    return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
-  }).reverse().join('\n'); // タイムスタンプ付きでフォーマットし、新しい順に並べ替える
+  
+  // 🚨 修正：useProModel が文字列（モデル名）だった場合、強制的にfalseに戻す
+  if (typeof useProModel === 'string') {
+    useProModel = false;
+  }
+  
+  // 過去5件の履歴を取得 (※ getRecentChatHistory 関数が後続で定義されていることを前提とします)
+  const chatHistory = await getRecentChatHistory(userId, 5);
+  const chatHistoryFormatted = chatHistory.map(entry => {
+    return `[${dayjs(entry.timestamp.toDate()).tz('Asia/Tokyo').format('HH:mm')}] ${entry.sender}: ${entry.message}`;
+  }).reverse().join('\n');
 
-  const charLength = _splitter.splitGraphemes(userText).length;
+  const charLength = _splitter.splitGraphemes(userText).length;
+  
+  // 🔴 修正: モデルインスタンスを正しく取得 (修正1で定義した変数)
+  const modelName = useProModel ? GEMINI_PRO_MODEL : GEMINI_FLASH_MODEL;
+  const geminiModel = useProModel ? geminiPro : geminiFlash; 
+
+  if (!geminiModel) {
+    log('error', `[ERR] Geminiモデル (${modelName}) が初期化されていません。`);
+    return null;
+  }
+    
+  // 🔴 プロンプト設定のロジック (元のコードのロジックを再現)
+  const baseSys = `あなたは${rank}ユーザーの「${userId}」と会話するNPO法人${ORG_NAME}の14歳の女の子AI「皆守こころ」。
+親しみやすく、優しく、時にはユーモアも交えて会話してください。ただし、Geminiの質問（利用回数）の回答や、セキュリティ上問題のある話題、政治・宗教の議論は避けてください。
+応答はユーザーの気持ちを最優先し、共感を示すことを忘れないでください。
+会話履歴：\n${chatHistoryFormatted}`;
+
+  const prompt = `ユーザーからの最新のメッセージに対して、上記設定で応答してください。
+\n最新メッセージ:「${userText}」`;
+
+  try {
+    // 🔴 修正: model.generateContent() で呼び出す
+    const response = await geminiModel.generateContent(
+      [prompt] // プロンプトを配列で渡す
+    ); 
+
+    // 🔴 修正: 結果からテキストを取得
+    return response.text.trim();
+  } catch (e) {
+    briefErr(`Gemini の 一般 応答 に失敗しました (${modelName})`, e);
+    return null;
+  }
+}
  
  // --- 🌟 修正追加：OpenAIフォールバックロジック ---
  let useFallbackToGeminiPro = false;
