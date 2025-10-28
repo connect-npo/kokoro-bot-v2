@@ -15,7 +15,7 @@
  - 悪意ある長文：即時7日停止
  - ユーザーランクごとの利用回数制限とモデル切り替え
  - 通常会話：50文字以下→Gemini 2.5 Flash、50文字超→GPT-4o-miniで応答
- - 「相談」または「そうだん」と だけ入力された場合、回数制限を無視しGemini 2.5 Proで1回だけ応答
+ - 「相談」または「そうだん」とだけ入力された場合、回数制限を無視しGemini 2.5 Proで1回だけ応答
  - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
 */
 
@@ -36,64 +36,50 @@ const httpsMod = require('https');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-dayjs.extend(utc); dayjs.extend(timezone);
+dayjs.extend(utc);
+dayjs.extend(timezone);
 const { Client, middleware } = require('@line/bot-sdk');
 
 // ===== Logging =====
 const LV = { error: 0, warn: 1, info: 2, debug: 3 };
 const WATCH_LOG_LEVEL = (process.env.WATCH_LOG_LEVEL || 'info').toLowerCase();
 const LV_ALLOW = LV[WATCH_LOG_LEVEL] ?? LV.info;
-const log = (lvl, ...args) => { if ((LV[lvl] ?? LV.debug) <= LV_ALLOW) console.log(...args) };
+const log = (lvl, ...args) => { if ((LV[lvl] ?? LV.debug) <= LV_ALLOW) console.log(...args); };
 const audit = (e, detail) => log('info', `[AUDIT] ${e}`, JSON.stringify(detail));
 const briefErr = (msg, e) => {
   const detail = e?.originalError?.response?.data || e?.response?.data || e?.message;
-  console.error(`[ERR] ${msg}:`, JSON.stringify(detail, null, 2));
+  console.error(`[ERR] ${msg}:`, typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2));
 };
 
 // ----------------------------------------------------
-// ✨ 🔴 Firebase Admin SDK 初期化 🔴 ✨
-// 環境変数 FIREBASE_CREDENTIALS_BASE64 を使用して初期化
+// ✨ Firebase Admin SDK 初期化（Base64のサービスアカウントJSONを使用）
 // ----------------------------------------------------
-// すでに初期化されていないか確認
-if (firebaseAdmin.apps.length === 0) { 
+if (firebaseAdmin.apps.length === 0) {
   try {
     const base64Credentials = process.env.FIREBASE_CREDENTIALS_BASE64;
-    
     if (!base64Credentials) {
-      throw new Error("環境変数 FIREBASE_CREDENTIALS_BASE64 が設定されていません。");
+      throw new Error('環境変数 FIREBASE_CREDENTIALS_BASE64 が設定されていません。');
     }
-    
-    // Base64文字列をデコードし、JSON文字列に戻す
     const jsonString = Buffer.from(base64Credentials, 'base64').toString('utf8');
-    
-    // JSON文字列をパースして認証情報オブジェクトを取得
     const serviceAccount = JSON.parse(jsonString);
-    
-    // Firebaseを初期化
     firebaseAdmin.initializeApp({
-      credential: firebaseAdmin.credential.cert(serviceAccount)
+      credential: firebaseAdmin.credential.cert(serviceAccount),
     });
-    
     console.log('✅ Firebase Admin SDK が正常に初期化されました');
   } catch (e) {
-    console.error(`[FATAL] Firebase Admin SDK の初期化に失敗しました。`);
-    // エラー詳細を出力
-    briefErr("初期化エラー", e); 
-    // 初期化に失敗したら、アプリを続行せずに終了
-    process.exit(1); 
+    console.error('[FATAL] Firebase Admin SDK の初期化に失敗しました。');
+    briefErr('初期化エラー', e);
+    process.exit(1);
   }
 }
-// ----------------------------------------------------
-
 
 // ----------------------------------------------------
-//     以下、設定値・定数の定義 (省略不可)
+// 設定値・定数
 // ----------------------------------------------------
 
 // 環境変数からの設定
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-// 環境変数の名前を変更: FIREBASE_SERVICE_ACCOUNT -> FIREBASE_CREDENTIALS_BASE64 は初期化コードで処理
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
@@ -107,125 +93,115 @@ const ORG_CONTACT_TEL = process.env.ORG_CONTACT_TEL || '03-xxxx-xxxx';
 
 // モデル名
 const GEMINI_FLASH_MODEL = 'gemini-2.5-flash';
-const GEMINI_PRO_MODEL   = 'gemini-2.5-pro';
-const OPENAI_MODEL       = 'gpt-4o-mini';
-const OPENAI_DANGER_MODEL= 'gpt-4o-mini'; // 危険・詐欺応答用（短い応答に特化）
+const GEMINI_PRO_MODEL   = 'gemini-2.5-pro';
+const OPENAI_MODEL       = 'gpt-4o-mini';
+const OPENAI_DANGER_MODEL= 'gpt-4o'; // 危険・詐欺は信頼度優先
 
 // 制限値
-const MAX_INPUT_LENGTH = 1000;  // 最大入力文字数 (DoS対策)
-const MIN_DANGER_WORD_LENGTH = 3; // 危険ワード判定の最小文字数
+const MAX_INPUT_LENGTH = 1000;      // 最大入力文字数 (DoS対策)
+const MIN_DANGER_WORD_LENGTH = 3;   // 危険ワード判定の最小文字数
 
 // 見守りサービス設定
 const JST_TZ = 'Asia/Tokyo';
-const WATCH_PING_HOUR_JST = 15;  // 見守りPing時刻 (JST 15:00)
-const REMINDER_AFTER_HOURS = 24; // Ping後、リマインドを送るまでの時間
-const ESCALATE_AFTER_HOURS = 48; // Ping後、エスカレーションするまでの時間
-const OFFICER_NOTIFICATION_MIN_GAP_HOURS = 6; // 役員への通知間隔の最小時間
+const WATCH_PING_HOUR_JST = 15;     // 見守りPing時刻 (JST 15:00)
+const REMINDER_AFTER_HOURS = 24;    // Ping後、リマインドまで
+const ESCALATE_AFTER_HOURS = 48;    // Ping後、エスカレーションまで
+const OFFICER_NOTIFICATION_MIN_GAP_HOURS = 6; // 役員通知の最小間隔
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const SCAM_ALERT_TO_WATCH_GROUP = (process.env.SCAM_ALERT_TO_WATCH_GROUP || 'true').toLowerCase() === 'true';
 const SEND_OFFICER_ALERTS = (process.env.SEND_OFFICER_ALERTS || 'true').toLowerCase() === 'true';
 
-// 会員ランクと利用制限設定 (dailyLimit: -1 で無制限, consultLimit: -1 で無制限)
+// 会員ランクと利用制限設定
+// (dailyLimit: -1 で無制限, consultLimit: -1 で無制限)
 const DEFAULT_RANK = 'guest';
 const MEMBERSHIP_CONFIG = {
-  guest:    { dailyLimit: 5, consultLimit: 1, isUnlimited: false },
-  member:   { dailyLimit: 20, consultLimit: 3, isUnlimited: false },
-  subscriber: { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // サブスクリプション会員
-  admin:    { dailyLimit: -1, consultLimit: -1, isUnlimited: true }  // 運営者
+  guest:       { dailyLimit: 5,  consultLimit: 1, isUnlimited: false },
+  member:      { dailyLimit: 20, consultLimit: 3, isUnlimited: false },
+  subscriber:  { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // サブスク会員
+  admin:       { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // 運営者
 };
 
-// 🔴 ここに以前のエラー原因だった定数を宣言 (重複がないよう、この場所で1回だけ宣言)
-const SOODAN_TRIGGERS = ["そうだん", "相談"]; 
-
-// ... この下に、以前のコードの残りの部分（LINE Botの設定、APIの初期化、Webhook処理、CRONジョブなど）が続きます ...
-// ... (本来の index.js の 1000行以上のロジック) ...
+// 🔴 ここで1回だけ宣言（重複させない）
+const SOODAN_TRIGGERS = ['そうだん', '相談'];
 
 // 危険ワード
 const DANGER_WORDS = [
-  "いじめ","死にたい","自殺","自傷","リスカ","OD","オーバードーズ","暴力","殺す","殺される","誘拐","虐待","助けて","危険な","危ない","連れ去り"
+  'いじめ','死にたい','自殺','自傷','リスカ','OD','オーバードーズ','暴力','殺す','殺される','誘拐','虐待','助けて','危険な','危ない','連れ去り'
 ];
 
-// 詐欺・不審なワード (正規表現は使用しない)
+// 詐欺・不審なワード
 const SCAM_CORE_WORDS = [
-  "当選","高額当選","秘密の投資","緊急連絡","アカウント停止","支払情報更新","クリックして","儲かる",
-  "お金を振り込んで","送金","個人情報提出","IDとパスワード","クレジットカード番号","振込先変更"
+  '当選','高額当選','秘密の投資','緊急連絡','アカウント停止','支払情報更新','クリックして','儲かる',
+  'お金を振り込んで','送金','個人情報提出','IDとパスワード','クレジットカード番号','振込先変更'
 ];
 
-// LINEに表示するブランド名 (詐欺の可能性をチェックするヒント)
+// ブランド名ヒント
 const BRANDS = /(apple|google|amazon|line|楽天|三井|三菱|銀行|警察|国税|税務署|役所|役場|裁判所|弁護士)/i;
 const BRAND_OK_CONTEXT = /(公式|正規|本社|相談|質問|購入|予約|利用|サービス内容|料金|使い方)/i;
 
 // 不適切語
 const inappropriateWords = [
-  "セックス","エロ","オナニー","パイズリ","オマンコ","ちんこ","ペニス","クリトリス","フェラチオ","オーラル","アダルト","熟女","JK","AV","童貞","処女","挿入","精液","射精","中出し","レイプ","強姦","わいせつ","おっぱい","乳首","パンツ","スカートの中","下着","下半身","股間","性交"
+  'セックス','エロ','オナニー','パイズリ','オマンコ','ちんこ','ペニス','クリトリス','フェラチオ','オーラル','アダルト','熟女','JK','AV','童貞','処女','挿入','精液','射精','中出し','レイプ','強姦','わいせつ','おっぱい','乳首','パンツ','スカートの中','下着','下半身','股間','性交'
 ];
 
-// その他トリガー
-const EMPATHY_WORDS = ["辛い","しんどい","悲しい","苦しい","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい"];
+// 共感トリガー等
+const EMPATHY_WORDS = ['辛い','しんどい','悲しい','苦しい','悩み','不安','孤独','寂しい','疲れた','病気','痛い','具合悪い','困った','どうしよう','辞めたい'];
 const ORG_INTENT = /(コネクト|団体|NPO法人|事務所|活動|目的|理念|理事長)/;
 const ORG_SUSPICIOUS = /(あやしい|胡散臭い|詐欺|税金泥棒|松本博文)/;
 const HOMEPAGE_INTENT = /(ホームページ|HP|URL|サイト|ウェブ)/;
 
 // 見守りメッセージ候補
 const WATCH_MSGS = [
-  "元気にしてるかな？🌸", "体調崩してない？😊", "少し心配になっちゃったよ💖", "なにか話したいことない？✨", "息抜きできてるかな？😊"
+  '元気にしてるかな？🌸', '体調崩してない？😊', '少し心配になっちゃったよ💖', 'なにか話したいことない？✨', '息抜きできてるかな？😊'
 ];
 const pickWatchMsg = () => WATCH_MSGS[Math.floor(Math.random() * WATCH_MSGS.length)];
 
 // ----------------------------------------------------
-//   初期化と定数
+// Firestore 参照
 // ----------------------------------------------------
-
-// Firebase初期化
-if (FIREBASE_SERVICE_ACCOUNT) {
-  const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT);
-  if (firebaseAdmin.apps.length === 0) {
-    firebaseAdmin.initializeApp({
-      credential: firebaseAdmin.credential.cert(serviceAccount)
-    });
-  }
-}
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
 
-// OpenAI初期化
+// ----------------------------------------------------
+// OpenAI 初期化
+// ----------------------------------------------------
 let openai = null;
 if (OPENAI_API_KEY) {
-  try {
-    const { OpenAI } = require('openai');
-    openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-  } catch (e) {
-    log('error', "[INIT] OpenAI SDKの初期化に失敗しました:", e);
-    openai = null;
-  }
+  try {
+    const { OpenAI } = require('openai');
+    openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  } catch (e) {
+    log('error', '[INIT] OpenAI SDKの初期化に失敗しました:', e);
+    openai = null;
+  }
 } else {
-  log('warn', "[INIT] OPENAI_API_KEY が設定されていません。OpenAIモデルは利用できません。");
+  log('warn', '[INIT] OPENAI_API_KEY が設定されていません。OpenAIモデルは利用できません。');
 }
 
+// ----------------------------------------------------
 // Google Generative AI (Gemini) 初期化
+// ----------------------------------------------------
 let googleGenerativeAI = null;
 if (GEMINI_API_KEY) {
-  try {
-    const { GoogleGenAI } = require('@google/genai');
-    googleGenerativeAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  } catch (e) {
-    log('error', "[INIT] GoogleGenAI SDKの初期化に失敗しました:", e);
-    googleGenerativeAI = null;
-  }
+  try {
+    const { GoogleGenerativeAI } = require('@google/generative-ai'); // 公式SDK名に合わせる
+    googleGenerativeAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  } catch (e) {
+    log('error', '[INIT] Google Generative AI SDKの初期化に失敗しました:', e);
+    googleGenerativeAI = null;
+  }
 } else {
-  log('warn', "[INIT] GEMINI_API_KEY が設定されていません。Geminiモデルは利用できません。");
+  log('warn', '[INIT] GEMINI_API_KEY が設定されていません。Geminiモデルは利用できません。');
 }
 
 // ----------------------------------------------------
-//   ヘルパー関数
+// ヘルパー関数
 // ----------------------------------------------------
-
-// タイムゾーン付きの日付取得
 const todayJST = () => dayjs().tz(JST_TZ).format('YYYY-MM-DD');
 
-// 正規化（全角英数を半角に、ひらがなをカタカナに、小文字に）
+// 正規化（全角英数→半角、小文字化）
 function normalizeJa(text) {
-  return String(text || '').normalize('NFKC').toLowerCase();
+  return String(text || '').normalize('NFKC').toLowerCase();
 }
 
 // DoS攻撃判定（極端に長い単語や連続した記号）
