@@ -38,6 +38,7 @@ const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc); dayjs.extend(timezone);
 const { Client, middleware } = require('@line/bot-sdk');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 // ===== Logging =====
 const LV = { error: 0, warn: 1, info: 2, debug: 3 };
