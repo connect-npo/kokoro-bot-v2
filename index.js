@@ -1027,24 +1027,38 @@ async function incrInapCount(userId) {
 }
 
 // ===== Webhook =====
+
+// 🚨 修正1: LINE SDKのミドルウェアはそのまま維持
 const lineMiddleware = middleware({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
 
-app.post('/webhook', lineMiddleware, async (req, res) => {
-  res.sendStatus(200);
-  const events = req.body.events;
-  if (!events || events.length === 0) return;
-  try {
-    await Promise.all(events.map(async (event) => {
-      if (event.type === 'message')      await handleEvent(event);
-      else if (event.type === 'postback')await handlePostbackEvent(event, event.source.userId);
-      else if (event.type === 'follow')  await handleFollowEvent(event);
-      else if (event.type === 'unfollow')await handleUnfollowEvent(event);
-      else if (event.type === 'join')    await handleJoinEvent(event);
-      else if (event.type === 'leave')   await handleLeaveEvent(event);
-    }));
-  } catch (err) {
-    console.error("Webhook error:", err);
-  }
+app.post('/webhook', lineMiddleware, (req, res) => {
+  // ✅ 修正2: Webhookハンドラの最初にres.sendStatus(200)ではなく、res.send('OK')を即座に送る
+  res.status(200).send('OK');
+
+  const events = req.body.events;
+  if (!events || events.length === 0) return;
+  
+  // ✅ 修正3: Promise.allを非同期に分離し、裏側でAI処理を継続させる
+  Promise.all(events.map(async (event) => {
+    try {
+      if (event.type === 'message')      await handleEvent(event);
+      else if (event.type === 'postback')await handlePostbackEvent(event, event.source.userId);
+      else if (event.type === 'follow')  await handleFollowEvent(event);
+      else if (event.type === 'unfollow')await handleUnfollowEvent(event);
+      else if (event.type === 'join')    await handleJoinEvent(event);
+      else if (event.type === 'leave')   await handleLeaveEvent(event);
+    } catch (err) {
+      // エラーはここでキャッチし、サーバーを落とさないようにする
+      log('error', `[Event Handling Error]`, err);
+    }
+  }))
+    .then(() => {
+        log('info', `[Webhook] All events processing initiated.`);
+    })
+    .catch(err => {
+        // Promise.all自体が失敗した場合（通常は発生しない）
+        log('error', `[Webhook FATAL Error]`, err);
+    });
 });
 
 app.get('/', (_, res) => res.send('Kokoro Bot is running!'));
