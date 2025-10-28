@@ -1032,7 +1032,7 @@ async function incrInapCount(userId) {
 const lineMiddleware = middleware({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
 
 app.post('/webhook', lineMiddleware, (req, res) => {
-  // ✅ 修正2: Webhookハンドラの最初にres.sendStatus(200)ではなく、res.send('OK')を即座に送る
+  // ✅ 修正2: Webhookハンドラの最初にres.send('OK')を即座に送る
   res.status(200).send('OK');
 
   const events = req.body.events;
