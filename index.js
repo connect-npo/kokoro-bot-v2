@@ -358,7 +358,6 @@ function hasInappropriate(text = '') {
 
 const empatheticTriggers = [ "辛い","しんどい","悲しい","苦しい","助けて","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい","消えたい","死にそう" ];
 const homeworkTriggers = ["宿題","勉強","問題","テスト","方程式","算数","数学","答え","解き方","教えて","計算","証明","公式","入試","受験"];
-const SOODAN_TRIGGERS = ["そうだん", "相談"];
 
 const hasEmpathyWord = (text) => {
   const t = normalizeJa(text);
