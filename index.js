@@ -1,22 +1,22 @@
 'use strict';
 
 /*
- index.js (angel-kokoro, enhanced-2025-10-20)
- - 9-18をベースに危険ワード検出時のグループ通知機能を追加
- - ワンクッションFLEXで安心設計
- - 通常会話：Gemini 2.5 Flashと GPT-4o-mini を文字数で使い分け
- - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
- - 危険はGPT-4oで2文+危険FLEX→見守りグループへFLEX通知 → ユーザー同意確認
- - 詐欺はGPT-4oで2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
- - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
- - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
- - リレー中（グループ↔本人）は"ここ♡返信停止"（本人↔事務局の会話を阻害しない）
- - 不適切語：1回目=お答え不可、2回目=警告、3回目=7日停止（停止中は初回のみ通知→以降サイレント）
- - 悪意ある長文：即時7日停止
- - ユーザーランクごとの利用回数制限とモデル切り替え
- - 通常会話：50文字以下→Gemini 2.5 Flash、50文字超→GPT-4o-miniで応答
- - 「相談」または「そうだん」と だけ入力された場合、回数制限を無視しGemini 2.5 Proで1回だけ応答
- - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
+ index.js (angel-kokoro, enhanced-2025-10-20)
+ - 9-18をベースに危険ワード検出時のグループ通知機能を追加
+ - ワンクッションFLEXで安心設計
+ - 通常会話：Gemini 2.5 Flashと GPT-4o-mini を文字数で使い分け
+ - 危険 > 詐欺 > 不適切語 > 共感 > 悪意ある長文 の優先判定
+ - 危険はGPT-4oで2文+危険FLEX→見守りグループへFLEX通知 → ユーザー同意確認
+ - 詐欺はGPT-4oで2文+詐欺FLEX（見守りはテキスト+FLEX、モノトーン）
+ - 会員登録FLEX：カラー / 見守り・詐欺FLEX：モノトーン / 危険FLEX：カラー
+ - 見守り29h未応答→グループFLEX（LINEで連絡 + 本人/近親者TEL）
+ - リレー中（グループ↔本人）は"ここ♡返信停止"（本人↔事務局の会話を阻害しない）
+ - 不適切語：1回目=お答え不可、2回目=警告、3回目=7日停止（停止中は初回のみ通知→以降サイレント）
+ - 悪意ある長文：即時7日停止
+ - ユーザーランクごとの利用回数制限とモデル切り替え
+ - 通常会話：50文字以下→Gemini 2.5 Flash、50文字超→GPT-4o-miniで応答
+ - 「相談」または「そうだん」と だけ入力された場合、回数制限を無視しGemini 2.5 Proで1回だけ応答
+ - AIからの質問を減らし、ユーザーのペースに合わせた応答に調整
 */
 
 const GraphemeSplitter = require('grapheme-splitter');
@@ -39,6 +39,7 @@ const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc); dayjs.extend(timezone);
 const { Client, middleware } = require('@line/bot-sdk');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { OpenAI } = require('openai'); // ✅ 修正1: OpenAIライブラリの読み込みを追加
 
 // ===== Logging =====
 const LV = { error: 0, warn: 1, info: 2, debug: 3 };
@@ -47,26 +48,26 @@ const LV_ALLOW = LV[WATCH_LOG_LEVEL] ?? LV.info;
 const log = (lvl, ...args) => { if ((LV[lvl] ?? LV.debug) <= LV_ALLOW) console.log(...args) };
 const audit = (e, detail) => log('info', `[AUDIT] ${e}`, JSON.stringify(detail));
 const briefErr = (msg, e) => {
-  const detail = e?.originalError?.response?.data || e?.response?.data || e?.message;
-  console.error(`[ERR] ${msg}:`, JSON.stringify(detail, null, 2));
+  const detail = e?.originalError?.response?.data || e?.response?.data || e?.message;
+  console.error(`[ERR] ${msg}:`, JSON.stringify(detail, null, 2));
 };
 
 // ===== Utils =====
 const normalizeFormUrl = s => {
-  let v = String(s || '').trim();
-  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
-  try { new URL(v); return v; } catch { return ''; }
+  let v = String(s || '').trim();
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  try { new URL(v); return v; } catch { return ''; }
 };
 const prefillUrl = (base, params) => {
-  if (!base) return '#';
-  const url = new URL(base);
-  for (const [k, v] of Object.entries(params || {})) if (v) url.searchParams.set(k, v);
-  return url.toString();
+  if (!base) return '#';
+  const url = new URL(base);
+  for (const [k, v] of Object.entries(params || {})) if (v) url.searchParams.set(k, v);
+  return url.toString();
 };
 const sanitizeForLog = (text) => String(text).replace(/\s+/g, ' ').trim();
 const maskPhone = (raw='') => {
-  const s = String(raw).replace(/[^0-9+]/g, ''); if (!s) return '';
-  const tail = s.slice(-4); const head = s.slice(0, -4).replace(/[0-9]/g, '*'); return head + tail;
+  const s = String(raw).replace(/[^0-9+]/g, ''); if (!s) return '';
+  const tail = s.slice(-4); const head = s.slice(0, -4).replace(/[0-9]/g, '*'); return head + tail;
 };
 const toArr = (m) => Array.isArray(m) ? m : [m];
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -74,32 +75,32 @@ const todayJST = () => dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
 
 // ===== ENV =====
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const LINE_CHANNEL_SECRET        = process.env.LINE_CHANNEL_SECRET;
+const LINE_CHANNEL_SECRET        = process.env.LINE_CHANNEL_SECRET;
 
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const OPENAI_MODEL   = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const OPENAI_DANGER_MODEL = process.env.OPENAI_DANGER_MODEL || 'gpt-4o';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_FLASH_MODEL   = process.env.GEMINI_FLASH_MODEL || 'gemini-2.5-flash';
-const GEMINI_PRO_MODEL     = process.env.GEMINI_PRO_MODEL   || 'gemini-2.5-pro';
+const GEMINI_FLASH_MODEL   = process.env.GEMINI_FLASH_MODEL || 'gemini-2.5-flash';
+const GEMINI_PRO_MODEL     = process.env.GEMINI_PRO_MODEL   || 'gemini-2.5-pro';
 
-const AGREEMENT_FORM_BASE_URL                 = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
-const ADULT_FORM_BASE_URL                     = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
+const AGREEMENT_FORM_BASE_URL                 = normalizeFormUrl(process.env.AGREEMENT_FORM_BASE_URL);
+const ADULT_FORM_BASE_URL                     = normalizeFormUrl(process.env.ADULT_FORM_BASE_URL);
 const STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL = normalizeFormUrl(process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_BASE_URL);
-const WATCH_SERVICE_FORM_BASE_URL             = normalizeFormUrl(process.env.WATCH_SERVICE_FORM_BASE_URL);
-const MEMBER_CHANGE_FORM_BASE_URL             = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
-const MEMBER_CANCEL_FORM_BASE_URL             = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
+const WATCH_SERVICE_FORM_BASE_URL             = normalizeFormUrl(process.env.WATCH_SERVICE_FORM_BASE_URL);
+const MEMBER_CHANGE_FORM_BASE_URL             = normalizeFormUrl(process.env.MEMBER_CHANGE_FORM_BASE_URL);
+const MEMBER_CANCEL_FORM_BASE_URL             = normalizeFormUrl(process.env.MEMBER_CANCEL_FORM_BASE_URL);
 
-const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID     = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
-const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID         = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
+const WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID     = process.env.WATCH_SERVICE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.312175830';
+const AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID         = process.env.AGREEMENT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.790268681';
 const STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID = process.env.STUDENT_MIDDLE_HIGH_UNI_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1100280108';
-const ADULT_FORM_LINE_USER_ID_ENTRY_ID             = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
-const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID     = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
-const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID     = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
+const ADULT_FORM_LINE_USER_ID_ENTRY_ID             = process.env.ADULT_FORM_LINE_USER_ID_ENTRY_ID || 'entry.1694651394';
+const MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID     = process.env.MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID || 'entry.743637502';
+const MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID     = process.env.MEMBER_CANCEL_FORM_LINE_USER_ID_ENTRY_ID || MEMBER_CHANGE_FORM_LINE_USER_ID_ENTRY_ID;
 
-const OFFICER_GROUP_ID     = process.env.OFFICER_GROUP_ID;
+const OFFICER_GROUP_ID     = process.env.OFFICER_GROUP_ID;
 const SEND_OFFICER_ALERTS = process.env.SEND_OFFICER_ALERTS !== 'false';
 const SCAM_ALERT_TO_WATCH_GROUP = String(process.env.SCAM_ALERT_TO_WATCH_GROUP || 'true').toLowerCase() === 'true';
 
@@ -108,11 +109,11 @@ const LINE_ADD_FRIEND_URL = process.env.LINE_ADD_FRIEND_URL;
 
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 
-const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
+const ORG_NAME       = process.env.ORG_NAME       || 'NPO法人コネクト';
 const ORG_SHORT_NAME = process.env.ORG_SHORT_NAME || 'コネクト';
-const HOMEPAGE_URL   = normalizeFormUrl(process.env.HOMEPAGE_URL || 'https://connect-npo.or.jp');
-const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご高齢の方の安心と笑顔を守る活動';
-const ORG_REP      = (process.env.ORG_REP || '松本博文'); // 固定
+const HOMEPAGE_URL   = normalizeFormUrl(process.env.HOMEPAGE_URL || 'https://connect-npo.or.jp');
+const ORG_MISSION    = process.env.ORG_MISSION    || 'こども・若者・ご高齢の方の安心と笑顔を守る活動';
+const ORG_REP      = (process.env.ORG_REP || '松本博文'); // 固定
 const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_NUMBER || '').replace(/[^0-9+]/g,'');
 
 // 修正: AIクライアントの初期化ブロック全体を、より堅牢なロジックで再構築
@@ -120,54 +121,53 @@ const ORG_CONTACT_TEL= (process.env.ORG_CONTACT_TEL || EMERGENCY_CONTACT_PHONE_N
 // 1. GoogleGenAI クライアントの初期化 (最優先で修正)
 let googleGenerativeAI = null;
 try {
-  log('info', `[INIT CHECK] Starting GoogleGenAI initialization...`);
+  log('info', `[INIT CHECK] Starting GoogleGenAI initialization...`);
 
-  // 環境変数からAPIキーを取得
-  const apiKey = process.env.GEMINI_API_KEY;
+  // 環境変数からAPIキーを取得
+  const apiKey = GEMINI_API_KEY; // 既に const GEMINI_API_KEY = process.env.GEMINI_API_KEY; で定義済み
 
-  if (apiKey) {
-    // 成功時: GoogleGenAIの新しいクライアントを作成
-    // ※ 必要な 'GoogleGenAI' クラスはファイル冒頭で require されている前提
-    googleGenerativeAI = new GoogleGenerativeAI({ apiKey }); 
-    log('info', `[INIT CHECK] GoogleGenerativeAI client successfully created.`);
-    log('info', `[INIT CHECK] API Key Check (Last 4 chars): ...${apiKey.slice(-4)}`);
+  if (apiKey) {
+    // 成功時: GoogleGenAIの新しいクライアントを作成
+    googleGenerativeAI = new GoogleGenerativeAI({ apiKey }); // ✅ 修正2: インスタンス化の実行
+    log('info', `[INIT CHECK] GoogleGenerativeAI client successfully created.`);
+    log('info', `[INIT CHECK] API Key Check (Last 4 chars): ...${apiKey.slice(-4)}`);
 
-  } else {
-    // エラー時: キーがない場合、ログを出して null のまま続行
-    log('fatal', 'GEMINI_API_KEY が環境変数に設定されていません。AI応答は完全に停止します。');
-  }
+  } else {
+    // エラー時: キーがない場合、ログを出して null のまま続行
+    log('fatal', 'GEMINI_API_KEY が環境変数に設定されていません。AI応答は完全に停止します。');
+  }
 } catch (e) {
-  // 致命的エラー時: ログを出力し、null のまま続行 (握りつぶし防止)
-  log('fatal', `[INIT CHECK] FATAL ERROR during GoogleGenerativeAI init: ${e.message}`, e);
+  // 致命的エラー時: ログを出力し、null のまま続行 (握りつぶし防止)
+  log('fatal', `[INIT CHECK] FATAL ERROR during GoogleGenerativeAI init: ${e.message}`, e);
 }
 
 
 // 2. OpenAI クライアントの初期化 (既存ロジックの再挿入)
 let openai = null;
-if (process.env.OPENAI_API_KEY) {
-    try {
-        const OpenAI = require('openai');
-        openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        log('info', `[INIT CHECK] OpenAI client successfully created.`);
-    } catch(e) {
-        log('fatal', `[INIT CHECK] FATAL ERROR during OpenAI init: ${e.message}`, e);
-    }
+if (OPENAI_API_KEY) { // 既に const OPENAI_API_KEY = process.env.OPENAI_API_KEY; で定義済み
+    try {
+        // const OpenAI = require('openai'); // ✅ 修正1でファイル冒頭に移動済み
+        openai = new OpenAI({ apiKey: OPENAI_API_KEY }); // ✅ 修正3: OpenAI クライアントを初期化
+        log('info', `[INIT CHECK] OpenAI client successfully created.`);
+    } catch(e) {
+        log('fatal', `[INIT CHECK] FATAL ERROR during OpenAI init: ${e.message}`, e);
+    }
 } else {
-    log('warn', 'OPENAI_API_KEY が設定されていません。長文メッセージのAIはGemini Proにフォールバックします。');
+    log('warn', 'OPENAI_API_KEY が設定されていません。長文メッセージのAIはGemini Proにフォールバックします。');
 }
 
 // ===== Firebase =====
 let creds = null;
 if (process.env.FIREBASE_CREDENTIALS_BASE64) {
-  creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
+  creds = JSON.parse(Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, "base64").toString("utf-8"));
 }
 if (!firebaseAdmin.apps.length) {
-  if (!creds) {
-    try { creds = require("./serviceAccountKey.json"); }
-    catch { throw new Error("FIREBASE_CREDENTIALS_BASE64 or serviceAccountKey.json required"); }
-  }
-  firebaseAdmin.initializeApp({ credential: firebaseAdmin.credential.cert(creds) });
-  console.log("✅ Firebase initialized");
+  if (!creds) {
+    try { creds = require("./serviceAccountKey.json"); }
+    catch { throw new Error("FIREBASE_CREDENTIALS_BASE64 or serviceAccountKey.json required"); }
+  }
+  firebaseAdmin.initializeApp({ credential: firebaseAdmin.credential.cert(creds) });
+  console.log("✅ Firebase initialized");
 }
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
@@ -182,31 +182,31 @@ const http = axios.create({ timeout: 6000, httpAgent, httpsAgent });
 
 // ===== Reply helpers =====
 function ensureMsgShape(messages) {
-  return toArr(messages).map(m => {
-    if (m.type === 'flex' && !m.altText) m.altText = '通知があります';
-    if (m.type === 'text') {
-      m.text = String(m.text || '').trim() || '（内容なし）';
-      if (m.text.length > 1800) m.text = m.text.slice(0, 1800);
-    }
-    return m;
-  });
+  return toArr(messages).map(m => {
+    if (m.type === 'flex' && !m.altText) m.altText = '通知があります';
+    if (m.type === 'text') {
+      m.text = String(m.text || '').trim() || '（内容なし）';
+      if (m.text.length > 1800) m.text = m.text.slice(0, 1800);
+    }
+    return m;
+  });
 }
 async function safeReplyOrPush(replyToken, to, messages) {
-  const arr = ensureMsgShape(messages);
-  try { await client.replyMessage(replyToken, arr); }
-  catch (err) {
-    const msg = err?.originalError?.response?.data?.message || err?.message || '';
-    if (/Invalid reply token/i.test(msg) || err?.statusCode === 400) {
-      await safePush(to, arr);
-    } else {
-      briefErr('reply failed', err);
-    }
-  }
+  const arr = ensureMsgShape(messages);
+  try { await client.replyMessage(replyToken, arr); }
+  catch (err) {
+    const msg = err?.originalError?.response?.data?.message || err?.message || '';
+    if (/Invalid reply token/i.test(msg) || err?.statusCode === 400) {
+      await safePush(to, arr);
+    } else {
+      briefErr('reply failed', err);
+    }
+  }
 }
 async function safePush(to, messages) {
-  const arr = ensureMsgShape(messages);
-  try { await client.pushMessage(to, arr); }
-  catch (err) { briefErr('LINE push failed', err); }
+  const arr = ensureMsgShape(messages);
+  try { await client.pushMessage(to, arr); }
+  catch (err) { briefErr('LINE push failed', err); }
 }
 
 // ===== Watch service =====
