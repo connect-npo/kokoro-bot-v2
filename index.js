@@ -869,7 +869,7 @@ const messages = [{ role:'system', content: systemInstruction }];
       return ''; // ⭐️ 修正4: nullではなく空文字列を返し、Fallbackを保証
     }
     
-    // システムプロンプトを除外した、会話履歴のみを抽出
+// システムプロンプトを除外した、会話履歴のみを抽出
     const historyOnly = messages.filter(m => m.role !== 'system'); 
     
     // Gemini形式のロール（user/model）に変換
@@ -881,29 +881,31 @@ const messages = [{ role:'system', content: systemInstruction }];
     try {
         // ✅ 修正：システムプロンプトをconfigのsystemInstructionで渡す
         const response = await googleGenerativeAI.models.generateContent({
-          model: modelName,
-          contents: transformedMessages,
-          config: {
-            systemInstruction: systemInstruction, // 分離したシステムプロンプトをここに渡す
-            maxOutputTokens: 500,
-            temperature: 0.8
-          }
-        });
-        
-        // ⭐️ 修正1: 正しい応答形式
-        const text = response.response.text();
-        log('info', `[Gemini response] ${text.slice(0, 50)}...`);
-        return text;
+  model: modelName,
+  contents: transformedMessages,
+  config: {
+    systemInstruction,
+    maxOutputTokens: 500,
+    temperature: 0.8,
+  },
+});
+const text =
+  response?.text || 
+  response?.candidates?.[0]?.content?.parts?.[0]?.text || 
+  '';
+
+log('info', `[Gemini response] ${text.slice(0, 50)}...`); // ログを残します
+return text;
 
     } catch (e) {
       briefErr(`Gemini の 一般 応答 に失敗しました (${modelName})`, e);
-      log('error', `[Gemini error detail]`, e); // ⭐️ 修正2: 詳細ログの追加
-      return ''; // ⭐️ 修正2, 4: nullではなく空文字列を返し、Fallbackを保証
+      log('error', `[Gemini error detail]`, e);
+      return ''; // 空文字列を返し、Fallbackを保証
     }
  } else { // <-- OpenAIを使うブロック
     if (!openai) {
-      log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`); 
-      return ''; // ⭐️ 修正4: nullではなく空文字列を返し、Fallbackを保証
+      log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`); 
+      return ''; // 空文字列を返し、Fallbackを保証
     }
     try {
       
