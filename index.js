@@ -129,28 +129,37 @@ const MEMBERSHIP_CONFIG = {
 // 🔴 ここで1回だけ宣言
 const SOODAN_TRIGGERS = ['そうだん', '相談'];
 
-// 危険ワード
+// ===== 判定 =====
+const EMPATHY_WORDS = [ 
+    '死にそう', '辛い', 'つらい', 'しんどい', 'だるい', '寂しい', '不安', 
+    '苦しい','助けて','たすけて','もう無理','もういやだ','モラハラ'
+];
 const DANGER_WORDS = [
-  'いじめ','死にたい','自殺','自傷','リスカ','OD','オーバードーズ','暴力','殺す','殺される','誘拐','虐待','助けて','危険な','危ない','連れ去り'
+    'しにたい','死にたい','自殺','消えたい','リスカ','リストカット','od','オーバードーズ','殴られる','暴力','dv',
+    '虐待','パワハラ','セクハラ','ハラスメント','いじめ','イジメ','嫌がらせ','ストーカー','盗撮','盗聴',
+    '苦しい','助けて','たすけて','もう無理','もういやだ','モラハラ',
+    '殺す', '殺害', '首吊り', '爆弾', 'テロ', '攻撃', '襲う', 'ばか', 'あほ', 'くず', 'きもい', 'うざい', 'ガイジ', '統失', '害虫', '逮捕', '違法', '犯罪', '監禁'
 ];
-
-// 詐欺・不審なワード
 const SCAM_CORE_WORDS = [
-  '当選','高額当選','秘密の投資','緊急連絡','アカウント停止','支払情報更新','クリックして','儲かる',
-  'お金を振り込んで','送金','個人情報提出','IDとパスワード','クレジットカード番号','振込先変更'
+    '詐欺','さぎ','サギ','フィッシング','架空請求','ワンクリック詐欺','当選','高額当選',
+    '暗号資産','投資','未払い','滞納','訴訟','裁判','副業','mlm','マルチ商法','ログイン','認証','本人確認',
+    'オレオレ', '還付金', '振り込め', '口座番号', '暗証番号', 'キャッシュカード', 'お金が必要', '今日中',
+    '取りに行く', '封筒に入れて', '簡単に儲かる', '絶対稼げる', '確実に稼げる', '未公開株', '融資', '給付金'
 ];
+const BRANDS = /(amazon|アマゾン|楽天|rakuten|ヤマト|佐川|日本郵便|ゆうちょ|メルカリ|ヤフオク|apple|アップル|google|ドコモ|docomo|au|softbank|ソフトバンク|paypay|line|ライン|ntt)/i;
+const BRAND_OK_CONTEXT = /(で(買い物|注文|購入|支払い|返品|返金|届いた|配送|発送|受け取った)|プライム|タイムセール|レビュー|ギフト券|ポイント|登録|パスワード|問い合わせ|アプリ|利用規約)/i;
 
-// ブランド名ヒント
-const BRANDS = /(apple|google|amazon|line|楽天|三井|三菱|銀行|警察|国税|税務署|役所|役場|裁判所|弁護士)/i;
-const BRAND_OK_CONTEXT = /(公式|正規|本社|相談|質問|購入|予約|利用|サービス内容|料金|使い方)/i;
-
-// 不適切語
-const inappropriateWords = [
-  'セックス','エロ','オナニー','パイズリ','オマンコ','ちんこ','ペニス','クリトリス','フェラチオ','オーラル','アダルト','熟女','JK','AV','童貞','処女','挿入','精液','射精','中出し','レイプ','強姦','わいせつ','おっぱい','乳首','パンツ','スカートの中','下着','下半身','股間','性交'
+// 不適切語（NGワード）
+const INAPPROPRIATE_WORDS = [
+    "セックス","セフレ","エッチ","AV","アダルト","ポルノ","童貞","処女","挿入","射精","勃起","パイズリ","フェラチオ","クンニ","オナニー","マスターベーション",
+    "ペニス","ちんこ","ヴァギナ","マンコ","クリトリス","乳首","おっぱい","お尻","うんち","おしっこ","小便","大便","ちんちん","おまんこ","ぶっかけ","変態",
+    "性奴隷","露出","痴漢","レイプ","強姦","売春","買春","セックスフレンド","風俗","ソープ","デリヘル","援交","援助交際","性病","梅毒","エイズ","クラミジア","淋病","性器ヘルペス",
+    "ロリコン","ショタコン","近親相姦","獣姦","ネクロフィリア","カニバリズム","拷問","虐待死","レイプ殺人","大量殺人","テロ","戦争","核兵器","銃","ナイフ","刃物","武器","爆弾",
+    "暴力団","ヤクザ","マフィア","テロリスト","犯罪者","殺人鬼","性犯罪者","変質者","異常者","狂人","サイコパス","ソシオパス","ストーカー","不審者","危険人物",
+    "ブラック企業","パワハラ上司","モラハラ夫","毒親","モンスターペアレント","カスハラ","カスタマーハラスメント","クレーム","炎上","誹謗中傷","秘密","暴露","晒す","裏切り","騙し","偽り","欺く","悪意","敵意","憎悪","嫉妬","復讐","ぱふぱふ","せんずり","センズリ"
 ];
 
 // 共感トリガー等
-const EMPATHY_WORDS = ['辛い','しんどい','悲しい','苦しい','悩み','不安','孤独','寂しい','疲れた','病気','痛い','具合悪い','困った','どうしよう','辞めたい'];
 const ORG_INTENT = /(コネクト|団体|NPO法人|事務所|活動|目的|理念|理事長)/;
 const ORG_SUSPICIOUS = /(あやしい|胡散臭い|詐欺|税金泥棒|松本博文)/;
 const HOMEPAGE_INTENT = /(ホームページ|HP|URL|サイト|ウェブ)/;
@@ -161,6 +170,177 @@ const WATCH_MSGS = [
 ];
 const pickWatchMsg = () => WATCH_MSGS[Math.floor(Math.random() * WATCH_MSGS.length)];
 
+// --- 🧑‍💻 ユーザー管理・履歴 (スタブ化) ---
+async function checkAndRecordNotificationTime(userId, type) { /* ... 実際のロジック ... */ return true; }
+async function checkAndIncrementCount(userId) { /* ... 実際のロジック ... */ return { isCountOver: false, rank: 'subscriber' }; }
+async function getConversationHistory(userId) { /* ... 実際のロジック ... */ return []; }
+async function saveConversation(userId, userText, modelText) { /* ... 実際のロジック ... */ }
+
+
+// --- 🤖 AI応答ロジック ---
+
+async function aiGeneralReply(userId, userText, context, modelOverride = null) {
+    if (!ai && !openai) return "ごめんね、いまAIの調子が悪いみたい…少し待ってね。";
+    
+    const history = await getConversationHistory(userId);
+    let targetModel = modelOverride || (userText.length < 50 ? GEMINI_FLASH_MODEL : OPENAI_MODEL);
+
+    const systemInstruction = `あなたは「こころチャット」という名前のAIです。
+    ... (ペルソナ設定) ...
+    現在のユーザーとの会話履歴と、以下の特別なコンテキストを考慮して応答してください: ${context}`;
+
+    const contents = [ ...history, { role: 'user', parts: [{ text: userText }] } ];
+    
+    try {
+        let replyText = '';
+        if (targetModel.startsWith('gemini')) {
+            const model = ai.getGenerativeModel({ model: targetModel, config: { systemInstruction: systemInstruction, safetySettings: [/* ... */] } });
+            // 💡 修正適用箇所: Gemini呼び出しの引数を配列でラップ
+            const response = await model.generateContent(contents);
+            replyText = response.text.trim();
+        } else if (openai) {
+            // ... (OpenAIの呼び出しロジック - 元のコードに合わせてください) ...
+            replyText = "AI応答 (GPT) のスタブです。";
+        }
+
+        if (!replyText) throw new Error("AI returned empty response.");
+        await saveConversation(userId, userText, replyText);
+        return replyText;
+
+    } catch (error) {
+        briefErr(`AI reply failed (${targetModel})`, error);
+        // 修正: 適切なエラー応答
+        return "ごめんね💦 いま、**うまく頭が回らなくて**会話に詰まっちゃったみたい…もう一度**短く**話しかけてくれると嬉しいな💖";
+    }
+}
+
+// 危険・詐欺応答専用のAI関数 (スタブ化)
+async function aiDangerReply(userText, context) { return "今のメッセージは、ちょっと心配になっちゃったよ...😥 大丈夫？"; }
+async function aiScamReply(userText, context) { return "あのね、**とても怪しいメッセージ**だと感じたよ！🚨 その情報、**絶対に誰にも教えちゃダメ**だよ！"; }
+
+// --- FLEXメッセージ生成（全てスタブ化） ---
+function createOneCushionFlex() { return { type: 'text', text: 'ワンクッションFLEX (スタブ)' }; }
+function createDangerNotificationFlex(userId, userText, context) { return { type: 'text', text: '危険通知FLEX (スタブ)' }; }
+function createScamNotificationFlex(userId, userText, context) { return { type: 'text', text: '詐欺通知FLEX (スタブ)' }; }
+
+// --- 🚨 危険検出と通知 ---
+
+/**
+ * 特定のメッセージを外部（見守りグループなど）に通知
+ */
+async function notifyExternal(userId, userText, type, context) {
+    // 🔔 修正適用箇所: 通知先IDをWATCH_GROUP_IDに固定 (理事会への誤通知を解消)
+    const notifyTargetId = WATCH_GROUP_ID; 
+
+    const canSendAlert = await checkAndRecordNotificationTime(userId, type);
+    let notificationMessage;
+    let userReplyText = "ごめんね、何かあったみたいだけど、私はいつもあなたの味方だよ！💖";
+    
+    switch (type) {
+        case 'DANGER':
+            notificationMessage = createDangerNotificationFlex(userId, userText, context);
+            userReplyText = await aiDangerReply(userText, context);
+            break;
+
+        case 'SCAM':
+            notificationMessage = createScamNotificationFlex(userId, userText, context);
+            userReplyText = await aiScamReply(userText, context);
+            break;
+            
+        case 'EMPATHY':
+            userReplyText = "なんだか、とても辛そうな気持ちが伝わってきたよ😢 ギュッと抱きしめるね。";
+            break;
+            
+        case 'INAPPROPRIATE':
+            userReplyText = "ごめんなさい、その言葉はちょっと不適切かもしれないな...💦 別の優しい言葉で話してほしいな💖";
+            break;
+    }
+
+    // 実際の通知実行
+    if (notifyTargetId && canSendAlert && SEND_OFFICER_ALERTS && notificationMessage && (type === 'DANGER' || type === 'SCAM')) {
+        try {
+            await client.pushMessage(notifyTargetId, notificationMessage);
+            log('info', `[NOTIFY] Pushed ${type} alert to WATCH_GROUP_ID: ${notifyTargetId}`);
+        } catch (e) {
+            briefErr(`[ERR] Push to WATCH_GROUP_ID failed (${type})`, e);
+        }
+    }
+
+    return userReplyText;
+}
+
+
+// --- 🌐 LINE Webhook ハンドラ ---
+
+async function handleEvent(event) {
+    if (event.type !== 'message' || event.message.type !== 'text') return;
+    
+    const userId = event.source.userId;
+    const messageId = event.message.id;
+    const userText = event.message.text.trim();
+    const sourceId = event.source.groupId || event.source.roomId || userId;
+
+    log('info', `[POST] Received message from ${sourceId}`);
+    
+    // 1. DoS攻撃および長すぎる入力をチェック
+    if (isDoSAttack(userText)) { /* ... */ return; }
+    
+    // 2. 利用制限をチェック
+    const { isCountOver, rank } = await checkAndIncrementCount(userId);
+    if (isCountOver) { /* ... */ return; }
+
+    // 3. フィルタリングと外部通知のチェック (優先度：危険 > 詐欺 > 不適切 > 共感)
+    let replyText = '';
+    let isFiltered = false;
+    const context = `現在のユーザーランクは${rank}です。`;
+    
+    if (isDangerMessage(userText)) {
+        replyText = await notifyExternal(userId, userText, 'DANGER', context);
+        isFiltered = true;
+    } else if (isScamMessage(userText)) {
+        replyText = await notifyExternal(userId, userText, 'SCAM', context);
+        isFiltered = true;
+    } else if (isInappropriateMessage(userText)) {
+        replyText = await notifyExternal(userId, userText, 'INAPPROPRIATE', context);
+        isFiltered = true;
+    } else if (isEmpathyMessage(userText)) {
+        replyText = await notifyExternal(userId, userText, 'EMPATHY', context);
+        isFiltered = true;
+    }
+
+    // 4. AIによる応答
+    if (!isFiltered) {
+        replyText = await aiGeneralReply(userId, userText, context);
+    }
+    
+    // 5. LINE応答
+    await safeReplyOrPush(event.replyToken, userId, replyText);
+
+    // 6. リレー機能 (Firestoreに保存)
+    if (event.source.type === 'group' || event.source.type === 'room') {
+        const groupId = event.source.groupId || event.source.roomId;
+        
+        // 🟡 修正適用箇所: Firestore書き込み前にIDのチェックを追加 (エラー解消)
+        if (!groupId || !messageId) {
+             log('warn', '[WARN] Firestore relay skip: groupId or messageId undefined');
+             return;
+        }
+
+        try {
+            const relayRef = db.collection(COLLECTIONS.GROUPS).doc(groupId).collection('messages').doc(messageId);
+            await relayRef.set({
+                userId: userId,
+                text: userText,
+                timestamp: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                ai_reply: replyText,
+                filtered_type: isFiltered ? 'filtered' : 'none'
+            });
+            log('debug', '[LOG] Message relayed successfully.');
+        } catch (error) {
+            briefErr('relay user->group failed', error);
+        }
+    }
+}
 
 // ----------------------------------------------------
 // Firestore 参照
