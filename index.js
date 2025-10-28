@@ -606,32 +606,43 @@ const messages = [{ role:'system', content: systemInstruction }];
     });
     
     try {
-        // システムプロンプトをconfigのsystemInstructionで渡す
-        const response = await googleGenerativeAI.models.generateContent({
-          model: modelName,
-          contents: transformedMessages,
-          config: {
-            systemInstruction: systemInstruction, // 分離したシステムプロンプトをここに渡す
-            maxOutputTokens: 500,
-            temperature: 0.8
-          }
-        });
-        
-        const text = response.response.text();
-        log('info', `[Gemini response] ${text.slice(0, 50)}...`);
-        return text;
+        /* --- aiGeneralReply 関数内 (修正後のコード) --- */
 
-    } catch (e) {
-      briefErr(`Gemini の 一般 応答 に失敗しました (${modelName})`, e);
-      log('error', `[Gemini error detail]`, e); // 詳細ログの追加
-      return ''; // 空文字列を返し、Fallbackを保証
-    }
- } else { // <-- OpenAIを使うブロック
-    if (!openai) {
-      log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`); 
-      return ''; // 空文字列を返し、Fallbackを保証
-    }
-    try {
+        // 🔴 修正: モデルインスタンスを正しく取得 (修正1で定義した変数を使う)
+        const geminiModel = (useProModel || modelName === GEMINI_PRO_MODEL) ? geminiPro : geminiFlash;
+
+        if (!geminiModel) {
+            log('error', `[AI-ERROR] Geminiモデル (${modelName}) が初期化されていません。`);
+            return ''; // 空文字列を返し、Fallbackを保証
+        }
+
+        try {
+            // 🟢 修正: geminiModel (モデルインスタンス) を使って generateContent を呼び出す
+            const response = await geminiModel.generateContent({
+                contents: transformedMessages,
+                config: {
+                    systemInstruction: systemInstruction, // 分離したシステムプロンプトをここに渡す
+                    maxOutputTokens: 500,
+                    temperature: 0.8
+                }
+            });
+
+            // 🟢 修正: 結果からテキストを直接取得
+            const text = response.text.trim();
+            log('info', `[Gemini response] ${text.slice(0, 50)}...`);
+            return text;
+
+        } catch (e) {
+            briefErr(`Gemini の 一般 応答 に失敗しました (${modelName})`, e);
+            log('error', `[Gemini error detail]`, e); // 詳細ログの追加
+            return ''; // 空文字列を返し、Fallbackを保証
+        }
+    } else { // <-- OpenAIを使うブロック
+        if (!openai) {
+            log('error', `[AI-ERROR] OPENAI_API_KEY の初期化に失敗しています！`);
+            return ''; // 空文字列を返し、Fallbackを保証
+        }
+        try {
       
      // ロールの結合（OpenAI向けに、systemロールを含めて結合する）
       const consolidatedMessages = [];
