@@ -162,7 +162,6 @@ const inappropriateWords = [
 
 // その他トリガー
 const EMPATHY_WORDS = ["辛い","しんどい","悲しい","苦しい","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい"];
-const SOODAN_TRIGGERS = ["そうだん", "相談"];
 const ORG_INTENT = /(コネクト|団体|NPO法人|事務所|活動|目的|理念|理事長)/;
 const ORG_SUSPICIOUS = /(あやしい|胡散臭い|詐欺|税金泥棒|松本博文)/;
 const HOMEPAGE_INTENT = /(ホームページ|HP|URL|サイト|ウェブ)/;
