@@ -52,7 +52,7 @@ const briefErr = (msg, e) => {
 };
 
 // ----------------------------------------------------
-// ✨ Firebase Admin SDK 初期化（Base64のサービスアカウントJSONを使用）
+// ✨ 🔴 Firebase Admin SDK 初期化（Base64のサービスアカウントJSONを使用） 🔴 ✨
 // ----------------------------------------------------
 if (firebaseAdmin.apps.length === 0) {
   try {
@@ -93,19 +93,19 @@ const ORG_CONTACT_TEL = process.env.ORG_CONTACT_TEL || '03-xxxx-xxxx';
 
 // モデル名
 const GEMINI_FLASH_MODEL = 'gemini-2.5-flash';
-const GEMINI_PRO_MODEL   = 'gemini-2.5-pro';
-const OPENAI_MODEL       = 'gpt-4o-mini';
+const GEMINI_PRO_MODEL   = 'gemini-2.5-pro';
+const OPENAI_MODEL       = 'gpt-4o-mini';
 const OPENAI_DANGER_MODEL= 'gpt-4o'; // 危険・詐欺は信頼度優先
 
 // 制限値
-const MAX_INPUT_LENGTH = 1000;      // 最大入力文字数 (DoS対策)
-const MIN_DANGER_WORD_LENGTH = 3;   // 危険ワード判定の最小文字数
+const MAX_INPUT_LENGTH = 1000;      // 最大入力文字数 (DoS対策)
+const MIN_DANGER_WORD_LENGTH = 3;   // 危険ワード判定の最小文字数
 
 // 見守りサービス設定
 const JST_TZ = 'Asia/Tokyo';
-const WATCH_PING_HOUR_JST = 15;     // 見守りPing時刻 (JST 15:00)
-const REMINDER_AFTER_HOURS = 24;    // Ping後、リマインドまで
-const ESCALATE_AFTER_HOURS = 48;    // Ping後、エスカレーションまで
+const WATCH_PING_HOUR_JST = 15;     // 見守りPing時刻 (JST 15:00)
+const REMINDER_AFTER_HOURS = 24;    // Ping後、リマインドまで
+const ESCALATE_AFTER_HOURS = 48;    // Ping後、エスカレーションまで
 const OFFICER_NOTIFICATION_MIN_GAP_HOURS = 6; // 役員通知の最小間隔
 const WATCH_RUNNER = process.env.WATCH_RUNNER || 'internal';
 const SCAM_ALERT_TO_WATCH_GROUP = (process.env.SCAM_ALERT_TO_WATCH_GROUP || 'true').toLowerCase() === 'true';
@@ -115,10 +115,10 @@ const SEND_OFFICER_ALERTS = (process.env.SEND_OFFICER_ALERTS || 'true').toLowerC
 // (dailyLimit: -1 で無制限, consultLimit: -1 で無制限)
 const DEFAULT_RANK = 'guest';
 const MEMBERSHIP_CONFIG = {
-  guest:       { dailyLimit: 5,  consultLimit: 1, isUnlimited: false },
-  member:      { dailyLimit: 20, consultLimit: 3, isUnlimited: false },
-  subscriber:  { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // サブスク会員
-  admin:       { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // 運営者
+  guest:    { dailyLimit: 5,  consultLimit: 1, isUnlimited: false }, // ゲスト: 5回
+  member:   { dailyLimit: 20, consultLimit: 3, isUnlimited: false }, // メンバー: 20回
+  subscriber:  { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // サブスク会員
+  admin:       { dailyLimit: -1, consultLimit: -1, isUnlimited: true }, // 運営者
 };
 
 // 🔴 ここで1回だけ宣言（重複させない）
@@ -148,7 +148,7 @@ const inappropriateWords = [
 const EMPATHY_WORDS = ['辛い','しんどい','悲しい','苦しい','悩み','不安','孤独','寂しい','疲れた','病気','痛い','具合悪い','困った','どうしよう','辞めたい'];
 const ORG_INTENT = /(コネクト|団体|NPO法人|事務所|活動|目的|理念|理事長)/;
 const ORG_SUSPICIOUS = /(あやしい|胡散臭い|詐欺|税金泥棒|松本博文)/;
-const HOMEPAGE_INTENT = /(ホームページ|HP|URL|サイト|ウェブ)/;
+const HOMEPAGE_INTENT = /(ホームページ|HP|URL|サイト|ウェブ)/; // 🔴 isHomepageIntentで使うため、ここで定義
 
 // 見守りメッセージ候補
 const WATCH_MSGS = [
@@ -156,11 +156,13 @@ const WATCH_MSGS = [
 ];
 const pickWatchMsg = () => WATCH_MSGS[Math.floor(Math.random() * WATCH_MSGS.length)];
 
+
 // ----------------------------------------------------
 // Firestore 参照
 // ----------------------------------------------------
 const db = firebaseAdmin.firestore();
 const Timestamp = firebaseAdmin.firestore.Timestamp;
+
 
 // ----------------------------------------------------
 // OpenAI 初期化
@@ -194,216 +196,224 @@ if (GEMINI_API_KEY) {
   log('warn', '[INIT] GEMINI_API_KEY が設定されていません。Geminiモデルは利用できません。');
 }
 
+
 // ----------------------------------------------------
-// ヘルパー関数
+// ヘルパー関数 (未定義エラー対策含む)
 // ----------------------------------------------------
 const todayJST = () => dayjs().tz(JST_TZ).format('YYYY-MM-DD');
 
-// 正規化（全角英数→半角、小文字化）
+// 🔴 正規化関数（isScamMessageなどで使用）
 function normalizeJa(text) {
   return String(text || '').normalize('NFKC').toLowerCase();
 }
 
+// 🔴 ホームページ意図の判定関数（isScamMessageなどで使用）
+function isHomepageIntent(text) {
+  const normalized = normalizeJa(text);
+  return HOMEPAGE_INTENT.test(normalized);
+}
+
 // DoS攻撃判定（極端に長い単語や連続した記号）
 function isDoSAttack(text) {
-  if (text.length > 2000) return true; // 長すぎる
-  const maxLen = 80;
-  const parts = text.split(/\s+/).filter(s => s.length > maxLen);
-  if (parts.length > 0) return true; // 異常に長い単語
-  if (/(.)\1{30,}/.test(text)) return true; // 30文字以上の同じ文字の繰り返し
-  return false;
+  if (text.length > 2000) return true; // 長すぎる
+  const maxLen = 80;
+  const parts = text.split(/\s+/).filter(s => s.length > maxLen);
+  if (parts.length > 0) return true; // 異常に長い単語
+  if (/(.)\1{30,}/.test(text)) return true; // 30文字以上の同じ文字の繰り返し
+  return false;
 }
 
 // 次のPing予定時刻を計算
 function nextPingAtFrom(baseDate) {
-  let date = dayjs(baseDate).tz(JST_TZ).hour(WATCH_PING_HOUR_JST).minute(0).second(0).millisecond(0);
-  if (dayjs().tz(JST_TZ).isAfter(date)) {
-    date = date.add(1, 'day');
-  }
-  return date.toDate();
+  let date = dayjs(baseDate).tz(JST_TZ).hour(WATCH_PING_HOUR_JST).minute(0).second(0).millisecond(0);
+  if (dayjs().tz(JST_TZ).isAfter(date)) {
+    date = date.add(1, 'day');
+  }
+  return date.toDate();
 }
 
 // 次のPingをスケジュール
 async function scheduleNextPing(userId) {
-  const ref = db.collection('users').doc(userId);
-  const nextPingTs = nextPingAtFrom(dayjs().tz(JST_TZ).toDate());
-  await ref.set({
-    watchService: {
-      nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingTs)
-    }
-  }, { merge: true });
+  const ref = db.collection('users').doc(userId);
+  const nextPingTs = nextPingAtFrom(dayjs().tz(JST_TZ).toDate());
+  await ref.set({
+    watchService: {
+      nextPingAt: firebaseAdmin.firestore.Timestamp.fromDate(nextPingTs)
+    }
+  }, { merge: true });
 }
 
 // ユーザーランクを決定
 async function getUserRank(userId) {
-  if (userId === OWNER_USER_ID) return 'admin';
-  const doc = await db.collection('users').doc(userId).get();
-  if (!doc.exists) return DEFAULT_RANK;
-  const u = doc.data() || {};
-  if (u.rank === 'admin') return 'admin';
-  if (u.rank === 'subscriber') return 'subscriber';
-  if (u.rank === 'member') return 'member';
-  return DEFAULT_RANK;
+  if (userId === OWNER_USER_ID) return 'admin';
+  const doc = await db.collection('users').doc(userId).get();
+  if (!doc.exists) return DEFAULT_RANK;
+  const u = doc.data() || {};
+  if (u.rank === 'admin') return 'admin';
+  if (u.rank === 'subscriber') return 'subscriber';
+  if (u.rank === 'member') return 'member';
+  return DEFAULT_RANK;
 }
 
 // ===== LINE 応答関数群 =====
+// ... (中略: safeReplyOrPush, safePush の定義が続きます)
 
 /**
- * safeReply: replyTokenがあればreply、なければpush (最大5メッセージ)
- */
+ * safeReply: replyTokenがあればreply、なければpush (最大5メッセージ)
+ */
 async function safeReplyOrPush(replyToken, to, messages) {
-  const msgs = Array.isArray(messages) ? messages : [messages];
-  if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_CHANNEL_SECRET) {
-    log('error', "LINE APIキーが設定されていません。応答できません。");
-    return;
-  }
-  const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
-  try {
-    if (replyToken) {
-      await client.replyMessage(replyToken, msgs.slice(0, 5));
-    } else {
-      await client.pushMessage(to, msgs.slice(0, 5));
-    }
-  } catch (e) {
-    briefErr(`LINE 応答 (${replyToken ? 'reply' : 'push'}) に失敗`, e);
-    if (!replyToken) throw e; // push失敗はログ後、処理続行
-  }
+  const msgs = Array.isArray(messages) ? messages : [messages];
+  if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_CHANNEL_SECRET) {
+    log('error', "LINE APIキーが設定されていません。応答できません。");
+    return;
+  }
+  const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
+  try {
+    if (replyToken) {
+      await client.replyMessage(replyToken, msgs.slice(0, 5));
+    } else {
+      await client.pushMessage(to, msgs.slice(0, 5));
+    }
+  } catch (e) {
+    briefErr(`LINE 応答 (${replyToken ? 'reply' : 'push'}) に失敗`, e);
+    if (!replyToken) throw e; // push失敗はログ後、処理続行
+  }
 }
 
 /**
- * safePush: pushMessage (最大5メッセージ)
- */
+ * safePush: pushMessage (最大5メッセージ)
+ */
 async function safePush(to, messages) {
-  const msgs = Array.isArray(messages) ? messages : [messages];
-  if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_CHANNEL_SECRET) {
-    log('error', "LINE APIキーが設定されていません。プッシュできません。");
-    return;
-  }
-  const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
-  try {
-    await client.pushMessage(to, msgs.slice(0, 5));
-  } catch (e) {
-    briefErr(`LINE プッシュ (${to}) に失敗`, e);
-    throw e;
-  }
+  const msgs = Array.isArray(messages) ? messages : [messages];
+  if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_CHANNEL_SECRET) {
+    log('error', "LINE APIキーが設定されていません。プッシュできません。");
+    return;
+  }
+  const client = new Client({ channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN, channelSecret: LINE_CHANNEL_SECRET });
+  try {
+    await client.pushMessage(to, msgs.slice(0, 5));
+  } catch (e) {
+    briefErr(`LINE プッシュ (${to}) に失敗`, e);
+    throw e;
+  }
 }
 
 // ===== 利用回数チェック・インクリメント =====
 /**
- * 利用回数をチェックし、可能ならインクリメントする。
- * @param {string} userId - ユーザーID
- * @param {string} rank - ユーザーランク
- * @param {boolean} isConsult - 相談モードかどうか 
- * @returns {Promise<{canProceed: boolean, currentCount: number, currentConsultCount: number}>} 
- */
-async function checkAndIncrementCount(userId, rank, isConsult = false) { 
-  const ref = db.collection('users').doc(userId);
-  let canProceed = false;
-  let currentCount = 0;
-  let currentConsultCount = 0; 
+ * 利用回数をチェックし、可能ならインクリメントする。
+ * @param {string} userId - ユーザーID
+ * @param {string} rank - ユーザーランク
+ * @param {boolean} isConsult - 相談モードかどうか 
+ * @returns {Promise<{canProceed: boolean, currentCount: number, currentConsultCount: number}>} 
+ */
+async function checkAndIncrementCount(userId, rank, isConsult = false) { 
+  const ref = db.collection('users').doc(userId);
+  let canProceed = false;
+  let currentCount = 0;
+  let currentConsultCount = 0; 
 
-  const config = MEMBERSHIP_CONFIG[rank] || {};
-  const limit = config.dailyLimit || 0;
-  const consultLimit = config.consultLimit || 0; 
+  const config = MEMBERSHIP_CONFIG[rank] || {};
+  const limit = config.dailyLimit || 0;
+  const consultLimit = config.consultLimit || 0; 
 
-  await db.runTransaction(async (tx) => {
-    const s = await tx.get(ref);
-    const u = s.exists ? (s.data() || {}) : {};
-    const meta = u.usageMeta || {};
-    const today = todayJST();
+  await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    const u = s.exists ? (s.data() || {}) : {};
+    const meta = u.usageMeta || {};
+    const today = todayJST();
 
-    let count = (meta.lastDate === today) ? Number(meta.count || 0) : 0;
-    let consultCount = (meta.lastDate === today) ? Number(meta.consultCount || 0) : 0; 
+    let count = (meta.lastDate === today) ? Number(meta.count || 0) : 0;
+    let consultCount = (meta.lastDate === today) ? Number(meta.consultCount || 0) : 0; 
 
-    const isSpecialRequest = config.isUnlimited; 
+    const isSpecialRequest = config.isUnlimited; 
 
-    // 進行可能判定
-    if (isConsult) {
-      // 相談モードの場合：相談制限（consultLimit）をチェック
-      if (isSpecialRequest || consultLimit === -1 || consultCount < consultLimit) {
-        canProceed = true;
-        currentConsultCount = consultCount + 1;
-        // 相談回数を更新
-        tx.set(ref, {
-          usageMeta: {
-            lastDate: today,
-            count: count, 
-            consultCount: currentConsultCount, 
-          },
-          profile: { lastActiveAt: Timestamp.now() },
-          rank: rank,
-        }, { merge: true });
-      } else {
-        // 制限超過の場合、現在の回数を設定して返却（canProceed=false）
-        currentConsultCount = consultCount;
-      }
-      currentCount = count;
-    } else {
-      // 通常モードの場合：通常制限（limit）をチェック
-      if (isSpecialRequest || limit === -1 || count < limit) {
-        canProceed = true;
-        currentCount = count + 1;
-        // 通常回数を更新
-        tx.set(ref, {
-          usageMeta: {
-            lastDate: today,
-            count: currentCount, 
-            consultCount: consultCount, 
-          },
-          profile: { lastActiveAt: Timestamp.now() },
-          rank: rank,
-        }, { merge: true });
-      } else {
-        // 制限超過の場合、現在の回数を設定して返却（canProceed=false）
-        currentCount = count;
-      }
-      currentConsultCount = consultCount; 
-    }
+    // 進行可能判定
+    if (isConsult) {
+      // 相談モードの場合：相談制限（consultLimit）をチェック
+      if (isSpecialRequest || consultLimit === -1 || consultCount < consultLimit) {
+        canProceed = true;
+        currentConsultCount = consultCount + 1;
+        // 相談回数を更新
+        tx.set(ref, {
+          usageMeta: {
+            lastDate: today,
+            count: count, 
+            consultCount: currentConsultCount, 
+          },
+          profile: { lastActiveAt: Timestamp.now() },
+          rank: rank,
+        }, { merge: true });
+      } else {
+        // 制限超過の場合、現在の回数を設定して返却（canProceed=false）
+        currentConsultCount = consultCount;
+      }
+      currentCount = count;
+    } else {
+      // 通常モードの場合：通常制限（limit）をチェック
+      if (isSpecialRequest || limit === -1 || count < limit) {
+        canProceed = true;
+        currentCount = count + 1;
+        // 通常回数を更新
+        tx.set(ref, {
+          usageMeta: {
+            lastDate: today,
+            count: currentCount, 
+            consultCount: consultCount, 
+          },
+          profile: { lastActiveAt: Timestamp.now() },
+          rank: rank,
+        }, { merge: true });
+      } else {
+        // 制限超過の場合、現在の回数を設定して返却（canProceed=false）
+        currentCount = count;
+      }
+      currentConsultCount = consultCount; 
+    }
 
-  });
-  return { canProceed, currentCount, currentConsultCount }; 
+  });
+  return { canProceed, currentCount, currentConsultCount }; 
 }
 
 // ===== Inappropriate helper =====
 function hasInappropriate(text = '') {
-  const t = normalizeJa(text);
-  for (const w of inappropriateWords) {
-    if (t.includes(normalizeJa(w))) return true;
-  }
-  return false;
+  const t = normalizeJa(text);
+  for (const w of inappropriateWords) {
+    if (t.includes(normalizeJa(w))) return true;
+  }
+  return false;
 }
 
 const empatheticTriggers = [ "辛い","しんどい","悲しい","苦しい","助けて","悩み","不安","孤独","寂しい","疲れた","病気","痛い","具合悪い","困った","どうしよう","辞めたい","消えたい","死にそう" ];
 const homeworkTriggers = ["宿題","勉強","問題","テスト","方程式","算数","数学","答え","解き方","教えて","計算","証明","公式","入試","受験"];
 
 const hasEmpathyWord = (text) => {
-  const t = normalizeJa(text);
-  return EMPATHY_WORDS.some(w => t.includes(normalizeJa(w)));
+  const t = normalizeJa(text);
+  return EMPATHY_WORDS.some(w => t.includes(normalizeJa(w)));
 };
 const isDangerMessage = (text) => {
-  const t = normalizeJa(text);
-  return DANGER_WORDS.some(w => t.includes(normalizeJa(w)));
+  const t = normalizeJa(text);
+  return DANGER_WORDS.some(w => t.includes(normalizeJa(w)));
 };
 const isScamMessage = (text) => {
-  const raw = String(text || '');
-  const t = normalizeJa(raw);
-  if (isHomepageIntent(raw)) return false;
-  if (/(会員登録|入会|メンバー登録|登録したい)/i.test(raw)) return false;
-  if (/(見守り(?:サービス)?)/.test(raw)) return false;
+  const raw = String(text || '');
+  const t = normalizeJa(raw);
+  if (isHomepageIntent(raw)) return false;
+  if (/(会員登録|入会|メンバー登録|登録したい)/i.test(raw)) return false;
+  if (/(見守り(?:サービス)?)/.test(raw)) return false;
 
-  if (SCAM_CORE_WORDS.some(w => t.includes(normalizeJa(w)))) return true;
+  if (SCAM_CORE_WORDS.some(w => t.includes(normalizeJa(w)))) return true;
 
-  const hasUrl = /(https?:\/\/|t\.co\/|bit\.ly|tinyurl\.com|lnkd\.in|\.ru\/|\.cn\/|\.top\/|\.xyz\/)/i.test(raw);
-  const money = /(当選|高額|配当|振込|振り込み|送金|入金|手数料|ビットコイン|暗号資産|投資|請求)/;
-  const urgency = /(至急|今すぐ|本日中|限定|緊急|停止|ロック|アカウント停止)/;
-  const credAsk = /(id|パスワード|ワンタイム|コード|口座番号|クレジット|カード番号|個人情報|確認).{0,6}(入力|送信|教えて|提出|更新)/;
-  if (hasUrl && (money.test(t) || urgency.test(t) || credAsk.test(t))) return true;
-  if ((money.test(t) && urgency.test(t)) || (credAsk.test(t) && urgency.test(t))) return true;
+  const hasUrl = /(https?:\/\/|t\.co\/|bit\.ly|tinyurl\.com|lnkd\.in|\.ru\/|\.cn\/|\.top\/|\.xyz\/)/i.test(raw);
+  const money = /(当選|高額|配当|振込|振り込み|送金|入金|手数料|ビットコイン|暗号資産|投資|請求)/;
+  const urgency = /(至急|今すぐ|本日中|限定|緊急|停止|ロック|アカウント停止)/;
+  const credAsk = /(id|パスワード|ワンタイム|コード|口座番号|クレジット|カード番号|個人情報|確認).{0,6}(入力|送信|教えて|提出|更新)/;
+  if (hasUrl && (money.test(t) || urgency.test(t) || credAsk.test(t))) return true;
+  if ((money.test(t) && urgency.test(t)) || (credAsk.test(t) && urgency.test(t))) return true;
 
-  if (BRANDS.test(raw) && !BRAND_OK_CONTEXT.test(raw)) {
-    if (urgency.test(t) || credAsk.test(t) || /リンク|クリック|こちら/.test(t)) return true;
-  }
-  return false;
+  if (BRANDS.test(raw) && !BRAND_OK_CONTEXT.test(raw)) {
+    if (urgency.test(t) || credAsk.test(t) || /リンク|クリック|こちら/.test(t)) return true;
+  }
+  return false;
 };
 
 // ===== GPT helpers（危険/詐欺の2文応答） =====
