@@ -1765,9 +1765,7 @@ try {
 
 // ここで handleEvent(event) 関数を閉じる
 } 
-// 🚨 修正: 不足している外側のブロックの閉じ括弧を補う
-// この閉じ括弧は、handleEvent関数を定義している外側のブロック（例: `if (USE_CUSTOM_FUNCTIONS)` など）を閉じるために必要だった可能性があります。
-} 
+// 🚨 修正: ここにあった余分な閉じ括弧は全て削除しました。
 
 // ===== Server =====
 const PORT = process.env.PORT || 3000;
