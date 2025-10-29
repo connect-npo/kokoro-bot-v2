@@ -1382,11 +1382,13 @@ async function handleLeaveEvent(event) {
 }
 
 // ===== メイン =====
+// 🚨 修正: await を使うため、必ず async を付けます！
 async function handleEvent(event) {
     // 🚨 最終確認ログ！
     console.log(`[DEBUG_START] Handling event type: ${event.type}`); 
     
     if (event.type === 'message' && event.message.type === 'text') {
+      // ----------------- 変数の初期化 -----------------
       const userId = event.source.userId;
       const isUser  = event.source.type === 'user';
       const isGroup = event.source.type === 'group';
@@ -1396,43 +1398,68 @@ async function handleEvent(event) {
       const text = event.message.type === 'text' ? (event.message.text || '') : '';
       const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
       const inputCharLength = toGraphemes(text).length;
-        
-        // --- ここからあなたの既存のAI応答処理が続くはず ---
+      
+      // ----------------- 🚨 修正: DoS攻撃対策を関数の最初に戻す -----------------
+      // 0-a) 悪意ある長文/DoS攻撃の即時停止
+      if (isDoSAttack(text)) {
+          await suspendUser(userId, 7);
+          const untilTs = dayjs().tz(JST_TZ).add(7, 'day').hour(0).minute(0).second(0).millisecond(0).toDate();
+          const untilStr = fmtUntilJST(untilTs);
+          const msg = `ごめんね。不適切な入力があったため、アカウントを${untilStr}まで一時停止しました。再開のご相談は事務局へお願いします。`;
+          await safeReplyOrPush(event.replyToken, userId, { type:'text', text: msg });
+          try {
+              const WATCH_GROUP_ID = await getActiveWatchGroupId();
+              const gid = WATCH_GROUP_ID || OFFICER_GROUP_ID;
+              if (gid) await safePush(gid, { type:'text', text:`【一時停止(7日)】ユーザー末尾:${userId.slice(-6)} / 悪意ある長文` });
+          } catch(e){ briefErr('suspend notify failed', e); }
+          return;
+      }
+      // ------------------------------------------------------------------
 
-        let aiReply = '';
-        // 既存のAI応答処理を呼び出す（引数はあなたのコードに合わせてください）
-        // 例: aiReply = await aiGeneralReply(event); 
-        
-        if (aiReply && event.replyToken) {
-            await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
-        }
-    }
-    // 🚨 ここで handleEvent 関数を閉じます！
-}
-
-  // 履歴保存
-  if (isUser && text) {
-    await saveChatHistory(userId, 'ユーザー', text);
-  }
-
-  if (!text) {
-    if (stickerId) {
-      const udoc = await db.collection('users').doc(userId).get();
-      const u = udoc.exists ? (udoc.data() || {}) : {};
-      const enabled = !!(u.watchService && u.watchService.enabled);
-      if (isUser && enabled && u.watchService?.awaitingReply) {
-         const ref = db.collection('users').doc(userId);
-         await ref.set({ watchService:{ awaitingReply:false, lastReplyAt: Timestamp.now() } }, { merge:true });
-         await scheduleNextPing(userId);
-         await safeReplyOrPush(event.replyToken, userId, [
-           { type:'text', text:'OK、受け取ったよ！💖 いつもありがとう😊' },
-           { type:'sticker', packageId:'6325', stickerId:'10979913' }
-         ]);
-         return;
+      // ----------------- 履歴保存処理 -----------------
+      if (isUser && text) {
+        await saveChatHistory(userId, 'ユーザー', text); 
       }
+
+      // --- ここから既存のAI応答処理 ---
+      let aiReply = '';
+      try {
+          // 既存のAI応答処理を呼び出す（引数はあなたのコードに合わせてください）
+          // 例: aiReply = await aiGeneralReply(event);
+      } catch (err) {
+          log('error', `[AI呼び出しエラー]`, err);
+      }
+      
+      if (aiReply && event.replyToken) {
+          await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+      }
+      // ----------------- ここまでAI応答処理 -----------------
+
+
+    } else if (!text) { // メッセージがテキストではない場合の処理 (stickerId)
+
+      // ----------------- Sticker/WatchService処理 -----------------
+      if (stickerId) {
+        const userId = event.source.userId;
+        const isUser  = event.source.type === 'user';
+
+        const udoc = await db.collection('users').doc(userId).get();
+        const u = udoc.exists ? (udoc.data() || {}) : {};
+        const enabled = !!(u.watchService && u.watchService.enabled);
+        if (isUser && enabled && u.watchService?.awaitingReply) {
+           const ref = db.collection('users').doc(userId);
+           await ref.set({ watchService:{ awaitingReply:false, lastReplyAt: Timestamp.now() } }, { merge:true });
+           await scheduleNextPing(userId);
+           await safeReplyOrPush(event.replyToken, userId, [
+             { type:'text', text:'OK、受け取ったよ！💖 いつもありがとう😊' },
+             { type:'sticker', packageId:'6325', stickerId:'10979913' }
+           ]);
+           return;
+        }
+      }
+      return;
     }
-    return;
-  }
+} // 🚨 handleEvent 関数を完璧に閉じました！
 
   // 0-a) 悪意ある長文/DoS攻撃の即時停止
   if (isDoSAttack(text)) {
