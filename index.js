@@ -1383,18 +1383,32 @@ async function handleLeaveEvent(event) {
 
 // ===== メイン =====
 async function handleEvent(event) {
-    console.log(`[DEBUG_START] Handling event type: ${event.type}`);
-    
-    if (event.type === 'message' && event.message.type === 'text') {
-  const userId = event.source.userId;
-  const isUser  = event.source.type === 'user';
-  const isGroup = event.source.type === 'group';
-  const isRoom  = event.source.type === 'room';
-  const groupId = event.source.groupId || event.source.roomId || null;
+    // 🚨 最終確認ログ！
+    console.log(`[DEBUG_START] Handling event type: ${event.type}`); 
+    
+    if (event.type === 'message' && event.message.type === 'text') {
+      const userId = event.source.userId;
+      const isUser  = event.source.type === 'user';
+      const isGroup = event.source.type === 'group';
+      const isRoom  = event.source.type === 'room';
+      const groupId = event.source.groupId || event.source.roomId || null;
 
-  const text = event.message.type === 'text' ? (event.message.text || '') : '';
-  const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
-  const inputCharLength = toGraphemes(text).length;
+      const text = event.message.type === 'text' ? (event.message.text || '') : '';
+      const stickerId = event.message.type === 'sticker' ? event.message.stickerId : '';
+      const inputCharLength = toGraphemes(text).length;
+        
+        // --- ここからあなたの既存のAI応答処理が続くはず ---
+
+        let aiReply = '';
+        // 既存のAI応答処理を呼び出す（引数はあなたのコードに合わせてください）
+        // 例: aiReply = await aiGeneralReply(event); 
+        
+        if (aiReply && event.replyToken) {
+            await safeReplyOrPush(event.replyToken, userId, { type: 'text', text: aiReply.trim() });
+        }
+    }
+    // 🚨 ここで handleEvent 関数を閉じます！
+}
 
   // 履歴保存
   if (isUser && text) {
