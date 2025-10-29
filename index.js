@@ -1383,6 +1383,9 @@ async function handleLeaveEvent(event) {
 
 // ===== メイン =====
 async function handleEvent(event) {
+    console.log(`[DEBUG_START] Handling event type: ${event.type}`);
+    
+    if (event.type === 'message' && event.message.type === 'text') {
   const userId = event.source.userId;
   const isUser  = event.source.type === 'user';
   const isGroup = event.source.type === 'group';
